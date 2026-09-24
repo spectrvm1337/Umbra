@@ -97,9 +97,30 @@ pub fn kill_process(name: String) -> Result<String, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn suspend_to_sleep() {
+    #[link(name = "powrprof")]
+    extern "system" {
+        fn SetSuspendState(hibernate: u8, force: u8, wakeup_events_disabled: u8) -> u8;
+    }
+    std::thread::spawn(|| {
+        if unsafe { SetSuspendState(0, 0, 0) } == 0 {
+            let _ = std::process::Command::new("rundll32.exe")
+                .args(["powrprof.dll,SetSuspendState", "0,1,0"])
+                .creation_flags(0x08000000)
+                .spawn();
+        }
+    });
+}
+
 #[tauri::command]
 pub fn exec_power_command(command: String) -> Result<String, String> {
     let cmd = command.trim().to_lowercase();
+    #[cfg(target_os = "windows")]
+    if cmd == "sleep" {
+        suspend_to_sleep();
+        return Ok(format!("Executed: {}", cmd));
+    }
     let args: Vec<&str> = match cmd.as_str() {
         "shutdown" => vec!["shutdown", "/s", "/t", "0"],
         "restart" => vec!["shutdown", "/r", "/t", "0"],

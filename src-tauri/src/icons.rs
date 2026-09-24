@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::sync::{LazyLock, Mutex, OnceLock};
-use std::thread;
 
 const ICON_SIZE: i32 = 64;
 const MAX_ICON_CACHE_SIZE: usize = 100;
@@ -55,43 +54,6 @@ pub fn is_precache_done() -> bool {
         .get()
         .map(|v| v.load(std::sync::atomic::Ordering::Relaxed))
         .unwrap_or(false)
-}
-
-pub fn pre_cache_icons(paths: &[String]) {
-    use std::sync::atomic::AtomicBool;
-    let done_flag = PRECACHE_DONE.get_or_init(|| AtomicBool::new(false));
-
-    let to_cache: Vec<String> = {
-        let cache = ICON_CACHE.lock().unwrap();
-        paths.iter()
-            .filter(|p| {
-                if cache.map.contains_key(p.as_str()) {
-                    return false;
-                }
-                let ext = std::path::Path::new(p.as_str())
-                    .extension()
-                    .map(|e| e.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                ext == "exe" || ext == "lnk"
-            })
-            .cloned()
-            .collect()
-    };
-
-    if to_cache.is_empty() {
-        done_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        return;
-    }
-
-    thread::spawn(move || {
-        for path in &to_cache {
-            if let Some(png_bytes) = hicon_to_png(path) {
-                let mut cache = ICON_CACHE.lock().unwrap();
-                cache.insert(path.clone(), png_bytes);
-            }
-        }
-        done_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-    });
 }
 
 pub fn get_icon_png_data(path: &str) -> Option<Vec<u8>> {

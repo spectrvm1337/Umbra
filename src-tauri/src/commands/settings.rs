@@ -54,35 +54,24 @@ pub fn reorder_pins(ordered_paths: Vec<String>) -> bool {
 
 #[tauri::command]
 pub fn get_hotkey() -> String {
-    config::get_hotkey()
-}
-
-fn normalize_hotkey(k: &str) -> Option<String> {
-    let k = k.trim();
-    if k.is_empty() {
-        return None;
+    let hotkey = config::get_hotkey();
+    if crate::keyboard_hook::is_supported_hotkey(&hotkey) {
+        hotkey
+    } else {
+        "Alt+Space".to_string()
     }
-    let parts: Vec<&str> = k.split('+').collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    let valid_modifiers = ["ctrl", "alt", "shift", "super", "meta", "cmd", "command"];
-    let has_valid_modifier = parts[..parts.len() - 1]
-        .iter()
-        .any(|p| valid_modifiers.contains(&p.to_lowercase().as_str()));
-    if !has_valid_modifier {
-        return None;
-    }
-    Some(k.to_string())
 }
 
 #[tauri::command]
 pub fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<String, String> {
-    let k = normalize_hotkey(&key).ok_or(
-        "Hotkey must include a modifier (Ctrl, Alt, Shift, Super), e.g. Ctrl+Shift+P".to_string(),
-    )?;
+    let k = key.trim();
+    if !crate::keyboard_hook::is_supported_hotkey(k) {
+        return Err(
+            "Hotkey must be a modifier (Ctrl, Alt, Shift, Super) plus a letter, digit, F1-F12, Space or arrow key, e.g. Ctrl+Shift+P".to_string(),
+        );
+    }
 
-    config::set_hotkey(&k);
+    config::set_hotkey(k);
     crate::keyboard_hook::update_hotkey();
 
     Ok("Hotkey applied".to_string())
@@ -107,6 +96,7 @@ pub fn get_autostart() -> bool {
 
 #[tauri::command]
 pub fn set_autostart(enable: bool) -> bool {
+    config::set_autostart(enable);
     autostart::set_enabled(enable);
     autostart::is_enabled()
 }
@@ -134,10 +124,7 @@ pub fn get_placement() -> Placement {
 
 #[tauri::command]
 pub fn set_placement(align: String, monitor: i32) -> Placement {
-    let ok = align.len() == 2
-        && matches!(align.as_bytes()[0], b't' | b'c' | b'b')
-        && matches!(align.as_bytes()[1], b'l' | b'c' | b'r');
-    let a = if ok { align } else { "cc".to_string() };
+    let a = if config::is_valid_align(&align) { align } else { "cc".to_string() };
     config::set_placement(a, monitor);
     let (align, monitor) = config::get_placement();
     Placement { align, monitor }

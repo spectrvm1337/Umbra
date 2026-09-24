@@ -316,23 +316,23 @@ settingsBtn.addEventListener("click", (e) => {
 });
 
 function comboFromEvent(e) {
-  const key = e.key;
-  if (["Control", "Alt", "Shift", "Meta"].includes(key)) return null;
+  if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return { pending: true };
+  const code = e.code || "";
   let base = null;
-  if (/^[a-z]$/i.test(key)) base = key.toUpperCase();
-  else if (/^[0-9]$/.test(key)) base = key;
-  else if (/^F([1-9]|1[0-2])$/i.test(key)) base = key.toUpperCase();
-  else if (key === " ") base = "Space";
-  else if (/^Arrow(Up|Down|Left|Right)$/.test(key)) base = key;
-  else if ("`-=[];',./\\".includes(key) && key.length === 1) base = key;
-  if (!base) return null;
+  let m;
+  if ((m = code.match(/^Key([A-Z])$/))) base = m[1];
+  else if ((m = code.match(/^Digit([0-9])$/))) base = m[1];
+  else if (/^F([1-9]|1[0-2])$/.test(code)) base = code;
+  else if (code === "Space") base = "Space";
+  else if (/^Arrow(Up|Down|Left|Right)$/.test(code)) base = code;
+  if (!base) return { error: "unsupported key — use a letter, digit, F1–F12, Space or arrow" };
   const mods = [];
   if (e.ctrlKey) mods.push("Ctrl");
   if (e.altKey) mods.push("Alt");
   if (e.shiftKey) mods.push("Shift");
   if (e.metaKey) mods.push("Super");
-  if (mods.length === 0) return null;
-  return [...mods, base].join("+");
+  if (mods.length === 0) return { error: "include a modifier — Ctrl, Alt or Shift" };
+  return { combo: [...mods, base].join("+") };
 }
 
 settingHotkeyRow.addEventListener("click", (e) => {
@@ -340,7 +340,7 @@ settingHotkeyRow.addEventListener("click", (e) => {
   if (hotkeyCapturing) return;
   hotkeyCapturing = true;
   settingHotkeyRow.classList.add("capturing");
-  settingHotkeyValue.textContent = "press keysвЂ¦";
+  settingHotkeyValue.textContent = "press keys…";
   setSettingsStatus("");
 });
 
@@ -355,17 +355,24 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   e.stopPropagation();
   if (e.key === "Escape") { endHotkeyCapture(); return; }
-  const combo = comboFromEvent(e);
-  if (!combo) {
-    setSettingsStatus("include a modifier — Ctrl, Alt or Shift", true);
+  const { pending, error, combo } = comboFromEvent(e);
+  if (pending) return;
+  if (error) {
+    setSettingsStatus(error, true);
     return;
   }
   endHotkeyCapture();
-  currentHotkey = combo;
   settingHotkeyValue.textContent = combo;
   invoke("set_hotkey", { key: combo })
-    .then(res => showToast("Hotkey applied", false, res))
-    .catch(err => setSettingsStatus(String(err), true));
+    .then(res => {
+      currentHotkey = combo;
+      setSettingsStatus("");
+      showToast("Hotkey applied", false, res);
+    })
+    .catch(err => {
+      settingHotkeyValue.textContent = currentHotkey;
+      setSettingsStatus(String(err), true);
+    });
 }, true);
 
 function applyZoom(z, save) {
@@ -407,7 +414,7 @@ settingReindex.addEventListener("click", async (e) => {
     indexingActive = true;
     indexRan = true;
     indexSpinner.classList.add("visible");
-    if (settingIndexed) settingIndexed.textContent = "indexingвЂ¦";
+    if (settingIndexed) settingIndexed.textContent = "indexing…";
     await invoke("reindex");
     toggleSettings();
     showNotify("Rebuilding index", { type: "info", detail: "search stays available while it runs" });
@@ -1919,7 +1926,7 @@ let indexRan = false;
 let idxPct = 0;
 
 function syncIndexTip(active) {
-  indexSpinner.dataset.tip = active ? `IndexingвЂ¦ ${idxPct}%` : "Index ready";
+  indexSpinner.dataset.tip = active ? `Indexing… ${idxPct}%` : "Index ready";
 }
 
 listen("index-progress", (event) => {

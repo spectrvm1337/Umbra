@@ -33,6 +33,9 @@ pub struct Config {
     
     #[serde(default = "default_language")]
     pub language: String,
+
+    #[serde(default = "default_true")]
+    pub autostart: bool,
 }
 
 impl Default for Config {
@@ -50,12 +53,17 @@ impl Default for Config {
             disabled_kinds: vec![],
             disabled_drives: vec![],
             language: default_language(),
+            autostart: true,
         }
     }
 }
 
 fn default_language() -> String {
     "en".into()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub(crate) const DEFAULT_INDEX_EXCLUDES: &[&str] = &[
@@ -239,11 +247,17 @@ pub fn get_placement() -> (String, i32) {
     ensure_loaded();
     let guard = STATE.lock().unwrap();
     let c = &guard.as_ref().unwrap().config;
-    let mut align = c.align.clone();
-    if align.len() < 2 {
-        align = "cc".to_string();
-    }
+    let align = if is_valid_align(&c.align) {
+        c.align.clone()
+    } else {
+        default_align()
+    };
     (align, c.monitor)
+}
+
+pub fn is_valid_align(align: &str) -> bool {
+    let b = align.as_bytes();
+    b.len() == 2 && matches!(b[0], b't' | b'c' | b'b') && matches!(b[1], b'l' | b'c' | b'r')
 }
 
 pub fn set_placement(align: String, monitor: i32) {
@@ -297,6 +311,20 @@ fn ensure_loaded() {
     let path = config_path();
     let config: Config = crate::storage::load_json(&path);
     *guard = Some(ConfigState { path, config });
+}
+
+pub fn get_autostart() -> bool {
+    ensure_loaded();
+    let guard = STATE.lock().unwrap();
+    guard.as_ref().unwrap().config.autostart
+}
+
+pub fn set_autostart(enable: bool) {
+    ensure_loaded();
+    let mut guard = STATE.lock().unwrap();
+    let state = guard.as_mut().unwrap();
+    state.config.autostart = enable;
+    save(state);
 }
 
 pub fn get_hotkey() -> String {
@@ -398,4 +426,32 @@ pub fn set_disabled_drives(drives: Vec<String>) {
     clean.dedup();
     state.config.disabled_drives = clean;
     save(state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn align_validation_rejects_bad_values_without_panicking() {
+        for ok in ["tl", "cc", "br", "tc"] {
+            assert!(is_valid_align(ok), "{ok}");
+        }
+        for bad in ["", "c", "ccc", "xx", "яя", "cя", "CC"] {
+            assert!(!is_valid_align(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn autostart_preference_defaults_to_on_and_is_remembered() {
+        let old: Config = serde_json::from_str(r#"{"hotkey": "Alt+Space", "zoom": 1.0}"#).unwrap();
+        assert!(old.autostart);
+
+        let off: Config =
+            serde_json::from_str(r#"{"hotkey": "Alt+Space", "zoom": 1.0, "autostart": false}"#).unwrap();
+        assert!(!off.autostart);
+
+        let roundtrip: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(!roundtrip.autostart);
+    }
 }

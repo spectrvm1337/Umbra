@@ -1,6 +1,5 @@
 
 
-use crate::icons;
 use crate::search::SearchResult;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
@@ -213,12 +212,6 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         if cancelled() {
             return;
         }
-
-        let app_paths: Vec<String> = entries
-            .iter()
-            .filter(|e| (e.kind == KIND_APP || e.kind == KIND_SHORTCUT) && !e.path.is_empty())
-            .map(|e| e.path.clone())
-            .collect();
 
         // Dedup by path, keeping the first occurrence: Start Menu / registry
         // entries come before the drive walk, so their display names win over

@@ -11,7 +11,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static HOOK_HANDLE: OnceLock<isize> = OnceLock::new();
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, PartialEq)]
 struct HotkeyDef {
     vk: u16,
     alt: bool,
@@ -36,43 +36,58 @@ pub fn init(app: AppHandle) {
     }
 }
 
-pub fn update_hotkey() {
-    let hk = crate::config::get_hotkey();
-    let hk = hk.trim().to_lowercase();
-    let target = if hk.is_empty() {
-        "alt+space".to_string()
-    } else {
-        hk
-    };
-    
-    let parts: Vec<&str> = target.split('+').map(|s| s.trim()).collect();
-    let mut alt = false;
-    let mut ctrl = false;
-    let mut shift = false;
-    let mut win = false;
-    let mut vk = 0;
+const DEFAULT_HOTKEY: &str = "alt+space";
 
-    for p in parts {
-        match p {
-            "alt" => alt = true,
-            "ctrl" | "control" => ctrl = true,
-            "shift" => shift = true,
-            "super" | "meta" | "win" | "cmd" | "command" => win = true,
-            "space" => vk = 0x20,
-            "enter" => vk = 0x0D,
-            "tab" => vk = 0x09,
-            "esc" | "escape" => vk = 0x1B,
-            c if c.len() == 1 && c.chars().next().unwrap().is_ascii_alphabetic() => {
-                vk = c.chars().next().unwrap().to_ascii_uppercase() as u16;
+fn key_to_vk(key: &str) -> Option<u16> {
+    let vk = match key {
+        "space" => 0x20,
+        "enter" => 0x0D,
+        "tab" => 0x09,
+        "esc" | "escape" => 0x1B,
+        "left" | "arrowleft" => 0x25,
+        "up" | "arrowup" => 0x26,
+        "right" | "arrowright" => 0x27,
+        "down" | "arrowdown" => 0x28,
+        _ => {
+            let bytes = key.as_bytes();
+            match bytes {
+                [c] if c.is_ascii_alphabetic() => c.to_ascii_uppercase() as u16,
+                [c] if c.is_ascii_digit() => *c as u16,
+                [b'f', rest @ ..] => match std::str::from_utf8(rest).ok()?.parse::<u16>().ok()? {
+                    n @ 1..=12 => 0x70 + n - 1,
+                    _ => return None,
+                },
+                _ => return None,
             }
-            c if c.len() == 1 && c.chars().next().unwrap().is_ascii_digit() => {
-                vk = c.chars().next().unwrap() as u16;
-            }
-            _ => {}
+        }
+    };
+    Some(vk)
+}
+
+fn parse_hotkey(hotkey: &str) -> Option<HotkeyDef> {
+    let mut def = HotkeyDef::default();
+    for part in hotkey.trim().to_lowercase().split('+').map(str::trim) {
+        match part {
+            "alt" => def.alt = true,
+            "ctrl" | "control" => def.ctrl = true,
+            "shift" => def.shift = true,
+            "super" | "meta" | "win" | "cmd" | "command" => def.win = true,
+            key if def.vk == 0 => def.vk = key_to_vk(key)?,
+            _ => return None,
         }
     }
+    let has_modifier = def.alt || def.ctrl || def.shift || def.win;
+    (def.vk != 0 && has_modifier).then_some(def)
+}
 
-    let def = HotkeyDef { vk, alt, ctrl, shift, win };
+pub fn is_supported_hotkey(hotkey: &str) -> bool {
+    parse_hotkey(hotkey).is_some()
+}
+
+pub fn update_hotkey() {
+    let def = parse_hotkey(&crate::config::get_hotkey())
+        .or_else(|| parse_hotkey(DEFAULT_HOTKEY))
+        .unwrap_or_default();
     let guard = CURRENT_HOTKEY.get_or_init(|| Mutex::new(def.clone()));
     *guard.lock().unwrap() = def;
 }
@@ -136,4 +151,31 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn def(vk: u16, alt: bool, ctrl: bool, shift: bool, win: bool) -> HotkeyDef {
+        HotkeyDef { vk, alt, ctrl, shift, win }
+    }
+
+    #[test]
+    fn parses_supported_hotkeys() {
+        assert_eq!(parse_hotkey("Alt+Space"), Some(def(0x20, true, false, false, false)));
+        assert_eq!(parse_hotkey("Ctrl+Shift+P"), Some(def(0x50, false, true, true, false)));
+        assert_eq!(parse_hotkey("Alt+7"), Some(def(0x37, true, false, false, false)));
+        assert_eq!(parse_hotkey("Ctrl+F1"), Some(def(0x70, false, true, false, false)));
+        assert_eq!(parse_hotkey("Super+F12"), Some(def(0x7B, false, false, false, true)));
+        assert_eq!(parse_hotkey("Ctrl+Alt+ArrowUp"), Some(def(0x26, true, true, false, false)));
+        assert_eq!(parse_hotkey(" ctrl + q "), Some(def(0x51, false, true, false, false)));
+    }
+
+    #[test]
+    fn rejects_hotkeys_the_hook_cannot_trigger() {
+        for bad in ["", "Space", "Alt", "Ctrl+", "Ctrl+F13", "Ctrl+F0", "Ctrl+-", "Ctrl+/", "Alt+Й", "Ctrl+A+B", "Ctrl+Numpad1"] {
+            assert_eq!(parse_hotkey(bad), None, "{bad}");
+        }
+    }
 }

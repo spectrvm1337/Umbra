@@ -16,7 +16,7 @@ A minimalist, highly customizable search launcher for Windows, built with Rust a
 Find applications, files, and folders across your system without delay. Fast indexing ensures your results are immediately available.
 
 **Built-in Tools**  
-Integrated utilities including a calculator, power controls through text and seamless web search.
+Integrated utilities including power controls through text (`shutdown`, `restart`, `sleep`), process killing (`kill <name>`) and seamless web search (`!g`, `!yt`, `!gh` and more — type `!help`).
 
 **Workflow Integration**  
 Pin frequently used items directly in the launcher. Drag and drop files straight from the search results to other applications.

@@ -272,7 +272,7 @@ const FUZZY_BUDGET_MS: u64 = 250;
 
 pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
     let q = query.to_lowercase();
-    if q.is_empty() {
+    if q.is_empty() || !is_current(version) {
         return Vec::new();
     }
 
@@ -295,9 +295,16 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
             .enumerate()
             .filter(|(_, e)| !disabled_kinds.contains(&e.kind))
             .filter_map(|(i, e)| {
+                if !is_current(version) {
+                    return None;
+                }
                 match_score(e, &q, &variants, &frec, fuzzy_deadline).map(|score| (score, i))
             })
             .collect();
+
+        if !is_current(version) {
+            return Vec::new();
+        }
 
         picked.sort_unstable();
 
@@ -379,9 +386,9 @@ mod tests {
 
         SEARCH_VERSION.store(3, Ordering::SeqCst);
         let t = std::time::Instant::now();
-        let r3 = search_index("sopify", 3); 
+        let r3 = search_index("spotfy", 3);
         let el_fuzzy = t.elapsed();
-        assert!(!r3.is_empty(), "typo 'sopify' did not match 'spotify'");
+        assert!(!r3.is_empty(), "typo 'spotfy' did not match 'spotify'");
 
         SEARCH_VERSION.store(4, Ordering::SeqCst);
         let t = std::time::Instant::now();

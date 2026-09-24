@@ -13,7 +13,7 @@ pub fn create(app: &tauri::App) -> tauri::Result<()> {
     let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .tooltip("Spotlight Search")
+        .tooltip("Umbra")
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "restart" => {
                 let _ = app.restart();

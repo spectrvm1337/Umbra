@@ -135,7 +135,9 @@ fn main() {
             tray::create(app)?;
 
             #[cfg(target_os = "windows")]
-            autostart::ensure_autostart();
+            if config::get_autostart() {
+                autostart::ensure_autostart();
+            }
 
             Ok(())
         })

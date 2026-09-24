@@ -31,11 +31,7 @@ fn ensure_loaded() {
         return;
     }
     let path = pins_file_path();
-    let pins = if let Ok(data) = fs::read_to_string(&path) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let pins = crate::storage::load_json(&path);
     *guard = Some(PinsState { path, pins });
 }
 
@@ -61,7 +57,7 @@ pub fn add_pin(result: &crate::search::SearchResult) -> bool {
     let pins = state.pins.clone();
     drop(guard);
     if let Ok(json) = serde_json::to_string_pretty(&pins) {
-        let _ = fs::write(&path, json);
+        let _ = crate::storage::write_atomic(&path, json);
     }
     true
 }
@@ -79,7 +75,7 @@ pub fn remove_pin(path: &str) -> bool {
     let pins = state.pins.clone();
     drop(guard);
     if let Ok(json) = serde_json::to_string_pretty(&pins) {
-        let _ = fs::write(&path, json);
+        let _ = crate::storage::write_atomic(&path, json);
     }
     true
 }
@@ -113,7 +109,7 @@ pub fn reorder_pins(ordered_paths: Vec<String>) -> bool {
     let path = state.path.clone();
     drop(guard);
     if let Ok(json) = serde_json::to_string_pretty(&new_pins) {
-        let _ = fs::write(&path, json);
+        let _ = crate::storage::write_atomic(&path, json);
     }
     true
 }

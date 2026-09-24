@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 
@@ -32,11 +31,7 @@ fn ensure_db() {
         return;
     }
     let path = db_path();
-    let entries = if let Ok(data) = fs::read_to_string(&path) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
+    let entries = crate::storage::load_json(&path);
     *guard = Some(FrecencyDb { path, entries });
 }
 
@@ -88,11 +83,8 @@ fn save_db(db: &FrecencyDb) {
         };
         
         if !json.is_empty() {
-            if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
             let _write_guard = WRITE_LOCK.lock().unwrap();
-            let _ = fs::write(path, json);
+            let _ = crate::storage::write_atomic(&path, json);
         }
     });
 }

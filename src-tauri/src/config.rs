@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 
@@ -296,11 +295,7 @@ fn ensure_loaded() {
         return;
     }
     let path = config_path();
-    let config = if let Ok(data) = fs::read_to_string(&path) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        Config::default()
-    };
+    let config: Config = crate::storage::load_json(&path);
     *guard = Some(ConfigState { path, config });
 }
 
@@ -379,11 +374,8 @@ pub fn set_disabled_kinds(kinds: Vec<u8>) {
 }
 
 fn save(state: &ConfigState) {
-    if let Some(parent) = state.path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
     if let Ok(json) = serde_json::to_string_pretty(&state.config) {
-        let _ = fs::write(&state.path, json);
+        let _ = crate::storage::write_atomic(&state.path, json);
     }
 }
 

@@ -8,6 +8,7 @@ mod icons;
 mod indexer;
 mod pins;
 mod search;
+mod storage;
 mod taskbar;
 mod tray;
 mod keyboard_hook;

@@ -1876,7 +1876,6 @@ const fixedWords = [
   "ctrl+shift+enter — run as admin",
   "#ff0000 — color picker",
   "100 usd to eur",
-  "!weather paris",
   "right-click the bar to pin position",
 ];
 let placeholderIndex = 0;

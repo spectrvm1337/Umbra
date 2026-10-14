@@ -10,7 +10,6 @@ let dockSide; // "left" | "right" | null (list mode); undefined until the theme 
 let dockEl = null;
 let dockDragging = false;
 let resultsDragSortable = null;
-const dockIcons = new Map(); // path -> icon data URL
 
 function dockExtraWidth() {
   return dockSide ? DOCK_RESERVE : 0;
@@ -33,7 +32,7 @@ function dockTile(pin) {
   const el = document.createElement("div");
   el.className = "dock-tile";
   el.dataset.path = pin.path;
-  const icon = dockIcons.get(pin.path) || pin.icon_data;
+  const icon = iconCache.get(pin.path) || pin.icon_data; // iconCache lives in main.js
   const kind = getVisualKind(pin);
   el.innerHTML = `
     <span class="dock-label">${escapeHtml(pin.name)}</span>
@@ -59,13 +58,15 @@ function renderDock() {
 
 function loadDockIcons() {
   const paths = currentPins
-    .filter((p) => needsRealIcon(p) && !p.icon_data && !dockIcons.has(p.path))
+    .filter((p) => needsRealIcon(p) && !p.icon_data && !iconCache.has(p.path))
     .map((p) => p.path);
   if (paths.length === 0) return;
   invoke("get_icons", { paths })
     .then((map) => {
-      for (const [path, data] of Object.entries(map)) {
-        dockIcons.set(path, data);
+      for (const path of paths) {
+        const data = map[path] || null;
+        cacheIcon(path, data);
+        if (!data) continue;
         const tile = [...dockEl.children].find((t) => t.dataset.path === path);
         const box = tile && tile.querySelector(".result-icon");
         if (box) box.innerHTML = `<img src="${data}" alt="">`;

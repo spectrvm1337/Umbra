@@ -90,39 +90,51 @@ resultsContainer.addEventListener("pointerdown", () => {
 const customScrollbar = document.getElementById("custom-scrollbar");
 const customThumb = document.getElementById("custom-thumb");
 let customScrollHideTimer = null;
-function updateCustomScrollbar() {
-  if (!customScrollbar || !customThumb) return;
+// Sizes and places the thumb without showing it; returns false when nothing scrolls.
+function layoutCustomScrollbar() {
+  if (!customScrollbar || !customThumb) return false;
   const el = resultsContainer;
   const maxScroll = el.scrollHeight - el.clientHeight;
-
   if (maxScroll <= 4) {
     customScrollbar.classList.add("hidden");
-    return;
+    return false;
   }
   customScrollbar.classList.remove("hidden");
   const trackH = customScrollbar.clientHeight;
-  if (trackH <= 0) return;
+  if (trackH <= 0) return false;
   const thumbH = Math.max(24, Math.min(42, (el.clientHeight / el.scrollHeight) * trackH));
   const maxTop = Math.max(0, trackH - thumbH);
   const ratio = maxScroll > 0 ? el.scrollTop / maxScroll : 0;
   const top = Math.max(0, Math.min(maxTop, ratio * maxTop));
   customThumb.style.height = thumbH + "px";
   customThumb.style.transform = `translateY(${top}px)`;
-
+  return true;
+}
+// Layout plus a brief flash of the bar: for scrolling and dragging only. Re-renders and
+// icon loads just re-lay it out; flashing on every DOM change made it blink while typing.
+function updateCustomScrollbar() {
+  if (!layoutCustomScrollbar()) return;
   customScrollbar.classList.add("visible");
   clearTimeout(customScrollHideTimer);
   customScrollHideTimer = setTimeout(() => customScrollbar.classList.remove("visible"), 700);
 }
+let scrollbarLayoutRaf = 0;
+function scheduleScrollbarLayout() {
+  if (scrollbarLayoutRaf) return;
+  scrollbarLayoutRaf = requestAnimationFrame(() => {
+    scrollbarLayoutRaf = 0;
+    layoutCustomScrollbar();
+  });
+}
 if (customScrollbar) {
   try {
-    const ro = new ResizeObserver(updateCustomScrollbar);
+    const ro = new ResizeObserver(scheduleScrollbarLayout);
     ro.observe(resultsContainer);
   } catch {}
-  const mo = new MutationObserver(updateCustomScrollbar);
+  const mo = new MutationObserver(scheduleScrollbarLayout);
   mo.observe(resultsContainer, { childList: true, subtree: true });
-  window.addEventListener("resize", updateCustomScrollbar);
-
-  requestAnimationFrame(() => setTimeout(updateCustomScrollbar, 50));
+  window.addEventListener("resize", scheduleScrollbarLayout);
+  requestAnimationFrame(() => setTimeout(layoutCustomScrollbar, 50));
 }
 if (customThumb && customScrollbar) {
   let isDraggingThumb = false;
@@ -1370,6 +1382,10 @@ function getExtGroup(path) {
   }
   return "file";
 }
+// path -> icon data URL, or null when the backend has none for that path. Kept across
+// searches so typing does not re-request icons (and flash skeletons) for rows it already had.
+const iconCache = new Map();
+const ICON_CACHE_MAX = 1500;
 function getVisualKind(item) {
   if (item.kind === "folder") return "folder";
   return needsRealIcon(item) ? (item.kind || "file") : getExtGroup(item.path);
@@ -1378,10 +1394,11 @@ function createResultItem(item, index, query) {
   const div = document.createElement("div");
   div.className = "result-item" + (index === selectedIndex ? " selected" : "");
   div.dataset.index = index;
+  div.dataset.path = item.path;
   div.style.animationDelay = `${Math.min(index, 8) * 25}ms`;
-  const iconSrc = item.icon_data || "";
+  const iconSrc = item.icon_data || iconCache.get(item.path) || "";
   const visualKind = getVisualKind(item);
-  const needsIcon = needsRealIcon(item) && !iconSrc;
+  const needsIcon = needsRealIcon(item) && !iconSrc && !iconCache.has(item.path);
   div.innerHTML = `
     <div class="result-icon${needsIcon ? " icon-skeleton" : ""}">
       ${iconSrc ? `<img src="${iconSrc}" alt="">` : ""}
@@ -1406,7 +1423,14 @@ function createResultItem(item, index, query) {
   });
   return div;
 }
+// Set when the window opens, so that render animates every row again.
+let animateAllRows = true;
 function renderResults(results, query) {
+  // Rows that were already on screen keep still; only new ones play the enter animation.
+  const shown = animateAllRows || resultsSection.classList.contains("hidden")
+    ? new Set()
+    : new Set([...resultsList.children].map(el => el.dataset.path));
+  animateAllRows = false;
   resultsList.innerHTML = "";
   const hasPins = currentPins.length > 0;
   const hasSpecial = !specialSection.classList.contains("hidden");
@@ -1416,6 +1440,7 @@ function renderResults(results, query) {
   let globalIndex = query.trim() || !pinsInList() ? 0 : currentPins.length;
   for (const item of results) {
     const el = createResultItem(item, globalIndex, query);
+    if (shown.has(item.path)) el.style.animation = "none";
     resultsList.appendChild(el);
     globalIndex++;
   }
@@ -1473,7 +1498,7 @@ Sortable.create(pinsList, {
       pinsList.querySelectorAll(".result-item").forEach((el, i) => { el.dataset.index = i; });
       updateSelectableItems();
       updateSelection();
-      updateCustomScrollbar();
+      layoutCustomScrollbar();
       invoke("reorder_pins", { orderedPaths: newOrder }).then(ok => {
         if (ok) showToast("Order saved");
         else showToast("Couldn't save order", true);
@@ -1483,38 +1508,42 @@ Sortable.create(pinsList, {
     }
   }
 });
-function applyIconToElement(container, index, iconSrc) {
-  const el = container.querySelector('.result-item[data-index="' + index + '"]');
-  if (!el) return;
-  const iconDiv = el.querySelector(".result-icon");
-  if (!iconDiv || iconDiv.querySelector("img")) return;
-  iconDiv.classList.remove("icon-skeleton");
-  const img = document.createElement("img");
-  img.src = iconSrc;
-  img.alt = "";
-  iconDiv.appendChild(img);
-  const fallback = iconDiv.querySelector(".result-icon-fallback");
-  if (fallback) fallback.style.display = "none";
+function cacheIcon(path, data) {
+  iconCache.delete(path);
+  if (iconCache.size >= ICON_CACHE_MAX) iconCache.delete(iconCache.keys().next().value);
+  iconCache.set(path, data);
+}
+// Rows are matched by path, not by index: with pins listed above the results the
+// row numbers are offset from the positions in allResults.
+function applyIconToRows(path, iconSrc) {
+  for (const el of document.querySelectorAll(".result-item")) {
+    if (el.dataset.path !== path) continue;
+    const iconDiv = el.querySelector(".result-icon");
+    if (!iconDiv) continue;
+    iconDiv.classList.remove("icon-skeleton");
+    if (!iconSrc || iconDiv.querySelector("img")) continue;
+    const img = document.createElement("img");
+    img.src = iconSrc;
+    img.alt = "";
+    iconDiv.appendChild(img);
+    const fallback = iconDiv.querySelector(".result-icon-fallback");
+    if (fallback) fallback.style.display = "none";
+  }
 }
 function requestIconsForResults(results) {
-  const pathsNeedingIcons = results
-    .filter(r => !r.icon_data && needsRealIcon(r))
-    .map(r => r.path);
+  const pathsNeedingIcons = [...new Set(results
+    .filter(r => !r.icon_data && needsRealIcon(r) && !iconCache.has(r.path))
+    .map(r => r.path))];
   if (pathsNeedingIcons.length === 0) return;
   invoke("get_icons", { paths: pathsNeedingIcons })
     .then(iconMap => {
-      for (const [path, iconData] of Object.entries(iconMap)) {
-
-        const idx = allResults.findIndex(r => r.path === path);
-        if (idx !== -1) {
-          allResults[idx].icon_data = iconData;
-          applyIconToElement(resultsList, idx, iconData);
-        }
-        const pinIdx = currentPins.findIndex(pr => pr.path === path);
-        if (pinIdx !== -1) {
-          currentPins[pinIdx].icon_data = iconData;
-          applyIconToElement(pinsList, pinIdx, iconData);
-        }
+      for (const path of pathsNeedingIcons) {
+        const iconData = iconMap[path] || null;
+        cacheIcon(path, iconData);
+        applyIconToRows(path, iconData);
+        if (!iconData) continue;
+        for (const r of allResults) if (r.path === path) r.icon_data = iconData;
+        for (const p of currentPins) if (p.path === path) p.icon_data = iconData;
       }
     })
     .catch(err => console.error("Icon load failed:", err));
@@ -1537,8 +1566,10 @@ function applySelection(doScroll) {
         wheelTarget = null;
         if (wheelRaf) { cancelAnimationFrame(wheelRaf); wheelRaf = null; }
 
+        const before = resultsContainer.scrollTop;
         el.scrollIntoView({ block: "nearest", behavior: "instant" });
-        syncScrollFade();
+        // Only an actual scroll should flash the scrollbar, not every new search.
+        if (resultsContainer.scrollTop !== before) syncScrollFade();
       }
       flatIndex++;
     });
@@ -1828,7 +1859,7 @@ async function togglePin(btn) {
     updateGhost();
     pinsSection.classList.toggle("hidden", currentPins.length === 0 || !!lastQuery.trim());
     updateSelection();
-    updateCustomScrollbar();
+    layoutCustomScrollbar();
     if (typeof renderDock === "function") renderDock();
   } catch (e) {
     showToast("Pin failed", true, String(e).replace("Error:", "").trim());
@@ -2054,11 +2085,8 @@ async function performSearch(query) {
   closeContentMenu();
   currentSearchId++;
   const myId = currentSearchId;
-  if (query.trim()) {
-    pinsSection.classList.add("hidden");
-    resultsSection.classList.add("hidden");
-    emptyState.classList.add("hidden");
-  }
+  // The previous rows stay up until the new ones arrive; hiding them here made the
+  // list blink on every keystroke.
   try {
     const response = await invoke("search_all", { query });
     if (myId !== currentSearchId) return;
@@ -2071,6 +2099,8 @@ async function performSearch(query) {
     renderPins(response.pins);
     updateSelectableItems();
     renderResults(allResults, query);
+    // A new search starts at the top (this used to happen as a side effect of hiding the list).
+    resultsContainer.scrollTop = 0;
     requestIconsForResults([...allResults, ...response.pins]);
     const hasPins = response.pins.length > 0;
     const hasResults = response.results.length > 0;
@@ -2386,6 +2416,7 @@ window.__TAURI__.event.listen("window-shown", async () => {
   closeContentMenu();
   appContainer.classList.remove("window-hidden", "window-hiding");
   appContainer.classList.add("window-showing");
+  animateAllRows = true;
   performSearch("");
   if (!placeholderTimer) placeholderTimer = setTimeout(animatePlaceholder, 600);
   setTimeout(() => {

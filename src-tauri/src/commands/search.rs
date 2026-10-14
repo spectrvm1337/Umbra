@@ -73,13 +73,18 @@ fn pins_to_results(pins: &[pins::Pin]) -> Vec<search::SearchResult> {
 }
 #[tauri::command]
 pub async fn get_icons(paths: Vec<String>) -> HashMap<String, String> {
-    let mut result = HashMap::new();
-    for path in paths {
-        if let Some(png) = icons::get_icon_png_data(&path) {
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
-            result.insert(path, format!("data:image/png;base64,{}", b64));
+    // Shell / COM / GDI calls block; keep them off the async runtime's workers.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut result = HashMap::new();
+        for path in paths {
+            if let Some(png) = icons::get_icon_png_data(&path) {
+                use base64::Engine;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+                result.insert(path, format!("data:image/png;base64,{}", b64));
+            }
         }
-    }
-    result
+        result
+    })
+    .await
+    .unwrap_or_default()
 }

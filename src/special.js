@@ -125,20 +125,21 @@ function handleSpecialCommand(query) {
   if (handleCurrencyCommand(q)) return true;
   if (/^!help\s*$/i.test(q)) {
     const cmds = [
-      { name: "!help", desc: "Show this help", fill: "" },
-      { name: "#c83939", desc: "Colour info & screen picker", fill: "#" },
-      { name: "!yt <query>", desc: "Search YouTube", fill: "!yt " },
-      { name: "!g <query>", desc: "Search Google", fill: "!g " },
-      { name: "!gh <query>", desc: "Search GitHub", fill: "!gh " },
-      { name: "!wiki <query>", desc: "Search Wikipedia", fill: "!wiki " },
-      { name: "!d <query>", desc: "Search DuckDuckGo", fill: "!d " },
-      { name: "!npm <query>", desc: "Search npm", fill: "!npm " },
-      { name: "!red <query>", desc: "Search Reddit", fill: "!red " },
-      { name: "!so <query>", desc: "Search StackOverflow", fill: "!so " },
-      { name: "100 usd to rub", desc: "Currency converter", fill: "100 usd to " },
-      { name: "kill <proc>", desc: "Kill process", fill: "kill " },
-      { name: "shutdown|restart|sleep", desc: "Power actions", fill: "" },
-      { name: "<link or path>", desc: "Open a URL, file or folder", fill: "" },
+      { name: "!help", desc: t("helpHelp"), fill: "" },
+      { name: "#c83939", desc: t("helpColor"), fill: "#" },
+      { name: "!yt <query>", desc: t("helpYt"), fill: "!yt " },
+      { name: "!g <query>", desc: t("helpG"), fill: "!g " },
+      { name: "!gh <query>", desc: t("helpGh"), fill: "!gh " },
+      { name: "!wiki <query>", desc: t("helpWiki"), fill: "!wiki " },
+      { name: "!d <query>", desc: t("helpD"), fill: "!d " },
+      { name: "!npm <query>", desc: t("helpNpm"), fill: "!npm " },
+      { name: "!red <query>", desc: t("helpRed"), fill: "!red " },
+      { name: "!so <query>", desc: t("helpSo"), fill: "!so " },
+      { name: "!translate <text>", desc: t("helpTranslate"), fill: "!translate " },
+      { name: "100 usd to rub", desc: t("helpCurr"), fill: "100 usd to " },
+      { name: "kill <proc>", desc: t("helpKill"), fill: "kill " },
+      { name: "shutdown|restart|sleep", desc: t("helpPower"), fill: "" },
+      { name: "<link or path>", desc: t("helpOpen"), fill: "" },
     ];
     resultsSection.classList.remove("hidden");
     specialSection.classList.add("hidden");

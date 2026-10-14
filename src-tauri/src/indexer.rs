@@ -123,26 +123,6 @@ fn emit_progress(app: &tauri::AppHandle, run: u64, p: &IndexProgress) {
     }
     let _ = app.emit("index-progress", p);
 }
-/// Legacy fallback for old frontends: plain percent number.
-#[allow(dead_code)]
-fn emit_pct(app: &tauri::AppHandle, run: u64, pct: u8, scanned: usize) {
-    emit_progress(
-        app,
-        run,
-        &IndexProgress {
-            phase: if pct >= 100 {
-                "done".to_string()
-            } else {
-                "scan".to_string()
-            },
-            pct: pct.min(100),
-            scanned,
-            total: 0,
-            drive: String::new(),
-            done: pct >= 100,
-        },
-    );
-}
 static INDEX_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub fn init_index_with_progress(app: tauri::AppHandle) {
     // OnceLock::set fails on the 2nd (reindex) call — ensure instead.

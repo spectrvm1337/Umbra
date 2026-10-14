@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 const ICON_SIZE: i32 = 64;
 const MAX_ICON_CACHE_SIZE: usize = 500;
 static ICON_CACHE: LazyLock<Mutex<IconCache>> =
@@ -39,13 +39,6 @@ impl IconCache {
         self.map.insert(key.clone(), value);
         self.order.push_front(key);
     }
-}
-static PRECACHE_DONE: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
-pub fn is_precache_done() -> bool {
-    PRECACHE_DONE
-        .get()
-        .map(|v| v.load(std::sync::atomic::Ordering::Relaxed))
-        .unwrap_or(false)
 }
 pub fn get_icon_png_data(path: &str) -> Option<Vec<u8>> {
     let p = std::path::Path::new(path);

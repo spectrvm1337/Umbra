@@ -5,7 +5,6 @@ pub struct SearchResponse {
     pub results: Vec<search::SearchResult>,
     pub pins: Vec<search::SearchResult>,
     pub indexed: usize,
-    pub icons_ready: bool,
 }
 #[tauri::command]
 pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse {
@@ -15,7 +14,6 @@ pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse
             results: Vec::new(),
             pins: pins_to_results(&saved_pins),
             indexed: indexer::get_indexed_count(),
-            icons_ready: icons::is_precache_done(),
         };
     }
     let version = search::SEARCH_VERSION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -27,7 +25,6 @@ pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse
             results: Vec::new(),
             pins: Vec::new(),
             indexed: indexer::get_indexed_count(),
-            icons_ready: icons::is_precache_done(),
         };
     }
     let saved_pins = pins::load_pins();
@@ -42,7 +39,6 @@ pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse
         results,
         pins: pins_to_results(&saved_pins),
         indexed: indexer::get_indexed_count(),
-        icons_ready: icons::is_precache_done(),
     }
 }
 /// Recently opened items for the empty search box while pins live in the side dock,

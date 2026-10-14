@@ -124,6 +124,15 @@ pub fn update_hotkey() {
     let guard = CURRENT_HOTKEY.get_or_init(|| Mutex::new(def.clone()));
     *guard.lock().unwrap() = def;
 }
+fn toggle_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        if win.is_visible().unwrap_or(false) {
+            let _ = win.emit("window-hide-requested", ());
+        } else {
+            crate::show_window(&win);
+        }
+    }
+}
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let w = wparam as u32;
@@ -165,13 +174,17 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                     *last = Instant::now();
                     *SUPPRESS_KEYUP.get_or_init(|| Mutex::new(false)).lock().unwrap() = true;
                     if let Some(app) = APP_HANDLE.get() {
-                        if let Some(win) = app.get_webview_window("main") {
-                            if win.is_visible().unwrap_or(false) {
-                                let _ = win.emit("window-hide-requested", ());
-                            } else {
-                                crate::show_window(&win);
-                            }
-                        }
+                        // Windows only waits a few hundred ms for a low-level hook and
+                        // silently removes one that is too slow, so showing the window
+                        // (focus, positioning, starting a re-index) must not happen in
+                        // here. run_on_main_thread runs the task inline when called from
+                        // the main thread, which this hook is on, so hand it over from
+                        // another thread: it is then queued and runs after we return.
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            let handle = app.clone();
+                            let _ = app.run_on_main_thread(move || toggle_window(&handle));
+                        });
                     }
                     return 1;
                 }

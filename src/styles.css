@@ -882,15 +882,18 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   height: 100%;
   image-rendering: pixelated;
 }
-/* Nothing picked from the screen yet: pulse like the result-icon skeletons. The
-   dropper comes later in the markup, so it stays on top and does not pulse. */
-.cc-loupe:not(.has-capture)::before {
-  content: "";
+/* Dot-grid placeholder while nothing has been picked (drawn by colorStartSkeleton).
+   The dropper comes later in the markup, so it stays on top. */
+.cc-loupe .cc-skeleton {
   position: absolute;
   inset: 0;
-  background: rgba(128, 128, 128, 0.25);
-  animation: skeleton-pulse 1.2s ease-in-out infinite;
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
   pointer-events: none;
+}
+.cc-loupe.has-capture .cc-skeleton {
+  display: none;
 }
 .cc-pin {
   position: absolute;

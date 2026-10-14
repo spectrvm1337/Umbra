@@ -107,7 +107,8 @@ function colorCardHtml(c, base = c) {
       <div class="cc-field"><div class="cc-label">History</div><div class="cc-history">${history}</div></div>
     </div>
     <div class="cc-loupe">
-      <canvas width="${COLOR_GRID}" height="${COLOR_GRID}"></canvas>
+      <canvas class="cc-pixels" width="${COLOR_GRID}" height="${COLOR_GRID}"></canvas>
+      <canvas class="cc-skeleton"></canvas>
       ${COLOR_PIN_SVG}
       <button class="cc-dropper" title="Pick a colour from the screen (Esc or right-click cancels)">${COLOR_DROPPER_SVG}</button>
     </div>`;
@@ -140,7 +141,7 @@ function colorUpdateCard(card, c) {
 }
 
 function colorDrawLoupe(card, pixels) {
-  const canvas = card.querySelector(".cc-loupe canvas");
+  const canvas = card.querySelector(".cc-loupe .cc-pixels");
   const has = pixels && pixels.length === COLOR_GRID * COLOR_GRID;
   card.querySelector(".cc-loupe").classList.toggle("has-capture", !!has);
   if (!has) return;
@@ -156,6 +157,70 @@ function colorDrawLoupe(card, pixels) {
   card.querySelector(".cc-pin-dot").setAttribute("fill", pixels[pixels.length >> 1]);
 }
 
+// Placeholder for the empty loupe: the same COLOR_GRID x COLOR_GRID grid as the
+// captured pixels, drawn as dim dots with two slow blobs of accent colour drifting
+// across. Runs only while the loupe is empty and on screen.
+const colorReduceMotion = typeof window !== "undefined" && window.matchMedia
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : { matches: false };
+function colorStartSkeleton(card) {
+  const loupe = card.querySelector(".cc-loupe");
+  const canvas = card.querySelector(".cc-skeleton");
+  if (!loupe || !canvas || canvas.dataset.running) return;
+  canvas.dataset.running = "1";
+  const dpr = window.devicePixelRatio || 1;
+  const w = loupe.clientWidth || 168;
+  const h = loupe.clientHeight || 165;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const styles = getComputedStyle(card);
+  const accent = styles.getPropertyValue("--accent").trim() || "#e07a3a";
+  const dim = styles.getPropertyValue("--text-dim").trim() || "#737373";
+  const step = Math.min(w, h) / COLOR_GRID;
+  const blob = (t, a, b, phase) => [0.5 + 0.38 * Math.sin(t * a + phase), 0.5 + 0.38 * Math.cos(t * b + phase * 1.7)];
+  const start = performance.now();
+  const frame = (now) => {
+    if (!canvas.isConnected || loupe.classList.contains("has-capture")) {
+      delete canvas.dataset.running;
+      return;
+    }
+    const t = colorReduceMotion.matches ? 2 : (now - start) / 1000;
+    const blobs = [blob(t, 0.55, 0.42, 0), blob(t, 0.37, 0.61, 2.4)];
+    ctx.clearRect(0, 0, w, h);
+    for (let row = 0; row < COLOR_GRID; row++) {
+      for (let col = 0; col < COLOR_GRID; col++) {
+        const u = (col + 0.5) / COLOR_GRID;
+        const v = (row + 0.5) / COLOR_GRID;
+        let glow = 0;
+        for (const [bx, by] of blobs) glow = Math.max(glow, Math.exp(-((u - bx) ** 2 + (v - by) ** 2) / 0.06));
+        const x = (col + 0.5) * step + (w - step * COLOR_GRID) / 2;
+        const y = (row + 0.5) * step + (h - step * COLOR_GRID) / 2;
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = dim;
+        ctx.beginPath();
+        ctx.arc(x, y, 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        if (glow > 0.04) {
+          ctx.globalAlpha = Math.min(1, glow * 1.2);
+          ctx.fillStyle = accent;
+          ctx.beginPath();
+          ctx.arc(x, y, 0.9 + 1.5 * glow, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (colorReduceMotion.matches) {
+      delete canvas.dataset.running;
+      return;
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
 function renderColorCard(c) {
   let card = specialContent.querySelector(".color-card");
   if (!card) {
@@ -165,6 +230,7 @@ function renderColorCard(c) {
   card.innerHTML = colorCardHtml(c, colorShadeBase || c);
   card.classList.toggle("picking", colorPicking);
   colorDrawLoupe(card, colorLoupe);
+  colorStartSkeleton(card);
   return card;
 }
 

@@ -38,7 +38,7 @@ pub fn get_hotkey() -> String {
     }
 }
 #[tauri::command]
-pub fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<String, String> {
+pub fn set_hotkey(app: tauri::AppHandle, key: String) -> Result<String, String> {
     let k = key.trim();
     if !crate::keyboard_hook::is_supported_hotkey(k) {
         return Err(
@@ -47,6 +47,10 @@ pub fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<String, String>
     }
     config::set_hotkey(k);
     crate::keyboard_hook::update_hotkey();
+    #[cfg(target_os = "windows")]
+    crate::tray::refresh(&app);
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
     Ok("Hotkey applied".to_string())
 }
 #[tauri::command]
@@ -131,8 +135,13 @@ pub fn get_language() -> String {
     config::get_language()
 }
 #[tauri::command]
-pub fn set_language(lang: String) -> String {
-    config::set_language(lang)
+pub fn set_language(app: tauri::AppHandle, lang: String) -> String {
+    let lang = config::set_language(lang);
+    #[cfg(target_os = "windows")]
+    crate::tray::refresh(&app);
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+    lang
 }
 #[tauri::command]
 pub fn get_disabled_kinds() -> Vec<u8> {

@@ -41,11 +41,16 @@ fn remove_sysmenu(window: &tauri::WebviewWindow) {
     }
 }
 pub fn show_window(window: &tauri::WebviewWindow) {
+    show_window_with(window, false);
+}
+/// Shows the window; with `open_settings` the page opens the settings panel as
+/// part of the same "window-shown" event (the tray's Settings item).
+pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
     #[cfg(target_os = "windows")]
     taskbar::show_if_autohide();
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("window-shown", ());
+    let _ = window.emit("window-shown", serde_json::json!({ "openSettings": open_settings }));
     indexer::refresh_fast_index_async();
     if !config::is_pinned() {
         commands::place_window(window.app_handle());

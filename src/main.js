@@ -2431,7 +2431,7 @@ document.addEventListener("DOMContentLoaded", () => {
   performSearch("");
   setTimeout(animatePlaceholder, 500);
 });
-window.__TAURI__.event.listen("window-shown", async () => {
+window.__TAURI__.event.listen("window-shown", async (event) => {
 
   if (!window._zoomLoaded) {
     window._zoomLoaded = true;
@@ -2474,6 +2474,8 @@ window.__TAURI__.event.listen("window-shown", async () => {
   appContainer.classList.add("window-showing");
   animateAllRows = true;
   performSearch("");
+  // Tray > Settings shows the window straight on the settings panel.
+  if (event.payload && event.payload.openSettings && settingsSection.classList.contains("hidden")) toggleSettings();
   if (!placeholderTimer) placeholderTimer = setTimeout(animatePlaceholder, 600);
   setTimeout(() => {
     searchInput.focus();

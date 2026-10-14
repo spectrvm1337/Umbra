@@ -21,6 +21,14 @@ struct HotkeyDef {
 static CURRENT_HOTKEY: OnceLock<Mutex<HotkeyDef>> = OnceLock::new();
 static LAST_TRIGGER: OnceLock<Mutex<Instant>> = OnceLock::new();
 static SUPPRESS_KEYUP: OnceLock<Mutex<bool>> = OnceLock::new();
+/// Tray "Pause hotkey": the hook lets every key through until it is turned off.
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn is_paused() -> bool {
+    PAUSED.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn set_paused(paused: bool) {
+    PAUSED.store(paused, std::sync::atomic::Ordering::Relaxed);
+}
 pub fn init(app: AppHandle) {
     let _ = APP_HANDLE.set(app);
     update_hotkey();
@@ -134,7 +142,7 @@ fn toggle_window(app: &AppHandle) {
     }
 }
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0 {
+    if code >= 0 && !is_paused() {
         let w = wparam as u32;
         let kbd = &*(lparam as *const KBDLLHOOKSTRUCT);
 

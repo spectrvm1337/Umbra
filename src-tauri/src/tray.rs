@@ -1,4 +1,3 @@
-use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder};
 use tauri::Manager;
 const TRAY_ID: &str = "umbra";
 struct Labels {
@@ -51,22 +50,27 @@ fn labels(lang: &str) -> Labels {
         },
     }
 }
-fn build_menu<R: tauri::Runtime, M: Manager<R>>(app: &M) -> tauri::Result<Menu<R>> {
+/// One row of the tray menu as the page draws it.
+#[derive(serde::Serialize)]
+pub struct TrayItem {
+    id: &'static str,
+    label: &'static str,
+    /// Some for the check item (Pause hotkey).
+    checked: Option<bool>,
+    /// A divider line goes above this row.
+    divider: bool,
+}
+fn menu_items() -> Vec<TrayItem> {
     let l = labels(&crate::config::get_language());
-    MenuBuilder::new(app)
-        .item(&MenuItemBuilder::new(l.open).id("open").build(app)?)
-        .item(&MenuItemBuilder::new(l.settings).id("settings").build(app)?)
-        .item(&MenuItemBuilder::new(l.reindex).id("reindex").build(app)?)
-        .item(
-            &CheckMenuItemBuilder::new(l.pause)
-                .id("pause")
-                .checked(crate::keyboard_hook::is_paused())
-                .build(app)?,
-        )
-        .separator()
-        .item(&MenuItemBuilder::new(l.restart).id("restart").build(app)?)
-        .item(&MenuItemBuilder::new(l.quit).id("quit").build(app)?)
-        .build()
+    let item = |id, label| TrayItem { id, label, checked: None, divider: false };
+    vec![
+        item("open", l.open),
+        item("settings", l.settings),
+        item("reindex", l.reindex),
+        TrayItem { id: "pause", label: l.pause, checked: Some(crate::keyboard_hook::is_paused()), divider: false },
+        TrayItem { id: "restart", label: l.restart, checked: None, divider: true },
+        item("quit", l.quit),
+    ]
 }
 /// "Umbra · Alt+Space", so the hotkey is one hover away.
 fn tooltip() -> String {
@@ -78,61 +82,173 @@ fn tooltip() -> String {
         format!("Umbra · {hotkey}")
     }
 }
-/// Rebuilds the menu and tooltip after the language, the hotkey or the pause
-/// state changed.
+/// Updates the tooltip after the language, the hotkey or the pause state
+/// changed (the menu itself is built each time it opens).
 pub fn refresh(app: &tauri::AppHandle) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if let Ok(menu) = build_menu(app) {
-            let _ = tray.set_menu(Some(menu));
-        }
         let _ = tray.set_tooltip(Some(tooltip()));
+    }
+    let _ = tauri::Emitter::emit_to(app, MENU_LABEL, "tray-menu-refresh", ());
+}
+fn handle_action(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "open" | "settings" => {
+            if let Some(window) = app.get_webview_window("main") {
+                crate::show_window_with(&window, id == "settings");
+            }
+        }
+        "reindex" => {
+            crate::indexer::init_index_with_progress(app.clone());
+        }
+        "pause" => {
+            crate::keyboard_hook::set_paused(!crate::keyboard_hook::is_paused());
+            refresh(app);
+        }
+        "restart" => {
+            crate::storage::flush_pending();
+            app.restart();
+        }
+        "quit" => {
+            crate::storage::flush_pending();
+            // app.exit lets Tauri shut down properly (the tray icon is removed
+            // instead of lingering until the mouse passes over it).
+            app.exit(0);
+        }
+        _ => {}
+    }
+}
+// ---- the menu window ----
+//
+// Right-clicking the icon opens a small Umbra-styled window (tray-menu.html)
+// instead of the system menu. It is created hidden at start; on a right-click
+// the cursor position is remembered and the page is asked to draw the items,
+// then it calls tray_menu_present with its size and is shown next to the
+// cursor, inside the work area of that monitor. It hides when it loses focus.
+const MENU_LABEL: &str = "tray-menu";
+static ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+fn create_menu_window(app: &tauri::App) -> tauri::Result<()> {
+    let window = tauri::WebviewWindowBuilder::new(app, MENU_LABEL, tauri::WebviewUrl::App("tray-menu.html".into()))
+        .title("Umbra")
+        .inner_size(240.0, 300.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .build()?;
+    let menu = window.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Focused(false) = event {
+            let _ = menu.hide();
+        }
+    });
+    Ok(())
+}
+fn open_menu(app: &tauri::AppHandle, x: f64, y: f64) {
+    *ANCHOR.lock().unwrap() = Some((x, y));
+    let _ = tauri::Emitter::emit_to(app, MENU_LABEL, "tray-menu-show", ());
+}
+/// Where a menu of `w` x `h` physical pixels goes for a click at (x, y): above
+/// and to the left of the cursor like the system menu, flipped when that would
+/// leave the work area (taskbar at the top or on the left), then kept inside it.
+fn menu_position(x: f64, y: f64, w: f64, h: f64, area: (f64, f64, f64, f64)) -> (f64, f64) {
+    let (left, top, right, bottom) = area;
+    let mut px = x - w;
+    if px < left {
+        px = x;
+    }
+    let mut py = y - h;
+    if py < top {
+        py = y;
+    }
+    (px.clamp(left, (right - w).max(left)), py.clamp(top, (bottom - h).max(top)))
+}
+#[tauri::command]
+pub fn tray_menu_items() -> Vec<TrayItem> {
+    menu_items()
+}
+/// Called by the menu page once it has drawn the items; `width` / `height` are
+/// its size in CSS pixels.
+#[tauri::command]
+pub fn tray_menu_present(app: tauri::AppHandle, width: f64, height: f64) {
+    let Some(window) = app.get_webview_window(MENU_LABEL) else {
+        return;
+    };
+    // Normally the right-click position; otherwise wherever the cursor is.
+    let anchor = ANCHOR.lock().unwrap().take();
+    let Some((x, y)) = anchor.or_else(|| app.cursor_position().ok().map(|p| (p.x, p.y))) else {
+        return;
+    };
+    let monitor = app.monitor_from_point(x, y).ok().flatten();
+    let scale = monitor.as_ref().map_or(1.0, |m| m.scale_factor());
+    let (w, h) = (width * scale, height * scale);
+    let area = match &monitor {
+        Some(m) => {
+            let wa = m.work_area();
+            let (l, t) = (wa.position.x as f64, wa.position.y as f64);
+            (l, t, l + wa.size.width as f64, t + wa.size.height as f64)
+        }
+        None => (f64::MIN / 4.0, f64::MIN / 4.0, f64::MAX / 4.0, f64::MAX / 4.0),
+    };
+    let (px, py) = menu_position(x, y, w, h, area);
+    let _ = window.set_size(tauri::PhysicalSize::new(w.round() as u32, h.round() as u32));
+    let _ = window.set_position(tauri::PhysicalPosition::new(px.round() as i32, py.round() as i32));
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+#[tauri::command]
+pub fn tray_menu_action(app: tauri::AppHandle, id: String) {
+    if let Some(window) = app.get_webview_window(MENU_LABEL) {
+        let _ = window.hide();
+    }
+    handle_action(&app, &id);
+}
+#[tauri::command]
+pub fn tray_menu_hide(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(MENU_LABEL) {
+        let _ = window.hide();
     }
 }
 pub fn create(app: &tauri::App) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    let menu = build_menu(app)?;
+    create_menu_window(app)?;
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().unwrap().clone())
-        .menu(&menu)
         .tooltip(tooltip())
-        .on_menu_event(move |app, event| match event.id.as_ref() {
-            "open" | "settings" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    crate::show_window_with(&window, event.id.as_ref() == "settings");
-                }
-            }
-            "reindex" => {
-                crate::indexer::init_index_with_progress(app.clone());
-            }
-            "pause" => {
-                crate::keyboard_hook::set_paused(!crate::keyboard_hook::is_paused());
-                refresh(app);
-            }
-            "restart" => {
-                crate::storage::flush_pending();
-                let _ = app.restart();
-            }
-            "quit" => {
-                crate::storage::flush_pending();
-                // app.exit lets Tauri shut down properly (the tray icon is removed
-                // instead of lingering until the mouse passes over it).
-                app.exit(0);
-            }
-            _ => {}
-        })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    crate::show_window(&window);
+            let TrayIconEvent::Click { button, button_state: MouseButtonState::Up, position, .. } = event else {
+                return;
+            };
+            let app = tray.app_handle();
+            match button {
+                MouseButton::Left => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        crate::show_window(&window);
+                    }
                 }
+                MouseButton::Right => open_menu(app, position.x, position.y),
+                _ => {}
             }
         })
         .build(app)?;
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::menu_position;
+    const SCREEN: (f64, f64, f64, f64) = (0.0, 0.0, 1920.0, 1032.0); // taskbar at the bottom
+    #[test]
+    fn opens_above_and_left_of_the_cursor() {
+        assert_eq!(menu_position(1800.0, 1050.0, 240.0, 300.0, SCREEN), (1560.0, 732.0));
+    }
+    #[test]
+    fn flips_and_stays_inside_the_work_area() {
+        // Taskbar at the top: the menu opens below the cursor.
+        assert_eq!(menu_position(1800.0, 10.0, 240.0, 300.0, (0.0, 40.0, 1920.0, 1080.0)), (1560.0, 40.0));
+        // Taskbar on the left: the menu opens to the right of the cursor.
+        assert_eq!(menu_position(20.0, 900.0, 240.0, 300.0, (60.0, 0.0, 1920.0, 1080.0)), (60.0, 600.0));
+    }
 }

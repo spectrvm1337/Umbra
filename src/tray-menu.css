@@ -1,0 +1,65 @@
+/* Tray menu window (tray-menu.html). Uses the tokens from styles.css, so it
+   follows the theme the page receives. The window is the menu plus a 12px
+   margin for the shadow. */
+body.tray-menu-page {
+  background: transparent;
+  padding: 12px;
+  overflow: hidden;
+}
+#tray-menu {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 5px;
+  background: var(--card-bg);
+  border: var(--card-border-w) solid var(--card-border);
+  border-radius: var(--card-radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: var(--weight-medium);
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  transform-origin: bottom right;
+}
+#tray-menu.shown {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.14s ease-out, transform 0.18s cubic-bezier(0.2, 1, 0.3, 1);
+}
+.tm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px 0 8px;
+  border-radius: calc(var(--card-radius) - 5px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tm-item.active {
+  background: var(--card-hover);
+}
+.tm-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.tm-check svg {
+  width: 14px;
+  height: 14px;
+}
+.tm-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--card-line);
+}
+@media (prefers-reduced-motion: reduce) {
+  #tray-menu.shown {
+    transition: none;
+  }
+}

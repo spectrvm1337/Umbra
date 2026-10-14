@@ -61,97 +61,33 @@ pub fn get_icon_png_data(path: &str) -> Option<Vec<u8>> {
     }
     result
 }
-type HResult = i32;
+/// Target of a .lnk shortcut, so the icon comes from the program it opens.
 #[cfg(target_os = "windows")]
 fn resolve_lnk_target(path: &str) -> Option<String> {
-    type GUID = [u32; 4];
-    const CLSID_SHELL_LINK: GUID = [0x00021401, 0x00000000, 0x000000C0, 0x46000000];
-
-    const IID_ISHELL_LINKW: GUID = [0x000214F9, 0x00000000, 0x000000C0, 0x46000000];
-
-    const IID_IPERSIST_FILE: GUID = [0x0000010B, 0x00000000, 0x000000C0, 0x46000000];
-    const CLSCTX_INPROC_SERVER: u32 = 0x1;
-    extern "system" {
-        fn CoInitialize(pv_reserved: *mut c_void) -> HResult;
-        fn CoUninitialize();
-        fn CoCreateInstance(
-            rclsid: *const GUID,
-            p_unk_outer: *mut c_void,
-            dw_cls_context: u32,
-            riid: *const GUID,
-            ppv: *mut *mut c_void,
-        ) -> HResult;
-    }
-    let co_hr = unsafe { CoInitialize(std::ptr::null_mut()) };
-    let should_uninit = co_hr >= 0;
-    let release_com = |ptr: *mut c_void| {
-        if !ptr.is_null() {
-            unsafe {
-                let vtable = *(ptr as *const *const *const c_void);
-                let release_fn: extern "system" fn(*mut c_void) -> u32 =
-                    std::mem::transmute(*vtable.add(2));
-                release_fn(ptr);
-            }
+    use windows::core::{Interface, HSTRING};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+    unsafe {
+        // S_FALSE (already initialised on this thread) also needs the matching uninit.
+        let init = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // The COM objects live only inside this closure, so they are released
+        // before CoUninitialize.
+        let target = (|| -> windows::core::Result<String> {
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            link.cast::<IPersistFile>()?.Load(&HSTRING::from(path), STGM_READ)?;
+            let mut buf = [0u16; 1024];
+            link.GetPath(&mut buf, std::ptr::null_mut(), 0)?;
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            Ok(String::from_utf16_lossy(&buf[..len]))
+        })();
+        if init.is_ok() {
+            CoUninitialize();
         }
-    };
-    let mut obj: *mut c_void = std::ptr::null_mut();
-    let hr = unsafe {
-        CoCreateInstance(
-            &CLSID_SHELL_LINK,
-            std::ptr::null_mut(),
-            CLSCTX_INPROC_SERVER,
-            &IID_ISHELL_LINKW,
-            &mut obj,
-        )
-    };
-    if hr < 0 || obj.is_null() {
-        if should_uninit { unsafe { CoUninitialize() }; }
-        return None;
+        target.ok().filter(|t| !t.is_empty())
     }
-    let mut persist: *mut c_void = std::ptr::null_mut();
-    let hr = unsafe {
-        let vtable = *(obj as *const *const *const c_void);
-        let qi_fn: extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> HResult =
-            std::mem::transmute(*vtable);
-        qi_fn(obj, &IID_IPERSIST_FILE, &mut persist)
-    };
-    if hr < 0 || persist.is_null() {
-        release_com(obj);
-        if should_uninit { unsafe { CoUninitialize() }; }
-        return None;
-    }
-    let wide_path: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
-    let hr = unsafe {
-        let vtable = *(persist as *const *const *const c_void);
-        let load_fn: extern "system" fn(*mut c_void, *const u16, u32) -> HResult =
-            std::mem::transmute(*vtable.add(5));
-        load_fn(persist, wide_path.as_ptr(), 0)
-    };
-    if hr < 0 {
-        release_com(persist);
-        release_com(obj);
-        if should_uninit { unsafe { CoUninitialize() }; }
-        return None;
-    }
-    let mut target_buf = [0u16; 1024];
-    let hr = unsafe {
-        let vtable = *(obj as *const *const *const c_void);
-        let get_path_fn: extern "system" fn(*mut c_void, *mut u16, i32, *mut c_void, u32) -> HResult =
-            std::mem::transmute(*vtable.add(3));
-        get_path_fn(obj, target_buf.as_mut_ptr(), 1024, std::ptr::null_mut(), 0)
-    };
-    release_com(persist);
-    release_com(obj);
-    if should_uninit { unsafe { CoUninitialize() }; }
-    if hr < 0 {
-        return None;
-    }
-    let target = String::from_utf16_lossy(&target_buf);
-    let target = target.trim_end_matches('\0');
-    if target.is_empty() {
-        return None;
-    }
-    Some(target.to_string())
 }
 #[cfg(target_os = "windows")]
 fn hicon_to_png(path: &str) -> Option<Vec<u8>> {
@@ -264,4 +200,35 @@ fn hicon_to_png(_path: &str) -> Option<Vec<u8>> {
 #[cfg(not(target_os = "windows"))]
 fn resolve_lnk_target(_path: &str) -> Option<String> {
     None
+}
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn resolves_a_shortcut_to_its_target() {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+        let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let target = format!("{windir}\\notepad.exe");
+        let lnk = std::env::temp_dir().join("umbra-test-notepad.lnk");
+        unsafe {
+            let init = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            {
+                let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+                link.SetPath(&HSTRING::from(target.as_str())).unwrap();
+                link.cast::<IPersistFile>().unwrap().Save(&HSTRING::from(lnk.to_string_lossy().as_ref()), true).unwrap();
+            }
+            if init.is_ok() {
+                CoUninitialize();
+            }
+        }
+        let resolved = resolve_lnk_target(&lnk.to_string_lossy()).unwrap();
+        assert!(resolved.eq_ignore_ascii_case(&target), "{resolved} != {target}");
+        assert_eq!(resolve_lnk_target("C:\\no\\such\\file.lnk"), None);
+        let _ = std::fs::remove_file(&lnk);
+    }
 }

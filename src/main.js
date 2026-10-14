@@ -2151,7 +2151,7 @@ searchInput.addEventListener("keydown", (e) => {
       e.preventDefault();
       if (settingsBtn.classList.contains("open")) {
         toggleSettings();
-      } else {
+      } else if (!clearQueryOnEscape()) {
         hideWindow();
       }
     }
@@ -2205,9 +2205,16 @@ searchInput.addEventListener("keydown", (e) => {
       searchInput.focus();
       return;
     }
-    hideWindow();
+    if (!clearQueryOnEscape()) hideWindow();
   }
 });
+// The first Esc clears a typed query (like the clear button); the next one hides
+// the window. Returns true when it cleared something.
+function clearQueryOnEscape() {
+  if (!searchInput.value) return false;
+  clearBtn.click();
+  return true;
+}
 let pointerGuard = false;
 function centerWindowAnimated() {
   invoke("recenter_window").catch((err) => console.warn("recenter failed:", err));

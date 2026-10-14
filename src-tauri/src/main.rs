@@ -90,8 +90,11 @@ fn main() {
             });
             #[cfg(target_os = "windows")]
             tray::create(app)?;
+            // Debug builds (tauri dev) leave the Run value alone: otherwise every dev run
+            // points Windows' autostart at target\debug\umbra.exe instead of the
+            // installed app.
             #[cfg(target_os = "windows")]
-            if config::get_autostart() {
+            if config::get_autostart() && !cfg!(debug_assertions) {
                 autostart::ensure_autostart();
             }
             Ok(())

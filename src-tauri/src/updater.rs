@@ -397,6 +397,7 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
 fn exit_soon(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
+        crate::storage::flush_pending();
         app.exit(0);
     });
 }

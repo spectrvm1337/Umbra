@@ -215,90 +215,6 @@ struct ConfigState {
     path: PathBuf,
     config: Config,
 }
-pub fn get_theme() -> ThemeConfig {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.theme.clone()
-}
-pub fn set_theme(theme: ThemeConfig) -> ThemeConfig {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    let clean = theme.sanitized();
-    state.config.theme = clean.clone();
-    save(state);
-    clean
-}
-pub fn is_pinned() -> bool {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.pinned
-}
-pub fn set_pinned(pinned: bool, x: i32, y: i32) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    state.config.pinned = pinned;
-    state.config.pin_x = x;
-    state.config.pin_y = y;
-    save(state);
-}
-pub fn pinned_position() -> Option<(i32, i32)> {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    let c = &guard.as_ref().unwrap().config;
-    if c.pinned {
-        Some((c.pin_x, c.pin_y))
-    } else {
-        None
-    }
-}
-pub fn get_placement() -> (String, i32) {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    let c = &guard.as_ref().unwrap().config;
-    let align = if is_valid_align(&c.align) {
-        c.align.clone()
-    } else {
-        default_align()
-    };
-    (align, c.monitor)
-}
-pub fn is_valid_align(align: &str) -> bool {
-    let b = align.as_bytes();
-    b.len() == 2 && matches!(b[0], b't' | b'c' | b'b') && matches!(b[1], b'l' | b'c' | b'r')
-}
-pub fn set_placement(align: String, monitor: i32) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    state.config.align = align;
-    state.config.monitor = monitor;
-    save(state);
-}
-pub fn get_language() -> String {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    let lang = &guard.as_ref().unwrap().config.language;
-    match lang.as_str() {
-        "en" | "ru" | "ja" | "de" => lang.clone(),
-        _ => "en".to_string(),
-    }
-}
-pub fn set_language(lang: String) -> String {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    let clean = match lang.to_lowercase().as_str() {
-        "ru" => "ru".to_string(),
-        "ja" => "ja".to_string(),
-        "de" => "de".to_string(),
-        _ => "en".to_string(),
-    };
-    state.config.language = clean.clone();
-    save(state);
-    clean
-}
 static STATE: LazyLock<Mutex<Option<ConfigState>>> = LazyLock::new(|| Mutex::new(None));
 fn config_path() -> PathBuf {
     crate::paths::config_file()
@@ -311,57 +227,108 @@ fn normalise_hotkey(config: &mut Config) {
         config.hotkey = DEFAULT_HOTKEY.to_string();
     }
 }
-fn ensure_loaded() {
+fn with_state<R>(f: impl FnOnce(&mut ConfigState) -> R) -> R {
     let mut guard = STATE.lock().unwrap();
-    if guard.is_some() {
-        return;
-    }
-    let path = config_path();
-    let mut config: Config = crate::storage::load_json(&path);
-    normalise_hotkey(&mut config);
-    *guard = Some(ConfigState { path, config });
+    let state = guard.get_or_insert_with(|| {
+        let path = config_path();
+        let mut config: Config = crate::storage::load_json(&path);
+        normalise_hotkey(&mut config);
+        ConfigState { path, config }
+    });
+    f(state)
+}
+/// Reads the config under its lock.
+fn read<R>(f: impl FnOnce(&Config) -> R) -> R {
+    with_state(|state| f(&state.config))
+}
+/// Changes the config under one lock (so read-modify-write cannot race) and
+/// queues it for saving; the disk write happens off the calling thread.
+fn update<R>(f: impl FnOnce(&mut Config) -> R) -> R {
+    with_state(|state| {
+        let out = f(&mut state.config);
+        if let Ok(json) = serde_json::to_string_pretty(&state.config) {
+            crate::storage::save_later(state.path.clone(), json);
+        }
+        out
+    })
+}
+pub fn get_theme() -> ThemeConfig {
+    read(|c| c.theme.clone())
+}
+pub fn set_theme(theme: ThemeConfig) -> ThemeConfig {
+    let clean = theme.sanitized();
+    update(|c| c.theme = clean.clone());
+    clean
+}
+pub fn is_pinned() -> bool {
+    read(|c| c.pinned)
+}
+pub fn set_pinned(pinned: bool, x: i32, y: i32) {
+    update(|c| {
+        c.pinned = pinned;
+        c.pin_x = x;
+        c.pin_y = y;
+    });
+}
+pub fn pinned_position() -> Option<(i32, i32)> {
+    read(|c| c.pinned.then_some((c.pin_x, c.pin_y)))
+}
+pub fn get_placement() -> (String, i32) {
+    read(|c| {
+        let align = if is_valid_align(&c.align) {
+            c.align.clone()
+        } else {
+            default_align()
+        };
+        (align, c.monitor)
+    })
+}
+pub fn is_valid_align(align: &str) -> bool {
+    let b = align.as_bytes();
+    b.len() == 2 && matches!(b[0], b't' | b'c' | b'b') && matches!(b[1], b'l' | b'c' | b'r')
+}
+pub fn set_placement(align: String, monitor: i32) {
+    update(|c| {
+        c.align = align;
+        c.monitor = monitor;
+    });
+}
+pub fn get_language() -> String {
+    read(|c| match c.language.as_str() {
+        "en" | "ru" | "ja" | "de" => c.language.clone(),
+        _ => "en".to_string(),
+    })
+}
+pub fn set_language(lang: String) -> String {
+    let clean = match lang.to_lowercase().as_str() {
+        "ru" => "ru".to_string(),
+        "ja" => "ja".to_string(),
+        "de" => "de".to_string(),
+        _ => "en".to_string(),
+    };
+    update(|c| c.language = clean.clone());
+    clean
 }
 pub fn get_autostart() -> bool {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.autostart
+    read(|c| c.autostart)
 }
 pub fn set_autostart(enable: bool) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    state.config.autostart = enable;
-    save(state);
+    update(|c| c.autostart = enable);
 }
 pub fn get_hotkey() -> String {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.hotkey.clone()
+    read(|c| c.hotkey.clone())
 }
 pub fn set_hotkey(key: &str) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    state.config.hotkey = key.to_string();
-    save(state);
+    update(|c| c.hotkey = key.to_string());
 }
 pub fn get_zoom() -> f64 {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    let zoom = guard.as_ref().unwrap().config.zoom;
-    if zoom > 0.0 { zoom } else { 1.0 }
+    read(|c| if c.zoom > 0.0 { c.zoom } else { 1.0 })
 }
 pub fn set_zoom(zoom: f64) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    state.config.zoom = zoom.clamp(0.5, 2.0);
-    save(state);
+    update(|c| c.zoom = zoom.clamp(0.5, 2.0));
 }
 pub fn get_index_excludes() -> Vec<String> {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.index_excludes.clone()
+    read(|c| c.index_excludes.clone())
 }
 pub fn get_default_index_excludes() -> Vec<String> {
     DEFAULT_INDEX_EXCLUDES
@@ -370,9 +337,6 @@ pub fn get_default_index_excludes() -> Vec<String> {
         .collect()
 }
 pub fn set_index_excludes(excludes: Vec<String>) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
     let mut clean: Vec<String> = excludes
         .into_iter()
         .map(|s| s.trim().to_lowercase())
@@ -380,47 +344,42 @@ pub fn set_index_excludes(excludes: Vec<String>) {
         .collect();
     clean.sort();
     clean.dedup();
-    state.config.index_excludes = clean;
-    save(state);
+    update(|c| c.index_excludes = clean);
 }
 pub fn get_disabled_kinds() -> Vec<u8> {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.disabled_kinds.clone()
+    read(|c| c.disabled_kinds.clone())
 }
-pub fn set_disabled_kinds(kinds: Vec<u8>) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    let mut clean: Vec<u8> = kinds.into_iter().filter(|&k| k <= 10).collect();
-    clean.sort();
-    clean.dedup();
-    state.config.disabled_kinds = clean;
-    save(state);
-}
-fn save(state: &ConfigState) {
-    if let Ok(json) = serde_json::to_string_pretty(&state.config) {
-        let _ = crate::storage::write_atomic(&state.path, json);
-    }
+/// Turns one file kind on or off and returns the new disabled list.
+pub fn set_kind_enabled(kind: u8, enabled: bool) -> Vec<u8> {
+    update(|c| {
+        let kinds = &mut c.disabled_kinds;
+        if enabled {
+            kinds.retain(|&k| k != kind);
+        } else if kind <= 10 && !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+        kinds.sort();
+        kinds.dedup();
+        kinds.clone()
+    })
 }
 pub fn get_disabled_drives() -> Vec<String> {
-    ensure_loaded();
-    let guard = STATE.lock().unwrap();
-    guard.as_ref().unwrap().config.disabled_drives.clone()
+    read(|c| c.disabled_drives.clone())
 }
-pub fn set_disabled_drives(drives: Vec<String>) {
-    ensure_loaded();
-    let mut guard = STATE.lock().unwrap();
-    let state = guard.as_mut().unwrap();
-    let mut clean: Vec<String> = drives
-        .into_iter()
-        .map(|s| s.trim().to_uppercase())
-        .filter(|s| !s.is_empty())
-        .collect();
-    clean.sort();
-    clean.dedup();
-    state.config.disabled_drives = clean;
-    save(state);
+/// Turns one drive on or off and returns the new disabled list.
+pub fn set_drive_enabled(drive: &str, enabled: bool) -> Vec<String> {
+    let d = drive.trim().to_uppercase();
+    update(|c| {
+        let drives = &mut c.disabled_drives;
+        if enabled {
+            drives.retain(|x| x != &d);
+        } else if !d.is_empty() && !drives.contains(&d) {
+            drives.push(d);
+        }
+        drives.sort();
+        drives.dedup();
+        drives.clone()
+    })
 }
 #[cfg(test)]
 mod tests {

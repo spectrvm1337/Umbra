@@ -168,18 +168,7 @@ pub fn get_disabled_kinds() -> Vec<u8> {
 }
 #[tauri::command]
 pub fn set_kind_enabled(kind: u8, enabled: bool) -> Vec<u8> {
-    let mut kinds = config::get_disabled_kinds();
-    if enabled {
-        kinds.retain(|&k| k != kind);
-    } else {
-        if kind <= 10 && !kinds.contains(&kind) {
-            kinds.push(kind);
-        }
-    }
-    kinds.sort();
-    kinds.dedup();
-    config::set_disabled_kinds(kinds);
-    config::get_disabled_kinds()
+    config::set_kind_enabled(kind, enabled)
 }
 #[tauri::command]
 pub fn get_available_drives() -> Vec<String> {
@@ -191,17 +180,7 @@ pub fn get_disabled_drives() -> Vec<String> {
 }
 #[tauri::command]
 pub fn set_drive_enabled(drive: String, enabled: bool) -> Vec<String> {
-    let mut drives = config::get_disabled_drives();
-    let d = drive.trim().to_uppercase();
-    if enabled {
-        drives.retain(|x| x != &d);
-    } else {
-        if !drives.contains(&d) {
-            drives.push(d);
-        }
-    }
-    config::set_disabled_drives(drives);
-    config::get_disabled_drives()
+    config::set_drive_enabled(&drive, enabled)
 }
 #[tauri::command]
 pub fn open_themes_folder() -> Result<(), String> {

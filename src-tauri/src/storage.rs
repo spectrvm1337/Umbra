@@ -1,8 +1,11 @@
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
@@ -26,6 +29,34 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+/// Latest unsaved contents per file. Settings commands run on the UI thread,
+/// so they only drop their JSON here; a background thread writes it shortly
+/// after, and a burst of clicks becomes a single write.
+static PENDING: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static FLUSH_SCHEDULED: AtomicBool = AtomicBool::new(false);
+/// Held while pending files are taken and written, so an older snapshot can
+/// never land on disk after a newer one.
+static WRITING: Mutex<()> = Mutex::new(());
+const SAVE_DELAY: Duration = Duration::from_millis(300);
+pub fn save_later(path: PathBuf, contents: String) {
+    PENDING.lock().unwrap().insert(path, contents);
+    if FLUSH_SCHEDULED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(SAVE_DELAY);
+        FLUSH_SCHEDULED.store(false, Ordering::SeqCst);
+        flush_pending();
+    });
+}
+/// Writes everything `save_later` still holds. Call before the process exits.
+pub fn flush_pending() {
+    let _writing = WRITING.lock().unwrap();
+    let files = std::mem::take(&mut *PENDING.lock().unwrap());
+    for (path, contents) in files {
+        let _ = write_atomic(&path, contents);
+    }
 }
 pub fn load_json<T: DeserializeOwned + Default>(path: &Path) -> T {
     let Ok(data) = fs::read_to_string(path) else {
@@ -103,6 +134,21 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert!(serde_json::from_str::<Vec<u32>>(&content).is_ok(), "got {content:?}");
         assert!(files_in(&dir).iter().all(|n| !n.ends_with(".tmp")));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn save_later_coalesces_writes_and_flush_writes_the_latest() {
+        let dir = temp_dir("later");
+        let path = dir.join("config.json");
+        for i in 0..50 {
+            save_later(path.clone(), format!("{{\"n\": {i}}}"));
+        }
+        assert!(!path.exists(), "nothing is written on the calling thread");
+        flush_pending();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"n\": 49}");
+        save_later(path.clone(), "{\"n\": 50}".to_string());
+        std::thread::sleep(SAVE_DELAY * 3);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"n\": 50}", "background flush");
         fs::remove_dir_all(&dir).unwrap();
     }
     #[test]

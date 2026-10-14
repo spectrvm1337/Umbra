@@ -11,9 +11,11 @@ pub fn create(app: &tauri::App) -> tauri::Result<()> {
         .tooltip("Umbra")
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "restart" => {
+                crate::storage::flush_pending();
                 let _ = app.restart();
             }
             "quit" => {
+                crate::storage::flush_pending();
                 std::process::exit(0);
             }
             _ => {}

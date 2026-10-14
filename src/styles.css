@@ -1387,6 +1387,24 @@ body > .result-item.pin-drag-copy {
   opacity: 0.75;
   transition: opacity 0.15s, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.12s ease;
 }
+/* Ctrl held: rows 1-9 show their Ctrl+number where the pin button is (same width). */
+.show-shortcuts .result-item[data-shortcut] .result-pin {
+  display: none;
+}
+.show-shortcuts .result-item[data-shortcut]::after {
+  content: attr(data-shortcut);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+}
 .result-pin:hover {
   opacity: 1;
   background: var(--card-hover);

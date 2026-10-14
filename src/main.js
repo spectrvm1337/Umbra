@@ -2125,7 +2125,82 @@ async function performSearch(query) {
     console.error("Search error:", err);
   }
 }
+// What Enter does on a row: launch it; Ctrl+Shift runs it as admin, Shift copies the
+// path, Ctrl shows it in Explorer. Help rows fill the box and copy rows copy instead.
+function activateItem(item, mods = {}) {
+  if (item.kind === "help") {
+    if (item.fill) {
+      searchInput.value = item.fill;
+      clearBtn.classList.add("visible");
+      clearGhost();
+      updateGhost();
+      searchInput.focus();
+    }
+    return;
+  }
+  if (item.kind === "copy") {
+    if (item.path) copyPath(item.path);
+    return;
+  }
+  if (mods.ctrlKey && mods.shiftKey) {
+    hideWindow();
+    invoke("launch_admin", { path: item.path })
+      .catch(() => console.error("Admin launch failed"));
+  } else if (mods.ctrlKey && !/^https?:/i.test(item.path)) {
+    invoke("reveal_in_explorer", { path: item.path }).catch((err) => console.warn("reveal failed:", err));
+    hideWindow();
+  } else if (mods.shiftKey) {
+    copyPath(item.path);
+  } else {
+    launchItem(item.path);
+  }
+}
+// Rows on screen in the order Ctrl+1..9 counts them (data-index is the position in
+// selectableItems; rows of a hidden section are skipped).
+function shortcutRows() {
+  return [...document.querySelectorAll("#pins-list .result-item, #results-list .result-item")]
+    .filter((el) => el.offsetParent !== null && Number(el.dataset.index) < 9);
+}
+// Holding Ctrl for a moment shows each row's number in place of its pin button.
+let shortcutHintTimer = null;
+function showRowShortcuts(on) {
+  clearTimeout(shortcutHintTimer);
+  document.body.classList.toggle("show-shortcuts", on);
+  document.querySelectorAll(".result-item[data-shortcut]").forEach((el) => delete el.dataset.shortcut);
+  if (on) shortcutRows().forEach((el) => { el.dataset.shortcut = Number(el.dataset.index) + 1; });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Control") {
+    if (!e.repeat) shortcutHintTimer = setTimeout(() => showRowShortcuts(true), 250);
+  } else if (!/^Digit[1-9]$/.test(e.code)) {
+    // Ctrl+C, Ctrl+V, ... are not about rows; don't flash the numbers for them.
+    showRowShortcuts(false);
+  }
+});
+document.addEventListener("keyup", (e) => {
+  if (e.key === "Control") showRowShortcuts(false);
+});
+window.addEventListener("blur", () => showRowShortcuts(false));
 searchInput.addEventListener("keydown", (e) => {
+  // Ctrl+1..9 runs row N; Ctrl+P pins or unpins the selected row (and keeps
+  // WebView2's print dialog away).
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && settingsSection.classList.contains("hidden")) {
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (digit) {
+      e.preventDefault();
+      const n = Number(digit[1]) - 1;
+      const onScreen = shortcutRows().some((el) => Number(el.dataset.index) === n);
+      showRowShortcuts(false);
+      if (onScreen && selectableItems[n]) activateItem(selectableItems[n]);
+      return;
+    }
+    if (e.code === "KeyP") {
+      e.preventDefault();
+      const item = selectableItems[selectedIndex];
+      if (item && item.path && !["help", "copy", "open"].includes(item.kind)) setItemPinned(item, !isPinned(item.path));
+      return;
+    }
+  }
   if (e.key === "Tab" && ghostRest.textContent) {
     e.preventDefault();
     searchInput.value = ghostTyped.textContent + ghostRest.textContent;
@@ -2168,31 +2243,7 @@ searchInput.addEventListener("keydown", (e) => {
   } else if (e.key === "Enter") {
     e.preventDefault();
     if (selectedIndex >= 0 && selectedIndex < selectableItems.length) {
-      const item = selectableItems[selectedIndex];
-
-      if (item.kind === "help") {
-        if (item.fill) {
-          searchInput.value = item.fill;
-          clearBtn.classList.add("visible");
-          clearGhost();
-          updateGhost();
-          searchInput.focus();
-        }
-        return;
-      }
-      if (item.kind === "copy") {
-        if (item.path) copyPath(item.path);
-        return;
-      }
-      if (e.ctrlKey && e.shiftKey) {
-        hideWindow(); 
-        invoke("launch_admin", { path: item.path })
-          .catch(() => console.error("Admin launch failed"));
-      } else if (e.shiftKey) {
-        copyPath(item.path);
-      } else {
-        launchItem(item.path);
-      }
+      activateItem(selectableItems[selectedIndex], e);
     }
   } else if (e.key === "Escape") {
     e.preventDefault();

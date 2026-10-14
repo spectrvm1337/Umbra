@@ -68,6 +68,16 @@ impl Key {
         }
         names
     }
+    pub fn dword(&self, name: &str) -> Option<u32> {
+        let name = wide(name);
+        let mut kind: REG_VALUE_TYPE = 0;
+        let mut value: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let res = unsafe {
+            RegQueryValueExW(self.0, name.as_ptr(), std::ptr::null(), &mut kind, &mut value as *mut u32 as *mut u8, &mut size)
+        };
+        (res == 0 && kind == REG_DWORD).then_some(value)
+    }
     pub fn string(&self, name: &str) -> Option<String> {
         let name = wide(name);
         let mut kind: REG_VALUE_TYPE = 0;

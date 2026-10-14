@@ -129,6 +129,10 @@ pub struct ThemeConfig {
 
     #[serde(default)]
     pub light_mode: bool,
+    /// Light / dark and the accent colour follow Windows instead of the
+    /// colours above (which are kept for when this is turned off).
+    #[serde(default)]
+    pub follow_system: bool,
     #[serde(default)]
     pub custom_theme: Option<String>,
 }
@@ -165,6 +169,7 @@ impl Default for ThemeConfig {
             border_pos: default_border_pos(),
             pins_style: default_pins_style(),
             light_mode: false,
+            follow_system: false,
             custom_theme: None,
         }
     }

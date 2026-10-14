@@ -104,9 +104,13 @@
                 <button id="setting-zoom-plus" class="stepper-btn">+</button>
               </div>
             </div>
-            <div class="settings-row">
+            <div class="settings-row" id="row-presets">
               <span class="settings-label" data-i18n="lblPresets">Theme Presets</span>
               <div class="swatch-row" id="theme-presets"></div>
+            </div>
+            <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
+              <span class="settings-label" data-i18n="lblFollowSystem">Match Windows</span>
+              <span class="toggle" id="setting-system"><span class="toggle-knob"></span></span>
             </div>
             <div class="settings-row theme-dependent" id="row-accent">
               <span class="settings-label" data-i18n="lblAccent">Accent Color</span>

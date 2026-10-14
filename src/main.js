@@ -774,6 +774,28 @@ const borderWVal = document.getElementById("setting-borderw-val");
 const borderPosSeg = document.getElementById("border-pos-seg");
 const densitySeg = document.getElementById("density-seg");
 const tallRow = document.getElementById("setting-tall-row");
+const systemRow = document.getElementById("setting-system-row");
+const systemToggle = document.getElementById("setting-system");
+// Windows' light/dark mode and accent, for "Match Windows" (theme.followSystem).
+let systemTheme = null;
+async function refreshSystemTheme() {
+  try {
+    systemTheme = await invoke("get_system_theme");
+  } catch {
+    systemTheme = null;
+  }
+  if (theme && theme.followSystem) applyTheme();
+}
+// The colours actually drawn: the saved ones, or with "Match Windows" the
+// Default / Paper palette for dark / light plus the Windows accent.
+function effectiveColors() {
+  if (!theme.followSystem || !systemTheme) {
+    return { cardBg: theme.cardBg, text: theme.text, accent: theme.accent };
+  }
+  const base = THEME_PRESETS.find((p) => p.name === (systemTheme.dark ? "Default" : "Paper"));
+  return { cardBg: base.cardBg, text: base.text, accent: systemTheme.accent || base.accent };
+}
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refreshSystemTheme);
 const tallToggle = document.getElementById("setting-tall");
 const glowToggle = document.getElementById("setting-glow");
 const glowVal = document.getElementById("setting-glow-val");
@@ -836,9 +858,12 @@ function applyTheme() {
     customStyleEl.textContent = "";
     document.body.classList.remove("custom-theme-active");
   }
-  root.style.setProperty("--accent", theme.accent);
-  root.style.setProperty("--card-bg", hexWithAlpha(theme.cardBg, theme.cardAlpha));
-  root.style.setProperty("--text", theme.text);
+  const colors = effectiveColors();
+  root.style.setProperty("--accent", colors.accent);
+  root.style.setProperty("--card-bg", hexWithAlpha(colors.cardBg, theme.cardAlpha));
+  root.style.setProperty("--text", colors.text);
+  systemToggle.classList.toggle("on", !!theme.followSystem);
+  document.body.classList.toggle("follows-system", !!theme.followSystem);
   root.style.setProperty("--card-radius", theme.radius + "px");
   // Row/search/gap sizing comes from the [data-density] rules in the
   // stylesheet, so it stays overridable by custom themes.
@@ -1206,6 +1231,11 @@ densitySeg.addEventListener("click", (e) => {
   saveTheme();
 });
 // The window itself is resized on the Rust side (set_theme refits it).
+systemRow.addEventListener("click", async () => {
+  theme = { ...theme, followSystem: !theme.followSystem };
+  if (theme.followSystem) await refreshSystemTheme();
+  saveTheme();
+});
 tallRow.addEventListener("click", () => {
   theme = { ...theme, tallResults: !theme.tallResults };
   saveTheme();
@@ -1214,6 +1244,7 @@ async function loadTheme() {
   if (theme) return;
   try {
     theme = await invoke("get_theme");
+    if (theme.followSystem) systemTheme = await invoke("get_system_theme").catch(() => null);
     await loadThemes();
     applyTheme();
   } catch (e) {
@@ -2604,6 +2635,7 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   appContainer.classList.remove("window-hidden", "window-hiding");
   appContainer.classList.add("window-showing");
   animateAllRows = true;
+  if (theme && theme.followSystem) refreshSystemTheme();
   performSearch("");
   // Tray > Settings shows the window straight on the settings panel.
   if (event.payload && event.payload.openSettings && settingsSection.classList.contains("hidden")) toggleSettings();

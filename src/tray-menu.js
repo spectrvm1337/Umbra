@@ -13,10 +13,17 @@ function hexWithAlpha(hex, alpha) {
 async function applyTheme() {
   try {
     const theme = await invoke("get_theme");
+    let { accent, cardBg, text } = theme;
+    if (theme.followSystem) {
+      // Same as the main window's "Match Windows": Default / Paper + the Windows accent.
+      const sys = await invoke("get_system_theme");
+      [cardBg, text] = sys.dark ? ["#1e1e1e", "#e3e3e3"] : ["#f2f0e5", "#100f0f"];
+      accent = sys.accent || (sys.dark ? "#507090" : "#205ea6");
+    }
     const root = document.documentElement.style;
-    root.setProperty("--accent", theme.accent);
-    root.setProperty("--card-bg", hexWithAlpha(theme.cardBg, Math.max(theme.cardAlpha, 0.92)));
-    root.setProperty("--text", theme.text);
+    root.setProperty("--accent", accent);
+    root.setProperty("--card-bg", hexWithAlpha(cardBg, Math.max(theme.cardAlpha, 0.92)));
+    root.setProperty("--text", text);
     root.setProperty("--card-radius", theme.radius + "px");
     root.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
   } catch {}

@@ -145,6 +145,7 @@ fn main() {
             commands::get_theme,
             commands::set_theme,
             commands::get_language,
+            commands::get_system_theme,
             commands::set_language,
             commands::get_window_pin,
             commands::take_welcome,

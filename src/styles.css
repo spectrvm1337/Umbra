@@ -1464,6 +1464,14 @@ body > .result-item.pin-drag-copy {
   font-size: 12px;
   font-weight: var(--weight-medium);
 }
+/* "Match Windows" decides the colours, so the pickers rest. */
+/* (The rows themselves keep opacity 1 from their enter animation, so dim what is in them.) */
+.follows-system #row-presets > *,
+.follows-system #row-accent > *,
+.follows-system #row-bg > * {
+  opacity: 0.4;
+  pointer-events: none;
+}
 .result-pin:hover {
   opacity: 1;
   background: var(--card-hover);

@@ -130,6 +130,34 @@ pub fn set_theme(app: tauri::AppHandle, theme: config::ThemeConfig) -> config::T
     super::refit_window(&app);
     saved
 }
+#[derive(serde::Serialize)]
+pub struct SystemTheme {
+    pub dark: bool,
+    /// The Windows accent colour as #rrggbb, when it can be read.
+    pub accent: Option<String>,
+}
+/// Windows' app mode (light / dark) and accent colour, for "Match Windows".
+#[tauri::command]
+pub fn get_system_theme() -> SystemTheme {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+        let personalize = crate::registry::Key::open(
+            HKEY_CURRENT_USER,
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        );
+        let dark = personalize.and_then(|k| k.dword("AppsUseLightTheme")).map_or(true, |v| v == 0);
+        // AccentColor is stored as 0xAABBGGRR.
+        let accent = crate::registry::Key::open(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\DWM")
+            .and_then(|k| k.dword("AccentColor"))
+            .map(|v| format!("#{:02x}{:02x}{:02x}", v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff));
+        SystemTheme { dark, accent }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        SystemTheme { dark: true, accent: None }
+    }
+}
 #[tauri::command]
 pub fn get_language() -> String {
     config::get_language()

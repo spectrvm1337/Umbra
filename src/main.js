@@ -732,17 +732,21 @@ const tallRow = document.getElementById("setting-tall-row");
 const tallToggle = document.getElementById("setting-tall");
 const glowToggle = document.getElementById("setting-glow");
 const glowVal = document.getElementById("setting-glow-val");
+// Only two dark/light pairs of palettes: Default is the stock Umbra look,
+// Flexoki and Paper are the Flexoki scheme (dark and light), with the Flexoki
+// card red-tinted so it sits with the red accent instead of against it.
 const THEME_PRESETS = [
   { name: "Default", cardBg: "#1e1e1e", accent: "#507090", alpha: 1, text: "#e3e3e3" },
-  { name: "OLED",    cardBg: "#000000", accent: "#507090", alpha: 1, text: "#e3e3e3" },
-  { name: "Flexoki", cardBg: "#1c1b1a", accent: "#4385be", alpha: 1, text: "#cecdc3" },
   { name: "Paper",   cardBg: "#f2f0e5", accent: "#205ea6", alpha: 1, text: "#100f0f" },
-  { name: "Slate",   cardBg: "#16181d", accent: "#6c8cb0", alpha: 1, text: "#e3e3e3" },
-  { name: "Cocoa",   cardBg: "#231c16", accent: "#b08950", alpha: 1, text: "#e3e3e3" },
+  { name: "Flexoki", cardBg: "#1e1918", accent: "#d14d41", alpha: 1, text: "#cecdc3" },
 ];
-const ACCENTS_DARK = ["#4385be", "#879a39", "#d14d41", "#da702c", "#8b7ec8", "#ce5d97", "#3aa99f", "#d0a215"];
-const ACCENTS_LIGHT = ["#205ea6", "#66800b", "#af3029", "#bc5215", "#5e409d", "#a02f6f", "#24837b", "#ad8301"];
-const BG_SWATCHES = ["#1e1e1e", "#0e0e10", "#16181d", "#231c16", "#101418", "#100f0f", "#1c1b1a", "#282726", "#f2f0e5", "#fffcf0"];
+// Flexoki accents: red, orange, blue, green, purple (yellow, cyan and magenta
+// went away — the row was too long to scan). Light values are the 600 steps,
+// dark ones the 400 steps, so each pair is the same colour on paper or ink.
+const ACCENTS_DARK = ["#d14d41", "#da702c", "#4385be", "#879a39", "#8b7ec8"];
+const ACCENTS_LIGHT = ["#af3029", "#bc5215", "#205ea6", "#66800b", "#5e409d"];
+// Four dark, four light.
+const BG_SWATCHES = ["#1e1e1e", "#1e1918", "#100f0f", "#282726", "#fffcf0", "#f2f0e5", "#e6e4d9", "#d9d6c9"];
 function accentList() {
 
   const m = /^#?([0-9a-f]{6})$/i.exec(theme.text || "");
@@ -869,7 +873,7 @@ function renderThemePresets(customThemes) {
     b.style.background = p.accent;
     b.dataset.tip = p.name;
     b.addEventListener("click", () => {
-      theme = { ...theme, cardBg: p.cardBg, accent: p.accent, alpha: p.alpha, text: p.text, customTheme: null };
+      theme = { ...theme, cardBg: p.cardBg, accent: p.accent, cardAlpha: p.alpha, text: p.text, customTheme: null };
       saveTheme();
       b.blur();
     });

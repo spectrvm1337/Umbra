@@ -339,7 +339,7 @@ fn index_start_menu(entries: &mut Vec<SearchEntry>) {
         if !base.exists() {
             continue;
         }
-        for entry in WalkDir::new(base)
+        for entry in walk(base)
             .skip_hidden(false)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -756,8 +756,28 @@ fn is_skipped_name(name: &str, skip_dirs: &std::collections::HashSet<String>) ->
     let name = name.to_lowercase();
     name.starts_with('.') || skip_dirs.contains(name.as_str())
 }
+/// Disk walks get their own threads. On rayon's global pool they competed with
+/// the parallel search (both slowed down while indexing), and jwalk gives up on
+/// a walk when that pool stays busy for 1 s, silently leaving files out.
+static WALK_POOL: std::sync::LazyLock<std::sync::Arc<rayon::ThreadPool>> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(3)
+            .thread_name(|i| format!("umbra-walk-{i}"))
+            .build()
+            .expect("walk thread pool"),
+    )
+});
+fn walk(root: &Path) -> WalkDir {
+    // No busy timeout: walks are started from plain threads, never from inside
+    // this pool, so waiting for a free thread cannot deadlock.
+    WalkDir::new(root).parallelism(jwalk::Parallelism::RayonExistingPool {
+        pool: WALK_POOL.clone(),
+        busy_timeout: None,
+    })
+}
 fn pruned_walk(root: &Path, skip_dirs: std::collections::HashSet<String>) -> WalkDir {
-    WalkDir::new(root)
+    walk(root)
         .follow_links(false)
         .skip_hidden(false)
         .process_read_dir(move |depth, _, _, children| {

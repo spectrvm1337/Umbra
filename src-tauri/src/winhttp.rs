@@ -12,8 +12,9 @@ use windows_sys::Win32::Networking::WinHttp::{
     WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_FLAG_SECURE,
 };
 const USER_AGENT: &str = concat!("Umbra/", env!("CARGO_PKG_VERSION"));
-/// WINHTTP_QUERY_STATUS_CODE
-const QUERY_STATUS_CODE: u32 = 19;
+/// WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER — without the flag
+/// the code comes back as a string and does not fit in the u32 buffer.
+const QUERY_STATUS_CODE: u32 = 19 | 0x2000_0000;
 const CHUNK: usize = 64 * 1024;
 fn last_error() -> String {
     let err = std::io::Error::last_os_error();
@@ -119,7 +120,8 @@ impl Response {
             ))?;
             drop(connect);
             let header_block = wide(headers);
-            let header_len = (headers.len() as u32).saturating_mul(2);
+            // Length in UTF-16 units, not bytes, and without the trailing NUL.
+            let header_len = (header_block.len() - 1) as u32;
             if WinHttpSendRequest(
                 request.0,
                 header_block.as_ptr(),
@@ -172,7 +174,10 @@ impl Response {
                     &mut read,
                 )
             };
-            if ok == 0 || read == 0 {
+            if ok == 0 {
+                return Err(last_error());
+            }
+            if read == 0 {
                 break;
             }
             out.extend_from_slice(&buf[..read as usize]);

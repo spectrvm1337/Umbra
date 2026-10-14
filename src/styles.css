@@ -882,6 +882,16 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   height: 100%;
   image-rendering: pixelated;
 }
+/* Nothing picked from the screen yet: pulse like the result-icon skeletons. The
+   dropper comes later in the markup, so it stays on top and does not pulse. */
+.cc-loupe:not(.has-capture)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(128, 128, 128, 0.25);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
 .cc-pin {
   position: absolute;
   left: 50%;

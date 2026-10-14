@@ -36,15 +36,7 @@
 
     "core:window:allow-set-position",
 
-    "core:event:default",
-
-    "global-shortcut:allow-register",
-
-    "global-shortcut:allow-unregister",
-
-    "global-shortcut:allow-register-all",
-
-    "global-shortcut:allow-unregister-all"
+    "core:event:default"
 
   ]
 

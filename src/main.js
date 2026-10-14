@@ -1338,10 +1338,11 @@ function getTypeIcon(kind) {
   };
   return icons[kind] || icons.file;
 }
+// Also used inside attribute values (data-path="…"), so quotes are escaped too:
+// textContent -> innerHTML left " and ' as they were.
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s ?? "").replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 function highlightMatch(text, query) {
   const t = String(text);

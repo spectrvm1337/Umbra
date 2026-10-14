@@ -330,22 +330,6 @@ pub fn set_zoom(zoom: f64) {
 pub fn get_index_excludes() -> Vec<String> {
     read(|c| c.index_excludes.clone())
 }
-pub fn get_default_index_excludes() -> Vec<String> {
-    DEFAULT_INDEX_EXCLUDES
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
-}
-pub fn set_index_excludes(excludes: Vec<String>) {
-    let mut clean: Vec<String> = excludes
-        .into_iter()
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty() && s.len() < 200)
-        .collect();
-    clean.sort();
-    clean.dedup();
-    update(|c| c.index_excludes = clean);
-}
 pub fn get_disabled_kinds() -> Vec<u8> {
     read(|c| c.disabled_kinds.clone())
 }

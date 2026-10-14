@@ -9,21 +9,6 @@ pub fn reindex(app: tauri::AppHandle) {
     indexer::init_index_with_progress(app);
 }
 #[tauri::command]
-pub fn get_pins() -> Vec<search::SearchResult> {
-    pins::load_pins()
-        .iter()
-        .map(|p| search::SearchResult {
-            name: p.name.clone(),
-            path: p.path.clone(),
-            kind: p.kind.clone(),
-            icon: p.kind.clone(),
-            pinned: true,
-            icon_data: None,
-            score: search::ScoreKey::default(),
-        })
-        .collect()
-}
-#[tauri::command]
 pub fn add_pin(name: String, path: String, kind: String) -> bool {
     pins::add_pin(&search::SearchResult {
         name,
@@ -150,19 +135,6 @@ pub fn set_language(lang: String) -> String {
     config::set_language(lang)
 }
 #[tauri::command]
-pub fn get_index_excludes() -> Vec<String> {
-    config::get_index_excludes()
-}
-#[tauri::command]
-pub fn set_index_excludes(excludes: Vec<String>) -> Vec<String> {
-    config::set_index_excludes(excludes);
-    config::get_index_excludes()
-}
-#[tauri::command]
-pub fn get_index_defaults() -> Vec<String> {
-    config::get_default_index_excludes()
-}
-#[tauri::command]
 pub fn get_disabled_kinds() -> Vec<u8> {
     config::get_disabled_kinds()
 }
@@ -219,8 +191,4 @@ pub fn get_custom_themes() -> Vec<CustomTheme> {
         }
     }
     themes
-}
-#[tauri::command]
-pub fn get_config_dir() -> String {
-    crate::paths::config_dir().to_string_lossy().to_string()
 }

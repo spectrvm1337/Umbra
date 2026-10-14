@@ -8,6 +8,7 @@ mod icons;
 mod indexer;
 mod paths;
 mod pins;
+mod registry;
 mod search;
 mod storage;
 mod taskbar;

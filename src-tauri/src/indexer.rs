@@ -525,7 +525,7 @@ struct UninstallEntry {
     location: Option<String>,
     uninstall: Option<String>,
 }
-fn expand_env_vars(value: &str) -> String {
+pub(crate) fn expand_env_vars(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut rest = value;
     while let Some(start) = rest.find('%') {
@@ -555,92 +555,8 @@ fn expand_env_vars(value: &str) -> String {
 }
 #[cfg(target_os = "windows")]
 mod registry {
-    use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
-    use windows_sys::Win32::System::Registry::*;
-    fn wide(s: &str) -> Vec<u16> {
-        s.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-    pub struct Key(HKEY);
-    impl Drop for Key {
-        fn drop(&mut self) {
-            unsafe { RegCloseKey(self.0) };
-        }
-    }
-    impl Key {
-        pub fn open(parent: HKEY, path: &str) -> Option<Key> {
-            let mut hkey: HKEY = std::ptr::null_mut();
-            let path = wide(path);
-            let res = unsafe {
-                RegOpenKeyExW(parent, path.as_ptr(), 0, KEY_READ | KEY_WOW64_64KEY, &mut hkey)
-            };
-            (res == 0 && !hkey.is_null()).then_some(Key(hkey))
-        }
-        pub fn child(&self, name: &str) -> Option<Key> {
-            Key::open(self.0, name)
-        }
-        pub fn subkey_names(&self) -> Vec<String> {
-            let mut names = Vec::new();
-            let mut index = 0;
-            loop {
-                let mut buf = [0u16; 256];
-                let mut len = buf.len() as u32;
-                let res = unsafe {
-                    RegEnumKeyExW(
-                        self.0,
-                        index,
-                        buf.as_mut_ptr(),
-                        &mut len,
-                        std::ptr::null(),
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                    )
-                };
-                index += 1;
-                match res {
-                    0 => names.push(String::from_utf16_lossy(&buf[..len as usize])),
-                    ERROR_MORE_DATA => continue,
-                    _ => break,
-                }
-            }
-            names
-        }
-        pub fn string(&self, name: &str) -> Option<String> {
-            let name = wide(name);
-            let mut kind: REG_VALUE_TYPE = 0;
-            let mut size: u32 = 0;
-            let res = unsafe {
-                RegQueryValueExW(self.0, name.as_ptr(), std::ptr::null(), &mut kind, std::ptr::null_mut(), &mut size)
-            };
-            if res != 0 || (kind != REG_SZ && kind != REG_EXPAND_SZ) {
-                return None;
-            }
-            let mut buf = vec![0u16; size as usize / 2 + 1];
-            let mut bytes = (buf.len() * 2) as u32;
-            let res = unsafe {
-                RegQueryValueExW(
-                    self.0,
-                    name.as_ptr(),
-                    std::ptr::null(),
-                    std::ptr::null_mut(),
-                    buf.as_mut_ptr() as *mut u8,
-                    &mut bytes,
-                )
-            };
-            if res != 0 {
-                return None;
-            }
-            let chars = &buf[..(bytes as usize / 2).min(buf.len())];
-            let end = chars.iter().position(|&c| c == 0).unwrap_or(chars.len());
-            let value = String::from_utf16_lossy(&chars[..end]).trim().to_string();
-            let value = if kind == REG_EXPAND_SZ {
-                super::expand_env_vars(&value)
-            } else {
-                value
-            };
-            (!value.is_empty()).then_some(value)
-        }
-    }
+    use crate::registry::Key;
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     pub fn uninstall_entries() -> Vec<super::UninstallEntry> {
         const UNINSTALL: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
         const UNINSTALL_WOW: &str = "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall";

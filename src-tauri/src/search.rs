@@ -93,47 +93,59 @@ fn get_search_variants(q: &str) -> Vec<String> {
     }
     variants
 }
-fn lev_dist(a: &str, b: &str, max: usize) -> Option<usize> {
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
-    let (n, m) = (a_chars.len(), b_chars.len());
+/// Levenshtein distance between two char slices, or None once it must exceed
+/// `max`. `prev` / `cur` are scratch rows reused across calls.
+fn lev_dist(a: &[char], b: &[char], max: usize, prev: &mut Vec<usize>, cur: &mut Vec<usize>) -> Option<usize> {
+    let (n, m) = (a.len(), b.len());
     if n.abs_diff(m) > max {
         return None;
     }
-    let mut prev: Vec<usize> = (0..=m).collect();
-    let mut cur = vec![0; m + 1];
+    prev.clear();
+    prev.extend(0..=m);
+    cur.clear();
+    cur.resize(m + 1, 0);
     for i in 1..=n {
         cur[0] = i;
         let mut min_row = cur[0];
         for j in 1..=m {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
             cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
             min_row = min_row.min(cur[j]);
         }
         if min_row > max {
             return None;
         }
-        std::mem::swap(&mut prev, &mut cur);
+        std::mem::swap(prev, cur);
     }
     let d = prev[m];
     if d <= max { Some(d) } else { None }
 }
-type VariantTable = (String, Vec<(char, i32)>);
-fn variant_char_table(v: &str) -> Vec<(char, i32)> {
-    let mut table: Vec<(char, i32)> = Vec::new();
-    for c in v.chars() {
-        match table.iter_mut().find(|(ch, _)| *ch == c) {
-            Some(entry) => entry.1 += 1,
-            None => table.push((c, 1)),
-        }
-    }
-    table
+/// One spelling of the query (as typed, other keyboard layout, ...), with its
+/// chars and char counts worked out once per search instead of once per entry.
+struct Variant {
+    text: String,
+    chars: Vec<char>,
+    table: Vec<(char, i32)>,
 }
-fn shared_chars(name: &str, table: &[(char, i32)]) -> i32 {
-    let mut tmp: Vec<(char, i32)> = table.to_vec();
+impl Variant {
+    fn new(text: String) -> Self {
+        let chars: Vec<char> = text.chars().collect();
+        let mut table: Vec<(char, i32)> = Vec::new();
+        for &c in &chars {
+            match table.iter_mut().find(|(ch, _)| *ch == c) {
+                Some(entry) => entry.1 += 1,
+                None => table.push((c, 1)),
+            }
+        }
+        Variant { text, chars, table }
+    }
+}
+fn shared_chars(name: &[char], table: &[(char, i32)], counts: &mut Vec<(char, i32)>) -> i32 {
+    counts.clear();
+    counts.extend_from_slice(table);
     let mut shared = 0i32;
-    for c in name.chars() {
-        if let Some(entry) = tmp.iter_mut().find(|(ch, _)| *ch == c) {
+    for c in name {
+        if let Some(entry) = counts.iter_mut().find(|(ch, _)| ch == c) {
             if entry.1 > 0 {
                 entry.1 -= 1;
                 shared += 1;
@@ -142,36 +154,43 @@ fn shared_chars(name: &str, table: &[(char, i32)]) -> i32 {
     }
     shared
 }
-fn is_fuzzy_match(name: &str, variants: &[VariantTable], max_dist: usize) -> Option<usize> {
-    let mut best: Option<usize> = None;
-    let name_chars: Vec<char> = name.chars().collect();
-    for (v, table) in variants {
-        let wlen = v.chars().count();
-        if wlen < 3 { continue; }
-
-        if let Some(d) = lev_dist(name, v, max_dist) {
-            best = Some(best.map_or(d, |b| b.min(d)));
-            if best == Some(1) { return best; }
-        }
-
-        if name_chars.len() > wlen
-            && shared_chars(name, table) >= wlen as i32 - max_dist as i32
-        {
-            for start in 0..=name_chars.len() - wlen {
-                let window: String = name_chars[start..start + wlen].iter().collect();
-                if let Some(d) = lev_dist(&window, v, max_dist) {
-                    best = Some(best.map_or(d, |b| b.min(d)));
-                    if best == Some(1) { return best; }
-                }
+/// Per-thread buffers for the fuzzy pass: it runs on hundreds of thousands of
+/// names per keystroke, and allocating a String per comparison window used to
+/// dominate the time.
+#[derive(Default)]
+struct FuzzyScratch {
+    name: Vec<char>,
+    prev: Vec<usize>,
+    cur: Vec<usize>,
+    counts: Vec<(char, i32)>,
+}
+thread_local! {
+    static SCRATCH: std::cell::RefCell<FuzzyScratch> = std::cell::RefCell::new(FuzzyScratch::default());
+}
+fn is_fuzzy_match(name: &str, variants: &[Variant], max_dist: usize) -> Option<usize> {
+    SCRATCH.with(|scratch| {
+        let scratch = &mut *scratch.borrow_mut();
+        let FuzzyScratch { name: name_chars, prev, cur, counts } = scratch;
+        name_chars.clear();
+        name_chars.extend(name.chars());
+        let mut best: Option<usize> = None;
+        for v in variants {
+            let wlen = v.chars.len();
+            if wlen < 3 { continue; }
+            if let Some(d) = lev_dist(name_chars, &v.chars, max_dist, prev, cur) {
+                best = Some(best.map_or(d, |b| b.min(d)));
+                if best == Some(1) { return best; }
             }
-
-            if wlen > 1 {
-                for delta in [1i32, -1] {
-                    let wl = (wlen as i32 + delta) as usize;
+            if name_chars.len() > wlen
+                && shared_chars(name_chars, &v.table, counts) >= wlen as i32 - max_dist as i32
+            {
+                // Compare the query against every substring of the same length
+                // and one char shorter / longer (a missing or extra letter).
+                for wl in [wlen, wlen + 1, wlen - 1] {
                     if wl == 0 || name_chars.len() < wl { continue; }
                     for start in 0..=name_chars.len() - wl {
-                        let window: String = name_chars[start..start + wl].iter().collect();
-                        if let Some(d) = lev_dist(&window, v, max_dist) {
+                        let window = &name_chars[start..start + wl];
+                        if let Some(d) = lev_dist(window, &v.chars, max_dist, prev, cur) {
                             best = Some(best.map_or(d, |b| b.min(d)));
                             if best == Some(1) { return best; }
                         }
@@ -179,26 +198,26 @@ fn is_fuzzy_match(name: &str, variants: &[VariantTable], max_dist: usize) -> Opt
                 }
             }
         }
-    }
-    best
+        best
+    })
 }
 fn match_score(
     e: &SearchEntry,
     q: &str,
-    variants: &[VariantTable],
+    variants: &[Variant],
     frec: &std::collections::HashMap<String, f64>,
     fuzzy_deadline: std::time::Instant,
 ) -> Option<ScoreKey> {
     let name = e.name_lower.as_ref();
     let primary = if name == q {
         0u32
-    } else if variants.iter().any(|(v, _)| name == v) {
+    } else if variants.iter().any(|v| name == v.text) {
         1
     } else if name.starts_with(q) {
         2
-    } else if variants.iter().any(|(v, _)| name.starts_with(v)) {
+    } else if variants.iter().any(|v| name.starts_with(v.text.as_str())) {
         3
-    } else if variants.iter().any(|(v, _)| name.contains(v.as_str())) {
+    } else if variants.iter().any(|v| name.contains(v.text.as_str())) {
         4
     } else {
         let q_len = q.chars().count();
@@ -248,13 +267,7 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
     if q.is_empty() || !is_current(version) {
         return Vec::new();
     }
-    let variants: Vec<VariantTable> = get_search_variants(&q)
-        .into_iter()
-        .map(|v| {
-            let table = variant_char_table(&v);
-            (v, table)
-        })
-        .collect();
+    let variants: Vec<Variant> = get_search_variants(&q).into_iter().map(Variant::new).collect();
 
     let frec = frecency::scores_snapshot();
     let fuzzy_deadline = std::time::Instant::now() + std::time::Duration::from_millis(FUZZY_BUDGET_MS);
@@ -308,6 +321,25 @@ mod tests {
             name_lower: name.to_lowercase().into_boxed_str(),
             path: path.to_string(),
             kind,
+        }
+    }
+    fn bench_names() -> Vec<String> {
+        let stems = ["IMG_2024", "отчёт_по_проекту", "setup_x64_v", "photo_vacation", "invoice-final", "node_modules_cache", "Screenshot 2025-", "документ", "readme", "spotify_launcher"];
+        (0..300_000).map(|i| format!("{}{}_{}", stems[i % stems.len()], i, i % 97).to_lowercase()).collect()
+    }
+    fn bench_variants(q: &str) -> Vec<Variant> {
+        get_search_variants(q).into_iter().map(Variant::new).collect()
+    }
+    #[test]
+    #[ignore]
+    fn bench_fuzzy() {
+        let names = bench_names();
+        for q in ["spotfy", "pohotoshop", "invocie", "скриншот"] {
+            let variants = bench_variants(q);
+            let max = if q.chars().count() <= 6 { 1 } else { 2 };
+            let t = std::time::Instant::now();
+            let hits = names.iter().filter(|n| is_fuzzy_match(n, &variants, max).is_some()).count();
+            println!("BENCH {q}: {hits} hits in {:?}", t.elapsed());
         }
     }
     #[test]

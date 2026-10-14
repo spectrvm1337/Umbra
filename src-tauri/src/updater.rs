@@ -37,15 +37,43 @@ struct Asset {
     browser_download_url: String,
     #[serde(default)]
     size: u64,
+    /// `sha256:<hex>` on releases uploaded since mid-2025.
+    #[serde(default)]
+    digest: Option<String>,
 }
 /// Picks the installer we can actually run: prefer the NSIS setup, then the
-/// portable build, then any .exe.
+/// portable build (named `_x64_portable` up to 0.1.5, `_x64-portable` since),
+/// then any .exe.
 fn pick_asset(assets: &[Asset]) -> Option<&Asset> {
     assets
         .iter()
         .find(|a| a.name.ends_with("_x64-setup.exe"))
-        .or_else(|| assets.iter().find(|a| a.name.ends_with("_x64_portable.exe")))
+        .or_else(|| {
+            assets.iter().find(|a| {
+                a.name.ends_with("_x64-portable.exe") || a.name.ends_with("_x64_portable.exe")
+            })
+        })
         .or_else(|| assets.iter().find(|a| a.name.ends_with(".exe")))
+}
+/// The lowercase hex of a `sha256:…` digest, or None for any other algorithm.
+fn sha256_hex(digest: &str) -> Option<String> {
+    let hex = digest.strip_prefix("sha256:")?;
+    if hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(hex.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+/// What the last update check said the installer should look like, so the
+/// download is verified against GitHub's numbers, not the frontend's.
+struct Expected {
+    url: String,
+    size: u64,
+    sha256: Option<String>,
+}
+static EXPECTED: OnceLock<Mutex<Option<Expected>>> = OnceLock::new();
+fn expected_slot() -> &'static Mutex<Option<Expected>> {
+    EXPECTED.get_or_init(|| Mutex::new(None))
 }
 fn decode_entities(text: &str) -> String {
     text.replace("&amp;", "&")
@@ -126,6 +154,11 @@ pub fn check() -> Result<UpdateInfo, String> {
             .map_err(|e| format!("could not read release info: {e}"))?;
         let latest = release.tag_name.unwrap_or_default();
         let asset = pick_asset(&release.assets);
+        *expected_slot().lock().unwrap() = asset.map(|a| Expected {
+            url: a.browser_download_url.clone(),
+            size: a.size,
+            sha256: a.digest.as_deref().and_then(sha256_hex),
+        });
         Ok(UpdateInfo {
             update_available: !latest.is_empty() && is_newer(&latest, &current),
             latest,
@@ -207,6 +240,41 @@ pub(crate) fn is_trusted_host(url: &str) -> bool {
 fn download_dir() -> PathBuf {
     std::env::temp_dir().join("Umbra")
 }
+#[cfg(target_os = "windows")]
+fn sha256_file(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|e| e.to_string())?;
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+/// Rejects a truncated or corrupted installer before it can be launched.
+#[cfg(target_os = "windows")]
+fn verify_download(
+    path: &std::path::Path,
+    size: u64,
+    expected_size: u64,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
+    if size == 0 {
+        return Err("downloaded file was empty".to_string());
+    }
+    if expected_size > 0 && size != expected_size {
+        return Err(format!(
+            "download was cut off ({size} of {expected_size} bytes)"
+        ));
+    }
+    if let Some(want) = expected_sha256 {
+        if sha256_file(path)? != want {
+            return Err("downloaded file is corrupted (checksum mismatch)".to_string());
+        }
+    }
+    Ok(())
+}
 /// Spawns the transfer on its own thread; progress arrives as events.
 pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, total: u64) {
     #[cfg(not(target_os = "windows"))]
@@ -220,6 +288,11 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
     }
     #[cfg(target_os = "windows")]
     {
+        *ready_slot().lock().unwrap() = None;
+        let (total, expected_sha256) = match expected_slot().lock().unwrap().as_ref() {
+            Some(e) if e.url == url => (if e.size > 0 { e.size } else { total }, e.sha256.clone()),
+            _ => (total, None),
+        };
         std::thread::spawn(move || {
         let emit = |downloaded: u64, total: u64| {
             let pct = if total > 0 {
@@ -259,9 +332,9 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
                     last_emit = std::time::Instant::now();
                 }
             })?;
-            if size == 0 {
+            if let Err(err) = verify_download(&dest, size, total, expected_sha256.as_deref()) {
                 let _ = std::fs::remove_file(&dest);
-                return Err("downloaded file was empty".to_string());
+                return Err(err);
             }
             *ready_slot().lock().unwrap() = Some(dest.clone());
             Ok(Downloaded {
@@ -298,12 +371,15 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
         // The installer cannot replace umbra.exe while we are still holding
         // it, so hand the launch to a detached cmd and quit. `ping` is the
         // delay because `timeout` refuses to run without a console.
-        let launcher = format!(
-            "ping -n 3 127.0.0.1 > NUL & start \"\" \"{}\"",
-            path.display()
-        );
+        // The path goes in through an environment variable and the command
+        // line is passed raw: std would escape the quotes as \" (which cmd
+        // does not understand), and a path pasted into the line would have
+        // its %…% and & interpreted by cmd.
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("cmd")
-            .args(["/C", &launcher])
+            .env("UMBRA_INSTALLER", &path)
+            .raw_arg("/D /C ping -n 3 127.0.0.1 >NUL & start \"\" \"%UMBRA_INSTALLER%\"")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
             .map_err(|e| format!("could not start the installer: {e}"))?;
         exit_soon(app);
@@ -348,7 +424,39 @@ mod tests {
             name: name.to_string(),
             browser_download_url: format!("https://github.com/x/y/releases/download/{name}"),
             size: 10,
+            digest: None,
         }
+    }
+    #[test]
+    fn accepts_both_portable_names() {
+        for name in ["Umbra_0.1.7_x64-portable.exe", "Umbra_0.1.5_x64_portable.exe"] {
+            let assets = vec![asset("readme.exe"), asset(name)];
+            assert_eq!(pick_asset(&assets).unwrap().name, name);
+        }
+    }
+    #[test]
+    fn reads_sha256_digests() {
+        let hex = "ab37d1ee46f625b6dc49dedceae58c28a0b5b1fbca798cd572bf8ff74e40a86a";
+        assert_eq!(sha256_hex(&format!("sha256:{hex}")).as_deref(), Some(hex));
+        assert_eq!(
+            sha256_hex(&format!("sha256:{}", hex.to_uppercase())).as_deref(),
+            Some(hex)
+        );
+        assert_eq!(sha256_hex(&format!("sha512:{hex}")), None);
+        assert_eq!(sha256_hex("sha256:xyz"), None);
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn rejects_truncated_or_corrupted_downloads() {
+        let path = std::env::temp_dir().join("umbra-verify-test.bin");
+        std::fs::write(&path, b"abc").unwrap();
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(verify_download(&path, 3, 3, Some(abc)).is_ok());
+        assert!(verify_download(&path, 3, 0, None).is_ok());
+        assert!(verify_download(&path, 3, 10, None).is_err());
+        assert!(verify_download(&path, 0, 0, None).is_err());
+        assert!(verify_download(&path, 3, 3, Some(&"0".repeat(64))).is_err());
+        let _ = std::fs::remove_file(&path);
     }
     #[test]
     fn prefers_the_installer_over_the_portable_build() {

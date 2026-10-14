@@ -16,7 +16,9 @@ pub fn create(app: &tauri::App) -> tauri::Result<()> {
             }
             "quit" => {
                 crate::storage::flush_pending();
-                std::process::exit(0);
+                // app.exit lets Tauri shut down properly (the tray icon is removed
+                // instead of lingering until the mouse passes over it).
+                app.exit(0);
             }
             _ => {}
         })

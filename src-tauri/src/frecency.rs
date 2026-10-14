@@ -13,7 +13,6 @@ struct FrecencyDb {
     entries: HashMap<String, FrecencyEntry>,
 }
 static DB: LazyLock<Mutex<Option<FrecencyDb>>> = LazyLock::new(|| Mutex::new(None));
-static WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 fn db_path() -> PathBuf {
     crate::paths::frecency_file()
 }
@@ -62,30 +61,12 @@ fn most_recent_first(entries: &HashMap<String, FrecencyEntry>) -> Vec<String> {
     list.sort_by(|a, b| b.last_used.partial_cmp(&a.last_used).unwrap_or(std::cmp::Ordering::Equal));
     list.into_iter().map(|e| e.id.clone()).collect()
 }
-static SAVE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Queued like the config and pins (storage::save_later), so quitting from the
+/// tray flushes the last launches too instead of dropping them.
 fn save_db(db: &FrecencyDb) {
-    if SAVE_PENDING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
+    if let Ok(json) = serde_json::to_string(&db.entries) {
+        crate::storage::save_later(db.path.clone(), json);
     }
-    let path = db.path.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        SAVE_PENDING.store(false, std::sync::atomic::Ordering::SeqCst);
-
-        let json = {
-            let guard = DB.lock().unwrap();
-            if let Some(db_ref) = guard.as_ref() {
-                serde_json::to_string(&db_ref.entries).unwrap_or_default()
-            } else {
-                String::new()
-            }
-        };
-
-        if !json.is_empty() {
-            let _write_guard = WRITE_LOCK.lock().unwrap();
-            let _ = crate::storage::write_atomic(&path, json);
-        }
-    });
 }
 fn chrono_timestamp() -> f64 {
     std::time::SystemTime::now()

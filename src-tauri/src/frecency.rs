@@ -29,7 +29,7 @@ fn ensure_db() {
 /// using sink below the ones you use now instead of ranking first forever.
 const HALF_LIFE_DAYS: f64 = 14.0;
 /// The stored score is its value at `last_used`; this is what it is worth `now`.
-fn decayed(score: f64, last_used: f64, now: f64) -> f64 {
+pub(crate) fn decayed(score: f64, last_used: f64, now: f64) -> f64 {
     let age_days = ((now - last_used) / 86_400.0).max(0.0);
     score * 0.5f64.powf(age_days / HALF_LIFE_DAYS)
 }

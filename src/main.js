@@ -1696,6 +1696,9 @@ function stepQueryHistory(dir) {
 // Typing leaves history browsing.
 searchInput.addEventListener("input", () => { queryHistoryPos = -1; });
 async function launchItem(path) {
+  // Typed this, opened that: next time it comes first for this query (picks.rs).
+  const typed = searchInput.value.trim();
+  if (typed) invoke("record_pick", { query: typed, path }).catch(() => {});
   rememberQuery();
   hideWindow(); 
   try {

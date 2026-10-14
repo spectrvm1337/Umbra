@@ -10,6 +10,9 @@ pub fn is_current(version: u32) -> bool {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize)]
 pub struct ScoreKey {
+    /// 0..1000 for results opened before under this very query (lower = picked
+    /// more), 1000 for the rest; ranks above everything else (see picks.rs).
+    pub pick_inv: u32,
     pub tier: u32,
     pub primary: u32,
     pub frec_inv: u32,
@@ -206,6 +209,7 @@ fn match_score(
     q: &str,
     variants: &[Variant],
     frec: &std::collections::HashMap<String, f64>,
+    picks: &std::collections::HashMap<String, f64>,
     fuzzy_deadline: std::time::Instant,
 ) -> Option<ScoreKey> {
     let name = e.name_lower.as_ref();
@@ -256,9 +260,13 @@ fn match_score(
     let frec_score = frec.get(&e.path).copied().unwrap_or(0.0).clamp(0.0, 1000.0);
     let frec_inv = ((1000.0 - frec_score) * 10.0) as u32;
 
+    let pick_inv = match picks.get(&e.path) {
+        Some(&w) => (1000.0 - (w * 100.0).clamp(1.0, 999.0)) as u32,
+        None => 1000,
+    };
     let len = (e.name_lower.chars().count() as u32).min(9999);
     let path_len = (e.path.chars().count() as u32).min(9999);
-    Some(ScoreKey { tier, primary, frec_inv, len, path_len })
+    Some(ScoreKey { pick_inv, tier, primary, frec_inv, len, path_len })
 }
 const MAX_RESULTS: usize = 30;
 const FUZZY_BUDGET_MS: u64 = 250;
@@ -270,6 +278,7 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
     let variants: Vec<Variant> = get_search_variants(&q).into_iter().map(Variant::new).collect();
 
     let frec = frecency::scores_snapshot();
+    let picks = crate::picks::for_query(query);
     let fuzzy_deadline = std::time::Instant::now() + std::time::Duration::from_millis(FUZZY_BUDGET_MS);
 
     let disabled_kinds = config::get_disabled_kinds();
@@ -283,7 +292,7 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
                 if !is_current(version) {
                     return None;
                 }
-                match_score(e, &q, &variants, &frec, fuzzy_deadline).map(|score| (score, i))
+                match_score(e, &q, &variants, &frec, &picks, fuzzy_deadline).map(|score| (score, i))
             })
             .collect();
         if !is_current(version) {

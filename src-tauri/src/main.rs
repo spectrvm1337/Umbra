@@ -9,6 +9,7 @@ mod index_cache;
 mod index_watch;
 mod indexer;
 mod paths;
+mod picks;
 mod pins;
 mod registry;
 mod search;
@@ -123,6 +124,7 @@ fn main() {
             commands::launch_item,
             commands::launch_admin,
             commands::reveal_in_explorer,
+            commands::record_pick,
             commands::kill_process,
             commands::find_process,
             commands::exec_power_command,

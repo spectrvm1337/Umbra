@@ -13,6 +13,11 @@ pub async fn launch_item(path: String) -> Result<String, String> {
     open::that_detached(&path).map_err(|e| format!("Failed to open: {}", e))?;
     Ok(path)
 }
+/// Remembers which result was opened for the typed query (picks.rs).
+#[tauri::command]
+pub fn record_pick(query: String, path: String) {
+    crate::picks::record(&query, &path);
+}
 /// Opens the folder that holds `path` in Explorer with that file (or folder)
 /// selected, instead of leaving the user to find it in the listing.
 #[cfg(target_os = "windows")]

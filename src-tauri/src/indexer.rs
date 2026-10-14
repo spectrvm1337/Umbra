@@ -194,8 +194,13 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         // Dedup by path, keeping the first occurrence: Start Menu / registry
         // entries come before the drive walk, so their display names win over
         // the raw file names for the same exe.
-        let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
-        entries.retain(|e| seen_paths.insert(e.path.clone()));
+        // The set borrows the paths instead of copying all of them.
+        let keep: Vec<bool> = {
+            let mut seen_paths = std::collections::HashSet::with_capacity(entries.len());
+            entries.iter().map(|e| seen_paths.insert(e.path.as_str())).collect()
+        };
+        let mut keep = keep.into_iter();
+        entries.retain(|_| keep.next().unwrap_or(true));
         if let Some(rw) = INDEX.get() {
             if let Ok(mut w) = rw.write() {
                 *w = entries;

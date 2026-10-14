@@ -1491,7 +1491,6 @@ Sortable.create(pinsList, {
       .map(el => el.querySelector(".result-pin")?.dataset.path || el.dataset.path)
       .filter(Boolean);
 
-    console.log("[pins dnd] drop", newOrder);
     const map = new Map(currentPins.map(p => [p.path, p]));
     const reordered = newOrder.map(p => map.get(p)).filter(Boolean);
     if (reordered.length === currentPins.length) {

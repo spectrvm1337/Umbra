@@ -10,11 +10,16 @@ const LEGACY_THEMES_DIR_NAME: &str = "com.umbra.search";
 fn base_dir() -> PathBuf {
     dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
 }
-/// `%APPDATA%\.Umbra-config` — created on demand.
+/// `%APPDATA%\.Umbra-config` — created the first time it is asked for, not on
+/// every call (write_atomic recreates parent folders if they go missing later).
 pub fn config_dir() -> PathBuf {
-    let dir = base_dir().join(CONFIG_DIR_NAME);
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = base_dir().join(CONFIG_DIR_NAME);
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    })
+    .clone()
 }
 pub fn config_file() -> PathBuf {
     config_dir().join("config.json")

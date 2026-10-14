@@ -468,7 +468,10 @@ fn clean_registry_path(val: &str) -> Option<String> {
             path = path[1..idx + 1].to_string();
         }
     } else {
-        let path_lower = path.to_lowercase();
+        // ASCII-only lowercasing keeps byte offsets in step with `path`;
+        // full Unicode lowercasing can lengthen a char ('İ') and the slice
+        // below would land mid-character and panic.
+        let path_lower = path.to_ascii_lowercase();
         let mut found_ext = false;
         for ext in [".exe", ".ico", ".lnk"] {
             if let Some(idx) = path_lower.find(ext) {
@@ -694,7 +697,12 @@ fn resolve_uninstall_entry(app: UninstallEntry) -> Option<(String, String)> {
     if app_name.len() < 2 {
         return None;
     }
-    let mut resolved_path = app.icon.as_deref().and_then(clean_registry_path);
+    // DisplayIcon often names an .ico; only an .exe there is the app itself.
+    let mut resolved_path = app
+        .icon
+        .as_deref()
+        .and_then(clean_registry_path)
+        .filter(|p| p.to_ascii_lowercase().ends_with(".exe"));
     if resolved_path.is_none() {
         if let Some(loc_path) = &app.location {
             let cleaned = loc_path.trim().replace('"', "");
@@ -1052,5 +1060,40 @@ mod tests {
         for tool in ["notepad", "cmd", "regedit", "taskmgr", "explorer", "calc", "control", "powershell"] {
             assert!(names.contains(tool), "{tool} missing");
         }
+    }
+    fn temp_app_dir(name: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), b"").unwrap();
+        }
+        dir
+    }
+    #[test]
+    fn registry_path_with_wide_lowercase_chars_does_not_panic() {
+        // 'İ' lowercases to two chars (3 bytes instead of 2), which used to
+        // shift the ".exe" index and slice the original string mid-char.
+        let dir = temp_app_dir("umbra-İİİ-test", &["app.exe"]);
+        let exe = dir.join("app.exe").to_string_lossy().to_string();
+        assert_eq!(clean_registry_path(&format!("{exe},0")).as_deref(), Some(exe.as_str()));
+        assert_eq!(clean_registry_path(&format!("{exe} /uninstall")).as_deref(), Some(exe.as_str()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn display_icon_pointing_at_an_icon_is_not_the_app() {
+        let dir = temp_app_dir("umbra-ico-test", &["Thing.ico", "Thing.exe"]);
+        let ico = dir.join("Thing.ico").to_string_lossy().to_string();
+        let exe = dir.join("Thing.exe").to_string_lossy().to_string();
+        let entry = |icon: &str| UninstallEntry {
+            name: Some("Thing".to_string()),
+            icon: Some(icon.to_string()),
+            location: Some(dir.to_string_lossy().to_string()),
+            uninstall: None,
+        };
+        let (_, path) = resolve_uninstall_entry(entry(&format!("{ico},0"))).unwrap();
+        assert_eq!(path, exe);
+        let (_, path) = resolve_uninstall_entry(entry(&format!("\"{exe}\",0"))).unwrap();
+        assert_eq!(path, exe);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

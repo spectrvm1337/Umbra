@@ -2222,6 +2222,12 @@ searchInput.addEventListener("keydown", (e) => {
   for (const c of containers) {
     total += c.querySelectorAll(".result-item").length;
   }
+  // Cards (calculator, an open-link card) have no rows but still act on Enter.
+  if (total === 0 && e.key === "Enter" && selectedIndex >= 0 && selectableItems[selectedIndex]) {
+    e.preventDefault();
+    activateItem(selectableItems[selectedIndex], e);
+    return;
+  }
   if (total === 0) {
     if (e.key === "Escape") {
       e.preventDefault();

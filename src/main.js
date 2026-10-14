@@ -1622,7 +1622,48 @@ function updateGhost() {
     clearGhost();
   }
 }
+// Alt+Up / Alt+Down step through earlier queries: the ones that led to opening or
+// copying something, newest first. Kept in this webview's localStorage, like the
+// colour history.
+const QUERY_HISTORY_KEY = "umbra.queryHistory";
+const QUERY_HISTORY_MAX = 50;
+let queryHistoryPos = -1; // -1: what the user was typing before stepping back
+let queryHistoryDraft = "";
+function readQueryHistory() {
+  try {
+    const list = JSON.parse(localStorage.getItem(QUERY_HISTORY_KEY) || "[]");
+    return Array.isArray(list) ? list.filter((q) => typeof q === "string" && q) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberQuery() {
+  const q = searchInput.value.trim();
+  queryHistoryPos = -1;
+  if (!q) return;
+  try {
+    const list = [q, ...readQueryHistory().filter((x) => x !== q)].slice(0, QUERY_HISTORY_MAX);
+    localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(list));
+  } catch {}
+}
+// dir 1 = older, -1 = newer.
+function stepQueryHistory(dir) {
+  const list = readQueryHistory();
+  if (!list.length) return;
+  if (queryHistoryPos === -1) queryHistoryDraft = searchInput.value;
+  const next = Math.max(-1, Math.min(list.length - 1, queryHistoryPos + dir));
+  if (next === queryHistoryPos) return;
+  queryHistoryPos = next;
+  searchInput.value = next === -1 ? queryHistoryDraft : list[next];
+  clearBtn.classList.toggle("visible", !!searchInput.value);
+  clearGhost();
+  performSearch(searchInput.value);
+  searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+}
+// Typing leaves history browsing.
+searchInput.addEventListener("input", () => { queryHistoryPos = -1; });
 async function launchItem(path) {
+  rememberQuery();
   hideWindow(); 
   try {
     await invoke("launch_item", { path });
@@ -2129,6 +2170,7 @@ async function performSearch(query) {
 // What Enter does on a row: launch it; Ctrl+Shift runs it as admin, Shift copies the
 // path, Ctrl shows it in Explorer. Help rows fill the box and copy rows copy instead.
 function activateItem(item, mods = {}) {
+  if (item.kind !== "help") rememberQuery();
   if (item.kind === "help") {
     if (item.fill) {
       searchInput.value = item.fill;
@@ -2183,6 +2225,11 @@ document.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => showRowShortcuts(false));
 searchInput.addEventListener("keydown", (e) => {
+  if (e.altKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    e.preventDefault();
+    stepQueryHistory(e.key === "ArrowUp" ? 1 : -1);
+    return;
+  }
   // Ctrl+1..9 runs row N; Ctrl+P pins or unpins the selected row (and keeps
   // WebView2's print dialog away).
   if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && settingsSection.classList.contains("hidden")) {

@@ -113,6 +113,32 @@ function colorCardHtml(c, base = c) {
     </div>`;
 }
 
+// Eyedropper frames arrive ~30 times a second: change the values in place instead of
+// rebuilding the card (and its loupe canvas) on every frame. False if the card has not
+// been built yet.
+function colorUpdateCard(card, c) {
+  const swatch = card.querySelector(".cc-swatch");
+  const shades = card.querySelectorAll(".cc-shade");
+  const [rgb, hsl] = card.querySelectorAll(".cc-info .cc-field[data-copy]");
+  if (!swatch || shades.length !== 3 || !rgb || !hsl) return false;
+  const hex = colorToHex(c);
+  swatch.style.background = hex;
+  swatch.dataset.copy = hex;
+  swatch.title = `Click or press Enter to copy ${hex}`;
+  [0.25, 0, -0.25].forEach((k, i) => {
+    const shade = colorToHex(colorShade(c, k));
+    shades[i].style.background = shade;
+    shades[i].dataset.hex = shade;
+    shades[i].title = shade;
+    shades[i].classList.toggle("active", k !== 0 && shade === hex);
+  });
+  rgb.dataset.copy = colorToRgb(c);
+  rgb.querySelector(".cc-value").textContent = colorToRgb(c);
+  hsl.dataset.copy = `hsl(${colorToHsl(c)})`;
+  hsl.querySelector(".cc-value").textContent = colorToHsl(c);
+  return true;
+}
+
 function colorDrawLoupe(card, pixels) {
   const canvas = card.querySelector(".cc-loupe canvas");
   const has = pixels && pixels.length === COLOR_GRID * COLOR_GRID;
@@ -212,7 +238,7 @@ function colorInit() {
       if (card) {
         const c = parseColorQuery(frame.color);
         if (c) {
-          card.innerHTML = colorCardHtml(c);
+          if (!colorUpdateCard(card, c)) card.innerHTML = colorCardHtml(c);
           card.classList.add("picking");
         }
         colorDrawLoupe(card, colorLoupe);

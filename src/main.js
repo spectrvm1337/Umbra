@@ -1500,8 +1500,8 @@ Sortable.create(pinsList, {
       updateSelection();
       layoutCustomScrollbar();
       invoke("reorder_pins", { orderedPaths: newOrder }).then(ok => {
-        if (ok) showToast("Order saved");
-        else showToast("Couldn't save order", true);
+        // The new order is already on screen; only a failure is worth a toast.
+        if (!ok) showToast("Couldn't save order", true);
       }).catch(err => { console.warn("reorder failed", err); showToast("Save error", true); });
     } else {
       showToast("Reorder failed", true);

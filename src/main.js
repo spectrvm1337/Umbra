@@ -579,10 +579,28 @@ const updatePanel = document.getElementById("update-panel");
 const updateTitle = document.getElementById("update-title");
 const updateNotes = document.getElementById("update-notes");
 const updateMeta = document.getElementById("update-meta");
-const updateBar = document.getElementById("update-bar");
-const updateBarFill = document.getElementById("update-bar-fill");
 const updateAction = document.getElementById("update-action");
+const updateBtn = document.getElementById("update-btn");
+const updateStatus = document.getElementById("update-status");
 let updateState = { phase: "idle", info: null, downloaded: null };
+let updatePct = 0;
+// The search bar's side of the update: a download ring in the indexing spinner's
+// slot (it wins over the spinner while it runs), and a blue button once there is
+// something to click: the downloaded installer, or a retry after an error.
+function renderUpdateIndicator() {
+  const { phase, info } = updateState;
+  const version = info ? info.latest : "";
+  const downloading = phase === "downloading";
+  updateStatus.classList.toggle("visible", downloading);
+  indexSpinner.classList.toggle("suppressed", downloading);
+  updateStatus.querySelector(".ring-fill").style.strokeDasharray = `${(updatePct / 100) * 59.7} 60`;
+  updateStatus.dataset.tip = t("updateDownloadingTip", { version, pct: updatePct });
+  const button = phase === "available" || phase === "ready" || phase === "error";
+  updateBtn.classList.toggle("visible", button);
+  if (phase === "available") updateBtn.dataset.tip = t("updateAvailableTip", { version });
+  else if (phase === "ready") updateBtn.dataset.tip = t("updateReadyTip", { version });
+  else if (phase === "error") updateBtn.dataset.tip = t("updateErrorTip", { error: updateState.error || "?" });
+}
 function formatBytes(bytes) {
   if (!bytes || bytes < 0) return "";
   if (bytes < 1024) return bytes + " B";
@@ -590,6 +608,7 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 function renderUpdatePanel() {
+  renderUpdateIndicator();
   if (!updatePanel) return;
   const { phase, info, downloaded } = updateState;
   const show = phase !== "idle";
@@ -597,9 +616,6 @@ function renderUpdatePanel() {
   if (!show || !info) return;
   updateNotes.classList.toggle("hidden", !info.notes);
   updateNotes.textContent = info.notes || "";
-  const downloadPct = phase === "downloading" ? updateBarFill.style.width : "0%";
-  updateBarFill.style.width = downloadPct;
-  updateBar.classList.toggle("is-active", phase === "downloading");
   switch (phase) {
     case "available":
       updateTitle.textContent = `Umbra ${info.latest} is available`;
@@ -639,20 +655,27 @@ async function checkForUpdates(manual) {
   }
   try {
     const info = await invoke("check_for_updates");
+    // A download that already finished stays offered; checking again changes nothing.
+    if (updateState.phase === "ready" && updateState.info && updateState.info.latest === info.latest) return;
     updateState = { phase: "idle", info, downloaded: null, error: null };
     if (!info.update_available) {
-      updatePanel.classList.add("hidden");
-      showToast(`Umbra ${info.current} is the latest version`);
+      renderUpdatePanel();
+      if (manual) showToast(`Umbra ${info.current} is the latest version`);
     } else {
       updateState.phase = "available";
       renderUpdatePanel();
-      showToast(`Umbra ${info.latest} is available`, false, "downloading in the background");
+      if (manual) showToast(`Umbra ${info.latest} is available`, false, "downloading in the background");
       startUpdateDownload(info);
     }
   } catch (err) {
-    updateState = { phase: "error", info: updateState.info, downloaded: null, error: String(err).replace("Error:", "").trim() };
-    renderUpdatePanel();
-    showToast("Update check failed", true, updateState.error);
+    const error = String(err).replace("Error:", "").trim();
+    if (manual) {
+      updateState = { phase: "error", info: updateState.info, downloaded: null, error };
+      renderUpdatePanel();
+      showToast("Update check failed", true, error);
+    } else {
+      console.warn("background update check failed:", error);
+    }
   } finally {
     if (checkUpdateBtn) {
       checkUpdateBtn.disabled = false;
@@ -667,6 +690,7 @@ async function startUpdateDownload(info) {
     return;
   }
   updateState = { phase: "downloading", info, downloaded: null, error: null };
+  updatePct = 0;
   renderUpdatePanel();
   try {
     await invoke("download_update", {
@@ -682,35 +706,44 @@ async function startUpdateDownload(info) {
 if (checkUpdateBtn) {
   checkUpdateBtn.addEventListener("click", () => checkForUpdates(true));
 }
-if (updateAction) {
-  updateAction.addEventListener("click", async () => {
-    const { phase, info } = updateState;
-    if (phase === "available" && info) return startUpdateDownload(info);
-    if (phase === "ready") {
-      try {
-        // The Rust side quits Umbra once the installer has been handed off,
-        // so we only need to say goodbye before the window disappears.
-        updateAction.disabled = true;
-        updateAction.textContent = "Installing…";
-        updateState = { ...updateState, phase: "idle" };
-        await invoke("install_update");
-      } catch (err) {
-        updateAction.disabled = false;
-        showToast("Could not start installer", true, String(err).replace("Error:", "").trim());
-      }
-      return;
-    }
-    if (phase === "error") {
+async function runUpdateAction() {
+  const { phase, info } = updateState;
+  if (phase === "available" && info) return startUpdateDownload(info);
+  if (phase === "ready") {
+    try {
+      // The Rust side quits Umbra once the installer has been handed off,
+      // so we only need to say goodbye before the window disappears.
+      updateAction.disabled = true;
+      updateAction.textContent = "Installing…";
       updateState = { ...updateState, phase: "idle" };
-      renderUpdatePanel();
-      return checkForUpdates(true);
+      renderUpdateIndicator();
+      await invoke("install_update");
+    } catch (err) {
+      updateAction.disabled = false;
+      showToast("Could not start installer", true, String(err).replace("Error:", "").trim());
     }
-  });
+    return;
+  }
+  if (phase === "error") {
+    // Retry the download when we know what to fetch, otherwise check again.
+    if (info && info.update_available) return startUpdateDownload(info);
+    updateState = { ...updateState, phase: "idle" };
+    renderUpdatePanel();
+    return checkForUpdates(true);
+  }
 }
+if (updateAction) updateAction.addEventListener("click", runUpdateAction);
+updateBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  runUpdateAction();
+});
+// Look for a new release on our own: shortly after start, then every 6 hours.
+setTimeout(() => checkForUpdates(false), 8000);
+setInterval(() => checkForUpdates(false), 6 * 60 * 60 * 1000);
 listen("update-progress", (event) => {
   const p = event.payload || {};
-  const pct = Number(p.pct || 0);
-  if (updateBarFill) updateBarFill.style.width = pct + "%";
+  updatePct = Math.max(0, Math.min(100, Number(p.pct || 0)));
+  if (updateState.phase === "downloading") renderUpdateIndicator();
   if (updateMeta && p.total) updateMeta.textContent = `${formatBytes(p.downloaded)} / ${formatBytes(p.total)}`;
 });
 listen("update-downloaded", (event) => {
@@ -2087,6 +2120,7 @@ listen("index-progress", (event) => {
     indexingActive = true;
     indexRan = true;
     indexSpinner.classList.add("visible");
+    indexSpinner.classList.toggle("suppressed", updateState.phase === "downloading");
     syncIndexTip(true);
   }
 });

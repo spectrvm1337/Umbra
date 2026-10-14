@@ -80,6 +80,7 @@
   --pad-y: 12px;
   --text: #E3E3E3;
   --text-dim: #737373;
+  --update-blue: #3b82f6;
   --icon: #b5b5b5;
   --accent: #507090;
   --card-hover: #2c2c2c;
@@ -427,6 +428,64 @@ body {
   opacity: 0.9;
   visibility: visible;
   pointer-events: auto;
+}
+/* Update download progress: takes the indexing spinner's slot while it runs. */
+#index-spinner.suppressed {
+  width: 0;
+  margin: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+#update-status,
+#update-btn {
+  height: var(--btn);
+  width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--update-blue);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: width 0.2s ease, margin 0.2s ease, opacity 0.2s ease, visibility 0.2s ease, background 0.12s ease;
+}
+#update-status svg {
+  width: calc(var(--btn) * 0.58);
+  height: calc(var(--btn) * 0.58);
+  flex-shrink: 0;
+}
+#update-status .ring-track {
+  opacity: 0.25;
+}
+#update-status .ring-fill {
+  stroke-dasharray: 0 60;
+  transition: stroke-dasharray 0.2s ease-out;
+}
+#update-btn svg {
+  width: calc(var(--btn) * 0.62);
+  height: calc(var(--btn) * 0.62);
+  flex-shrink: 0;
+}
+#update-status.visible,
+#update-btn.visible {
+  width: var(--btn);
+  margin-left: 4px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+#update-btn.visible {
+  cursor: pointer;
+}
+#update-btn:hover {
+  background: var(--card-hover);
 }
 #clear-btn {
   height: var(--btn);
@@ -1603,23 +1662,6 @@ body > .result-item.pin-drag-copy {
   color: var(--text-dim);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-#update-bar {
-  height: 3px;
-  border-radius: 100px;
-  background: var(--card-deep);
-  overflow: hidden;
-}
-/* An empty track during "available" / "ready" / "error" is just a stray line. */
-#update-bar:not(.is-active) {
-  display: none;
-}
-#update-bar-fill {
-  width: 0;
-  height: 100%;
-  border-radius: 100px;
-  background: var(--accent);
-  transition: width 0.15s ease-out;
 }
 #update-notes {
   margin: 0;

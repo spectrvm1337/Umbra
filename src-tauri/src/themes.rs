@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 /// Cheap fingerprint of the themes folder: file names, sizes and mtimes.
-/// Comparing it lets us replace the old 1 Hz `get_custom_themes` IPC poll
-/// with a single background thread that stays silent until something changes.
+/// Compared after each folder change notification, so only real edits to
+/// .css files reach the frontend.
 fn themes_signature() -> Vec<(String, u64, u128)> {
     let mut entries: Vec<(String, u64, u128)> = match std::fs::read_dir(crate::paths::themes_dir()) {
         Ok(entries) => entries
@@ -41,8 +41,12 @@ fn file_key(path: &Path) -> String {
 pub fn watch(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut previous = themes_signature();
+        let mut changes = ChangeWaiter::default();
         loop {
-            std::thread::sleep(Duration::from_millis(1000));
+            changes.wait();
+            // Editors often save in several steps; let them finish first.
+            std::thread::sleep(Duration::from_millis(200));
+            changes.rearm();
             let current = themes_signature();
             if current != previous {
                 previous = current;
@@ -50,6 +54,73 @@ pub fn watch(app: tauri::AppHandle) {
             }
         }
     });
+}
+/// Sleeps until Windows reports a change in the folder (names, sizes, write
+/// times) instead of re-reading it every second while Umbra sits in the tray.
+#[cfg(target_os = "windows")]
+#[derive(Default)]
+struct ChangeWaiter {
+    handle: Option<windows_sys::Win32::Foundation::HANDLE>,
+}
+#[cfg(target_os = "windows")]
+impl ChangeWaiter {
+    fn wait(&mut self) {
+        use windows_sys::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+        match self.handle.or_else(|| self.open()) {
+            Some(handle) => unsafe {
+                WaitForSingleObject(handle, INFINITE);
+            },
+            // Could not watch the folder (it may be missing for a moment): poll.
+            None => std::thread::sleep(Duration::from_secs(2)),
+        }
+    }
+    /// Asks for the next change. Changes made since the wait returned still
+    /// signal the handle, so none are missed while the signature is read.
+    fn rearm(&mut self) {
+        use windows_sys::Win32::Storage::FileSystem::{FindCloseChangeNotification, FindNextChangeNotification};
+        if let Some(handle) = self.handle {
+            if unsafe { FindNextChangeNotification(handle) } == 0 {
+                // The folder went away; open a fresh watch next time.
+                unsafe { FindCloseChangeNotification(handle) };
+                self.handle = None;
+            }
+        }
+    }
+    fn open(&mut self) -> Option<windows_sys::Win32::Foundation::HANDLE> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FindFirstChangeNotificationW, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
+            FILE_NOTIFY_CHANGE_SIZE,
+        };
+        let dir: Vec<u16> = crate::paths::themes_dir()
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let handle = unsafe {
+            FindFirstChangeNotificationW(
+                dir.as_ptr(),
+                0,
+                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE,
+            )
+        };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        self.handle = Some(handle);
+        self.handle
+    }
+}
+#[cfg(not(target_os = "windows"))]
+#[derive(Default)]
+struct ChangeWaiter;
+#[cfg(not(target_os = "windows"))]
+impl ChangeWaiter {
+    fn wait(&mut self) {
+        std::thread::sleep(Duration::from_millis(1000));
+    }
+    fn rearm(&mut self) {}
 }
 #[cfg(test)]
 mod tests {

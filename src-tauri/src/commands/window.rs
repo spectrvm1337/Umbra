@@ -265,3 +265,29 @@ mod tests {
         assert_eq!(fitted_height(560, 600, 1032, true), 560);
     }
 }
+/// The card shown when Umbra starts for the first time, or when the hotkey hook
+/// could not be installed (the hotkey then does nothing, so say so).
+#[derive(Clone, serde::Serialize)]
+pub struct Welcome {
+    pub hotkey: String,
+    pub hook_ok: bool,
+    pub first_run: bool,
+}
+static WELCOME: std::sync::Mutex<Option<Welcome>> = std::sync::Mutex::new(None);
+/// Queues the card and tells the page; whichever comes first, this event or the
+/// page asking on load, gets it (take_welcome hands it out once).
+pub fn set_welcome(app: &tauri::AppHandle, welcome: Welcome) {
+    *WELCOME.lock().unwrap() = Some(welcome);
+    let _ = tauri::Emitter::emit(app, "welcome-ready", ());
+}
+/// Called by the page once it has loaded (an event sent from setup could arrive
+/// before it listens): if this start has a welcome card, shows the window and
+/// hands the card over, once.
+#[tauri::command]
+pub fn take_welcome(app: tauri::AppHandle) -> Option<Welcome> {
+    let welcome = WELCOME.lock().unwrap().take()?;
+    if let Some(window) = app.get_webview_window("main") {
+        crate::show_window(&window);
+    }
+    Some(welcome)
+}

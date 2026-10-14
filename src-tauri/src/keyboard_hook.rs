@@ -29,6 +29,10 @@ pub fn is_paused() -> bool {
 pub fn set_paused(paused: bool) {
     PAUSED.store(paused, std::sync::atomic::Ordering::Relaxed);
 }
+/// False when SetWindowsHookExW failed, i.e. the hotkey cannot work this session.
+pub fn is_installed() -> bool {
+    HOOK_HANDLE.get().is_some()
+}
 pub fn init(app: AppHandle) {
     let _ = APP_HANDLE.set(app);
     update_hotkey();

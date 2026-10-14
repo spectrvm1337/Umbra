@@ -2068,6 +2068,7 @@ function fetchWithTimeout(url, ms = 8000) {
 }
 async function performSearch(query) {
   lastQuery = query;
+  if (query.trim()) pendingWelcome = null;
   if (handleSpecialCommand(query)) {
     // Drop any search still in flight (it would render its results under the
     // card) and clear what the last search left on screen.
@@ -2431,6 +2432,38 @@ document.addEventListener("DOMContentLoaded", () => {
   performSearch("");
   setTimeout(animatePlaceholder, 500);
 });
+// First run (or a hotkey hook that failed): a card with the hotkey, !help and the
+// context menu, shown above the empty box until the user types something.
+let pendingWelcome = null;
+const WELCOME_ICONS = {
+  warn: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  key: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>`,
+  help: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>`,
+};
+function showWelcomeCard() {
+  const w = pendingWelcome;
+  if (!w || !appContainer.classList.contains("window-showing")) return;
+  const rows = [];
+  if (!w.hook_ok) rows.push(["warn", t("welcomeHookFailed")]);
+  else rows.push(["key", t("welcomeHotkey", { hotkey: w.hotkey })]);
+  rows.push(["help", t("welcomeHelp")], ["menu", t("welcomeContext")]);
+  specialContent.innerHTML = `<div class="special-card welcome-card">${rows
+    .map(([icon, text]) => `<div class="special-action welcome-row${icon === "warn" ? " is-warning" : ""}">${WELCOME_ICONS[icon]}<span>${escapeHtml(text)}</span></div>`)
+    .join("")}</div>`;
+  specialSection.classList.remove("hidden");
+  hint.classList.add("hidden");
+}
+// The page can load before setup has queued the card, so ask both on load and when
+// the backend says it is ready; take_welcome hands it out only once.
+function fetchWelcome() {
+  invoke("take_welcome").then((w) => {
+    if (!w) return;
+    pendingWelcome = w;
+    showWelcomeCard();
+  }).catch(() => {});
+}
+listen("welcome-ready", fetchWelcome).then(fetchWelcome);
 window.__TAURI__.event.listen("window-shown", async (event) => {
 
   if (!window._zoomLoaded) {
@@ -2476,6 +2509,7 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   performSearch("");
   // Tray > Settings shows the window straight on the settings panel.
   if (event.payload && event.payload.openSettings && settingsSection.classList.contains("hidden")) toggleSettings();
+  showWelcomeCard();
   if (!placeholderTimer) placeholderTimer = setTimeout(animatePlaceholder, 600);
   setTimeout(() => {
     searchInput.focus();

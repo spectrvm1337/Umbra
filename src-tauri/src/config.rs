@@ -252,6 +252,11 @@ fn update<R>(f: impl FnOnce(&mut Config) -> R) -> R {
         out
     })
 }
+/// Writes the config as it is, so a fresh install has a file and the next start
+/// is no longer a first run.
+pub fn save_defaults() {
+    update(|_| ());
+}
 pub fn get_theme() -> ThemeConfig {
     read(|c| c.theme.clone())
 }

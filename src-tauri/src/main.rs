@@ -68,6 +68,8 @@ fn main() {
         }))
         .setup(|app| {
             paths::migrate_legacy_config_dir();
+            // No config file yet: a fresh install, nothing has been saved so far.
+            let first_run = !paths::config_file().exists();
             indexer::init_index_with_progress(app.handle().clone());
             let window = app.get_webview_window("main").unwrap();
             remove_sysmenu(&window);
@@ -76,6 +78,13 @@ fn main() {
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
             }
             crate::keyboard_hook::init(app.handle().clone());
+            let hook_ok = crate::keyboard_hook::is_installed();
+            if first_run || !hook_ok {
+                if first_run {
+                    config::save_defaults();
+                }
+                commands::set_welcome(app.handle(), commands::Welcome { hotkey: config::get_hotkey(), hook_ok, first_run });
+            }
             themes::watch(app.handle().clone());
             let win_focus = window.clone();
             window.on_window_event(move |event| {
@@ -132,6 +141,7 @@ fn main() {
             commands::get_language,
             commands::set_language,
             commands::get_window_pin,
+            commands::take_welcome,
             commands::set_window_pin,
             commands::get_placement,
             commands::set_placement,

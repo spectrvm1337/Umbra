@@ -80,7 +80,7 @@ pub(crate) fn file_result(path: &str) -> Option<SearchResult> {
 pub(crate) fn with_entries<R>(f: impl FnOnce(&[SearchEntry]) -> R) -> Option<R> {
     INDEX.get().and_then(|rw| rw.read().ok()).map(|r| f(&r))
 }
-fn kind_from_file(file_name: &str, is_dir: bool) -> u8 {
+pub(crate) fn kind_from_file(file_name: &str, is_dir: bool) -> u8 {
     if is_dir {
         return KIND_FOLDER;
     }
@@ -131,6 +131,20 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
     // mismatched run id at the next checkpoint and exits quietly.
     let run = INDEX_RUN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     thread::spawn(move || {
+        // First walk of this session: search the index saved last time while
+        // the drives are walked again in the background.
+        if with_entries(|r| r.is_empty()).unwrap_or(true) {
+            if let Some(saved) = crate::index_cache::load() {
+                if let Some(rw) = INDEX.get() {
+                    if let Ok(mut w) = rw.write() {
+                        if w.is_empty() {
+                            *w = saved;
+                        }
+                    }
+                }
+            }
+        }
+        crate::index_watch::begin_scan_journal();
         let mut entries = Vec::with_capacity(100_000);
         let cancelled = || INDEX_RUN.load(std::sync::atomic::Ordering::SeqCst) != run;
         emit_progress(
@@ -204,6 +218,8 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         if let Some(rw) = INDEX.get() {
             if let Ok(mut w) = rw.write() {
                 *w = entries;
+                // What the watcher saw while the walk ran goes on top of it.
+                crate::index_watch::finish_scan_journal(&mut w);
             }
         }
         if cancelled() {
@@ -250,6 +266,7 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
                 done: true,
             },
         );
+        crate::index_cache::save_live_index();
     });
 }
 // Re-scan the fast sources (Start Menu + registry apps) and merge them into
@@ -653,7 +670,7 @@ const SCAN_TO: f64 = 92.0;
 const SCAN_SMOOTH: f64 = 40_000.0;
 const EMIT_EVERY_MS: u128 = 150;
 const EMIT_EVERY_FILES: usize = 1500;
-fn is_skipped_name(name: &str, skip_dirs: &std::collections::HashSet<String>) -> bool {
+pub(crate) fn is_skipped_name(name: &str, skip_dirs: &std::collections::HashSet<String>) -> bool {
     let name = name.to_lowercase();
     name.starts_with('.') || skip_dirs.contains(name.as_str())
 }
@@ -677,7 +694,7 @@ fn walk(root: &Path) -> WalkDir {
         busy_timeout: None,
     })
 }
-fn pruned_walk(root: &Path, skip_dirs: std::collections::HashSet<String>) -> WalkDir {
+pub(crate) fn pruned_walk(root: &Path, skip_dirs: std::collections::HashSet<String>) -> WalkDir {
     walk(root)
         .follow_links(false)
         .skip_hidden(false)

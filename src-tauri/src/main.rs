@@ -5,6 +5,8 @@ mod commands;
 mod config;
 mod frecency;
 mod icons;
+mod index_cache;
+mod index_watch;
 mod indexer;
 mod paths;
 mod pins;
@@ -71,6 +73,8 @@ fn main() {
             // No config file yet: a fresh install, nothing has been saved so far.
             let first_run = !paths::config_file().exists();
             indexer::init_index_with_progress(app.handle().clone());
+            #[cfg(target_os = "windows")]
+            index_watch::start(app.handle().clone());
             let window = app.get_webview_window("main").unwrap();
             remove_sysmenu(&window);
             crate::keyboard_hook::guard_system_menu(&window);

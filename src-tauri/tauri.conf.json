@@ -66,7 +66,9 @@
 
     "security": {
 
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; img-src 'self' data: file:; font-src 'self' https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost https://wttr.in https://cdn.jsdelivr.net https://*.currency-api.pages.dev; media-src 'self' data:"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; img-src 'self' data: file:; font-src 'self' https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost https://wttr.in https://cdn.jsdelivr.net https://*.currency-api.pages.dev; media-src 'self' data:",
+
+      "dangerousDisableAssetCspModification": ["style-src"]
 
     }
 

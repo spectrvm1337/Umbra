@@ -104,6 +104,7 @@ fn main() {
             commands::get_recent_items,
             commands::launch_item,
             commands::launch_admin,
+            commands::reveal_in_explorer,
             commands::kill_process,
             commands::find_process,
             commands::exec_power_command,

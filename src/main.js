@@ -1976,12 +1976,11 @@ contextMenu.addEventListener("click", (e) => {
           showToast("Admin launch failed", true, String(err).replace("Error:", "").trim());
         });
       break;
-    case "directory": {
-      const dir = path.substring(0, path.lastIndexOf("\\") !== -1 ? path.lastIndexOf("\\") : path.lastIndexOf("/"));
-      if (dir) invoke("launch_item", { path: dir }).catch(err => console.warn("launch dir failed:", err));
+    case "directory":
+      // Explorer opens on the containing folder with this item selected.
+      invoke("reveal_in_explorer", { path }).catch(err => console.warn("reveal failed:", err));
       hideWindow();
       break;
-    }
     case "copy":
       copyPath(path);
       break;

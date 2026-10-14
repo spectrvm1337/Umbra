@@ -13,6 +13,28 @@ pub async fn launch_item(path: String) -> Result<String, String> {
     open::that_detached(&path).map_err(|e| format!("Failed to open: {}", e))?;
     Ok(path)
 }
+/// Opens the folder that holds `path` in Explorer with that file (or folder)
+/// selected, instead of leaving the user to find it in the listing.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("Path not found: {}", path));
+    }
+    // Explorer parses its own command line: the path goes in quotes right after
+    // the comma, and Windows paths cannot contain a quote themselves.
+    std::process::Command::new("explorer")
+        .raw_arg(format!("/select,\"{}\"", path))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open Explorer: {}", e))
+}
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    let parent = std::path::Path::new(&path).parent().ok_or("no parent folder")?;
+    open::that_detached(parent).map_err(|e| e.to_string())
+}
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn launch_admin(path: String) -> Result<String, String> {

@@ -2432,6 +2432,14 @@ document.addEventListener("DOMContentLoaded", () => {
   performSearch("");
   setTimeout(animatePlaceholder, 500);
 });
+// The saved UI language used to be applied only when settings were opened, so
+// every start showed English until then. Load it right away.
+const languageReady = invoke("get_language")
+  .then((lang) => {
+    if (window.i18n && lang) window.i18n.setLanguage(lang);
+    updateLanguageButtons(lang || "en");
+  })
+  .catch(() => {});
 // First run (or a hotkey hook that failed): a card with the hotkey, !help and the
 // context menu, shown above the empty box until the user types something.
 let pendingWelcome = null;
@@ -2457,7 +2465,7 @@ function showWelcomeCard() {
 // The page can load before setup has queued the card, so ask both on load and when
 // the backend says it is ready; take_welcome hands it out only once.
 function fetchWelcome() {
-  invoke("take_welcome").then((w) => {
+  languageReady.then(() => invoke("take_welcome")).then((w) => {
     if (!w) return;
     pendingWelcome = w;
     showWelcomeCard();

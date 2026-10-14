@@ -52,13 +52,87 @@ pub async fn launch_admin(path: String) -> Result<String, String> {
 pub async fn launch_admin(path: String) -> Result<String, String> {
     Err("Not supported on this platform".to_string())
 }
+/// `chrome` -> `chrome.exe`. taskkill treats `*` and `?` in /IM as wildcards
+/// (`kill *` would close every program), so those, path separators and quotes
+/// are refused instead of being passed through.
+pub(crate) fn process_exe_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("no process name".to_string());
+    }
+    if name.contains(['*', '?', '\\', '/', '"']) {
+        return Err("wildcards and paths are not allowed".to_string());
+    }
+    if name.to_ascii_lowercase().ends_with(".exe") {
+        Ok(name.to_string())
+    } else {
+        Ok(format!("{name}.exe"))
+    }
+}
+#[derive(serde::Serialize)]
+pub struct RunningProcess {
+    /// How many processes have this image name.
+    pub count: usize,
+    /// Full path of the first one we may query (None for elevated or
+    /// protected processes), used for the icon on the kill card.
+    pub path: Option<String>,
+}
+#[cfg(target_os = "windows")]
+fn running_processes(exe_name: &str) -> RunningProcess {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    let mut found = RunningProcess { count: 0, path: None };
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return found;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut ok = Process32FirstW(snapshot, &mut entry);
+        while ok != 0 {
+            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
+            let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+            if exe.eq_ignore_ascii_case(exe_name) {
+                found.count += 1;
+                if found.path.is_none() {
+                    let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
+                    if !process.is_null() {
+                        let mut buf = [0u16; 1024];
+                        let mut size = buf.len() as u32;
+                        if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size) != 0 {
+                            found.path = Some(String::from_utf16_lossy(&buf[..size as usize]));
+                        }
+                        CloseHandle(process);
+                    }
+                }
+            }
+            ok = Process32NextW(snapshot, &mut entry);
+        }
+        CloseHandle(snapshot);
+    }
+    found
+}
+#[cfg(not(target_os = "windows"))]
+fn running_processes(_exe_name: &str) -> RunningProcess {
+    RunningProcess { count: 0, path: None }
+}
+/// What the `kill` card shows before the user confirms.
+#[tauri::command]
+pub fn find_process(name: String) -> Result<RunningProcess, String> {
+    Ok(running_processes(&process_exe_name(&name)?))
+}
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub fn kill_process(name: String) -> Result<String, String> {
-    let mut process_name = name.trim().to_string();
-    if !process_name.to_lowercase().ends_with(".exe") {
-        process_name.push_str(".exe");
-    }
+    let process_name = process_exe_name(&name)?;
     let mut cmd = std::process::Command::new("taskkill");
     cmd.args(["/F", "/IM", &process_name]);
     cmd.creation_flags(0x08000000); 
@@ -74,6 +148,7 @@ pub fn kill_process(name: String) -> Result<String, String> {
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 pub fn kill_process(name: String) -> Result<String, String> {
+    process_exe_name(&name)?;
     let output = std::process::Command::new("killall")
         .arg(&name)
         .output()
@@ -125,5 +200,27 @@ pub fn exec_power_command(command: String) -> Result<String, String> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(stderr.trim().to_string())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn process_names_without_wildcards_get_an_exe_suffix() {
+        assert_eq!(process_exe_name(" chrome ").unwrap(), "chrome.exe");
+        assert_eq!(process_exe_name("Code.EXE").unwrap(), "Code.EXE");
+        for bad in ["", "   ", "*", "*.exe", "chr?me", "C:\\x\\a.exe", "a/b", "\"x\""] {
+            assert!(process_exe_name(bad).is_err(), "{bad:?} accepted");
+        }
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn finds_its_own_process() {
+        let me = std::env::current_exe().unwrap();
+        let name = me.file_name().unwrap().to_string_lossy().to_string();
+        let found = running_processes(&name);
+        assert!(found.count >= 1);
+        assert!(found.path.unwrap().eq_ignore_ascii_case(&me.to_string_lossy()));
+        assert_eq!(running_processes("umbra-no-such-process.exe").count, 0);
     }
 }

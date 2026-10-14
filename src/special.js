@@ -46,21 +46,42 @@ function handleSpecialCommand(query) {
     specialSection.classList.remove("hidden");
     resultsSection.classList.add("hidden");
     pinsSection.classList.add("hidden");
+    // taskkill expands * and ? itself, so "kill *" would close every program.
+    const invalid = /[*?\\/"]/.test(procName);
     specialContent.innerHTML = `
       <div class="special-card">
-        <div class="special-action" data-kill="${escapeHtml(procName)}">
+        <div class="special-action${invalid ? " is-disabled" : ""}" data-kill="${escapeHtml(procName)}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
             <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
           </svg>
           <span>kill process: ${escapeHtml(procName)}</span>
+          <span class="special-hint">${invalid ? "wildcards and paths are not allowed" : ""}</span>
         </div>
       </div>
     `;
-    specialContent.querySelector(".special-action").addEventListener("click", async () => {
+    const action = specialContent.querySelector(".special-action");
+    if (invalid) return true;
+    // Show what would be killed: the program's icon and how many are running.
+    invoke("find_process", { name: procName })
+      .then(async (found) => {
+        if (!action.isConnected) return;
+        action.querySelector(".special-hint").textContent =
+          found.count === 0 ? "not running" : found.count === 1 ? "running" : `${found.count} running`;
+        if (!found.path) return;
+        const src = (await invoke("get_icons", { paths: [found.path] }))[found.path];
+        if (!src || !action.isConnected) return;
+        const icon = document.createElement("div");
+        icon.className = "result-icon";
+        icon.innerHTML = `<img src="${src}" alt="">`;
+        action.querySelector("svg").replaceWith(icon);
+      })
+      .catch(() => {});
+    action.addEventListener("click", async () => {
       try {
         const result = await invoke("kill_process", { name: procName });
         const el = specialContent.querySelector(".special-action span");
         el.textContent = result;
+        action.querySelector(".special-hint").textContent = "";
         setTimeout(hideWindow, 1000);
       } catch (e) {
         const el = specialContent.querySelector(".special-action span");

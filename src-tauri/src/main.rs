@@ -101,6 +101,7 @@ fn main() {
             commands::launch_item,
             commands::launch_admin,
             commands::kill_process,
+            commands::find_process,
             commands::exec_power_command,
             commands::get_pins,
             commands::add_pin,

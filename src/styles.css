@@ -1513,6 +1513,19 @@ body > .result-item.pin-drag-copy {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.special-action .special-hint {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: normal;
+}
+.special-action.is-disabled {
+  cursor: default;
+}
+.special-action.is-disabled:hover {
+  background: none;
+}
 /* Update flow. It sits directly under the version row that triggers it, so it
    is deliberately not a card: no fill, no border, no radius — a card inside
    .settings-card is the one thing the rest of this panel never does. Title,

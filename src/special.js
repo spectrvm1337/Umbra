@@ -123,6 +123,7 @@ function handleSpecialCommand(query) {
     return true;
   }
   if (handleCurrencyCommand(q)) return true;
+  if (handleCalcCommand(q)) return true;
   if (/^!help\s*$/i.test(q)) {
     const cmds = [
       { name: "!help", desc: t("helpHelp"), fill: "" },
@@ -137,6 +138,7 @@ function handleSpecialCommand(query) {
       { name: "!so <query>", desc: t("helpSo"), fill: "!so " },
       { name: "!translate <text>", desc: t("helpTranslate"), fill: "!translate " },
       { name: "100 usd to rub", desc: t("helpCurr"), fill: "100 usd to " },
+      { name: "(2+3)*4 · 200+10%", desc: t("helpCalc"), fill: "" },
       { name: "kill <proc>", desc: t("helpKill"), fill: "kill " },
       { name: "shutdown|restart|sleep", desc: t("helpPower"), fill: "" },
       { name: "<link or path>", desc: t("helpOpen"), fill: "" },

@@ -25,6 +25,14 @@ fn ensure_db() {
     let entries = crate::storage::load_json(&path);
     *guard = Some(FrecencyDb { path, entries });
 }
+/// A launch counts half as much after this many days, so programs you stopped
+/// using sink below the ones you use now instead of ranking first forever.
+const HALF_LIFE_DAYS: f64 = 14.0;
+/// The stored score is its value at `last_used`; this is what it is worth `now`.
+fn decayed(score: f64, last_used: f64, now: f64) -> f64 {
+    let age_days = ((now - last_used) / 86_400.0).max(0.0);
+    score * 0.5f64.powf(age_days / HALF_LIFE_DAYS)
+}
 pub fn record_usage(id: &str) {
     ensure_db();
     let mut guard = DB.lock().unwrap();
@@ -35,19 +43,20 @@ pub fn record_usage(id: &str) {
         score: 0.0,
         last_used: now,
     });
-    entry.score = entry.score * 0.9 + 100.0;
+    entry.score = decayed(entry.score, entry.last_used, now) * 0.9 + 100.0;
     entry.last_used = now;
     save_db(db);
 }
 pub fn scores_snapshot() -> std::collections::HashMap<String, f64> {
     ensure_db();
+    let now = chrono_timestamp();
     let guard = DB.lock().unwrap();
     guard
         .as_ref()
         .unwrap()
         .entries
         .iter()
-        .map(|(k, v)| (k.clone(), v.score))
+        .map(|(k, v)| (k.clone(), decayed(v.score, v.last_used, now)))
         .collect()
 }
 /// Everything ever launched (paths and URLs), most recently used first.
@@ -83,5 +92,16 @@ mod tests {
         let entries: HashMap<String, FrecencyEntry> =
             [entry("old", 900.0, 10.0), entry("newest", 100.0, 30.0), entry("middle", 500.0, 20.0)].into_iter().collect();
         assert_eq!(most_recent_first(&entries), vec!["newest", "middle", "old"]);
+    }
+    #[test]
+    fn launches_lose_weight_over_time() {
+        let day = 86_400.0;
+        let now = 1_000.0 * day;
+        assert_eq!(decayed(100.0, now, now), 100.0);
+        assert!((decayed(100.0, now - 14.0 * day, now) - 50.0).abs() < 1e-9);
+        // A clock that went backwards never inflates a score.
+        assert_eq!(decayed(100.0, now + day, now), 100.0);
+        // Used constantly two months ago (capped at 1000) vs once today.
+        assert!(decayed(1000.0, now - 60.0 * day, now) < decayed(100.0, now, now));
     }
 }

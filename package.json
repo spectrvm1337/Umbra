@@ -1,7 +1,7 @@
 {
   "name": "umbra",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Lightning fast system search tool",
   "type": "module",
   "scripts": {

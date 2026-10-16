@@ -188,6 +188,14 @@ pub fn get_disabled_drives() -> Vec<String> {
     config::get_disabled_drives()
 }
 #[tauri::command]
+pub fn get_anim_off() -> Vec<String> {
+    config::get_anim_off()
+}
+#[tauri::command]
+pub fn set_anim_off(kind: String, off: bool) -> Vec<String> {
+    config::set_anim_off(kind, off)
+}
+#[tauri::command]
 pub fn set_drive_enabled(drive: String, enabled: bool) -> Vec<String> {
     config::set_drive_enabled(&drive, enabled)
 }

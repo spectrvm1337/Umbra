@@ -6,6 +6,10 @@
 // Width added to the window on the dock side: the tile plus room for the hover label.
 const DOCK_RESERVE = 168;
 
+// Settings > Animations > Movement, read from the same attribute the CSS uses,
+// so the dock and the results list agree without sharing any state.
+const motionOff = () => document.documentElement.dataset.animMove === "off";
+
 let dockSide; // "left" | "right" | null (list mode); undefined until the theme first loads
 let dockEl = null;
 let dockDragging = false;
@@ -136,9 +140,9 @@ function ensureDock() {
   });
 
   // Pointer-driven drags (forceFallback): Tauri's file-drop handling disables HTML5 DnD on Windows.
-  Sortable.create(dockEl, {
+  const dockSortable = Sortable.create(dockEl, {
     group: { name: "umbra-dock", pull: true, put: ["umbra-results"] },
-    animation: 200,
+    animation: motionOff() ? 0 : 200,
     easing: "cubic-bezier(0.25, 1, 0.5, 1)",
     forceFallback: true,
     fallbackTolerance: 4,
@@ -166,6 +170,10 @@ function ensureDock() {
       renderDock();
     },
   });
+
+  // Called from main.js when the Movement toggle changes: Sortable writes its
+  // own inline `transition: transform 200ms`, so the option is the only handle.
+  window.applyDockSortableMotion = (ms) => dockSortable.option("animation", ms);
 
   // Result rows can be dragged onto the dock (only while the dock is shown).
   resultsDragSortable = Sortable.create(resultsList, {

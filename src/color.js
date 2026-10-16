@@ -186,6 +186,8 @@ function colorStartSkeleton(card) {
       delete canvas.dataset.running;
       return;
     }
+    // Looping is permanent, so the only thing that stills this is the system
+    // asking for reduced motion.
     const t = colorReduceMotion.matches ? 2 : (now - start) / 1000;
     const blobs = [blob(t, 0.55, 0.42, 0), blob(t, 0.37, 0.61, 2.4)];
     ctx.clearRect(0, 0, w, h);

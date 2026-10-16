@@ -138,6 +138,14 @@
                 <button id="setting-radius-plus" class="stepper-btn">+</button>
               </div>
             </div>
+            <div class="settings-row theme-dependent" id="row-gap">
+              <span class="settings-label" data-i18n="lblGap">Row Spacing</span>
+              <div class="zoom-stepper">
+                <button id="setting-gap-minus" class="stepper-btn">&minus;</button>
+                <span id="setting-gap-val">12</span>
+                <button id="setting-gap-plus" class="stepper-btn">+</button>
+              </div>
+            </div>
             <div class="settings-row">
               <span class="settings-label" data-i18n="lblPinsStyle">Pinned apps</span>
               <div class="seg-row" id="pins-style-seg">
@@ -185,6 +193,15 @@
                 <button class="seg-btn" data-pos="inner" data-i18n-tip="borderInnerTip" data-i18n="borderInner">Inner</button>
                 <button class="seg-btn" data-pos="outer" data-i18n-tip="borderOuterTip" data-i18n="borderOuter">Outer</button>
               </div>
+            </div>
+            <div class="settings-row interactive" id="setting-anim-row" data-i18n-tip="animTip" data-tip="Pick what moves. Everything stays where it is; only the motion is dropped">
+              <span class="settings-label" data-i18n="lblAnim">Animations</span>
+              <span class="settings-value" id="setting-anim-count">…</span>
+              <span class="exclude-chevron">›</span>
+            </div>
+            <div id="anim-menu">
+              <div class="ms-head" id="anim-head">…</div>
+              <div id="anim-groups"></div>
             </div>
             <div class="settings-row interactive" id="setting-exclude-row">
               <span class="settings-label" data-i18n="lblContent">Content Categories</span>

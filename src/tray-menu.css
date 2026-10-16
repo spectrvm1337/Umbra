@@ -25,7 +25,7 @@ body.tray-menu-page {
 #tray-menu.shown {
   opacity: 1;
   transform: none;
-  transition: opacity 0.14s ease-out, transform 0.18s cubic-bezier(0.2, 1, 0.3, 1);
+  transition:  opacity var(--t-fade, 0.14s) ease-out, transform var(--t-move, 0.18s) cubic-bezier(0.2, 1, 0.3, 1)
 }
 .tm-item {
   display: flex;

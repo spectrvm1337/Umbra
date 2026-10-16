@@ -53,6 +53,13 @@ function wheelTick() {
     wheelRaf = null;
     return;
   }
+  // Movement off means the list lands where the wheel stopped, with no easing.
+  if (document.documentElement.dataset.animMove === "off") {
+    resultsContainer.scrollTop = wheelTarget;
+    wheelTarget = null;
+    wheelRaf = null;
+    return;
+  }
   resultsContainer.scrollTop = cur + diff * 0.28;
   wheelRaf = requestAnimationFrame(wheelTick);
 }
@@ -567,6 +574,156 @@ document.addEventListener("keydown", (e) => {
   }
 }, true);
 contentMenuLoad().then(renderExcludeCount);
+
+/* Animations: which kinds of motion are switched off.
+   Every duration in the stylesheet is written as var(--t-<kind>, <original>),
+   so defining the variable is all it takes to drop that kind and removing it
+   puts the original timings back. Keyframe animations have their duration in
+   the `animation` shorthand instead, so those are dropped by an attribute.
+   The looping animations (icon placeholders, indexing spinner, eyedropper
+   loupe) are not on this list at all: they say "still working", so they stay. */
+const ANIM_LABELS = {
+  blur: ["animBlur", "Blur"],
+  fade: ["animFade", "Fade"],
+  move: ["animMove", "Movement"],
+  size: ["animSize", "Size"],
+  color: ["animColor", "Colour"],
+  glow: ["animGlow", "Glow"],
+};
+const animRow = document.getElementById("setting-anim-row");
+const animMenu = document.getElementById("anim-menu");
+const animHead = document.getElementById("anim-head");
+const animGroups = document.getElementById("anim-groups");
+const animCount = document.getElementById("setting-anim-count");
+let animOff = [];
+let animMenuOpen = false;
+
+function applyAnimSettings() {
+  const root = document.documentElement;
+  for (const kind of Object.keys(ANIM_LABELS)) {
+    const attr = "anim" + kind[0].toUpperCase() + kind.slice(1);
+    if (animOff.includes(kind)) {
+      root.style.setProperty("--t-" + kind, "0s");
+      root.dataset[attr] = "off";
+    } else {
+      root.style.removeProperty("--t-" + kind);
+      delete root.dataset[attr];
+    }
+  }
+  applySortableMotion();
+}
+// data-anim-<Kind> drives the keyframe animations the stylesheet cannot zero
+// through a duration; the variables drive the transitions.
+function applySortableMotion() {
+  const ms = animOff.includes("move") ? 0 : 250;
+  pinsSortable.option("animation", ms);
+  if (typeof applyDockSortableMotion === "function") applyDockSortableMotion(animOff.includes("move") ? 0 : 200);
+}
+const animLabel = (kind) => {
+  const [key, fallback] = ANIM_LABELS[kind] || [kind, kind];
+  return window.i18n ? window.i18n.t(key) || fallback : fallback;
+};
+async function animMenuLoad() {
+  try {
+    // A config written before Looping was removed can still name it; drop
+    // anything the list no longer has so the count stays honest.
+    animOff = (await invoke("get_anim_off")).filter((k) => k in ANIM_LABELS);
+  } catch (err) {
+    setSettingsStatus(String(err), true);
+  }
+  applyAnimSettings();
+}
+function renderAnimCount() {
+  const total = Object.keys(ANIM_LABELS).length;
+  const on = total - animOff.length;
+  animCount.textContent = on + "/" + total;
+  const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
+  animRow.dataset.tip = animOff.length === 0
+    ? tr("animAllOn", "everything animates")
+    : tr("animStill", "Still") + ": " + animOff.map(animLabel).join(", ").toLowerCase();
+}
+function renderAnimGroups() {
+  const kinds = Object.keys(ANIM_LABELS);
+  const totalOn = kinds.length - animOff.length;
+  const allOn = totalOn === kinds.length;
+  const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
+  animHead.textContent = tr("currentCount", "Current") + ": " + totalOn + "/" + kinds.length;
+  animGroups.innerHTML = "";
+  animGroups.appendChild(msItem(tr("selectAll", "Select All"), allOn, toggleAnimAll));
+  // Everything is on, so there is nothing per kind to change yet: the list only
+  // appears once Select All is off, which is also the only way in.
+  if (!allOn) {
+    for (const kind of kinds) {
+      animGroups.appendChild(msItem(animLabel(kind), !animOff.includes(kind), () => toggleAnimKind(kind)));
+    }
+  }
+  renderAnimCount();
+}
+async function toggleAnimKind(kind) {
+  const off = !animOff.includes(kind);
+  try {
+    animOff = await invoke("set_anim_off", { kind, off });
+  } catch (err) {
+    setSettingsStatus(String(err), true);
+  }
+  applyAnimSettings();
+  renderAnimGroups();
+}
+async function toggleAnimAll() {
+  // One loop like the content menu's: turn every kind the way the master is.
+  const off = animOff.length === 0;
+  try {
+    let cur = animOff;
+    for (const kind of Object.keys(ANIM_LABELS)) {
+      cur = await invoke("set_anim_off", { kind, off });
+    }
+    animOff = cur;
+  } catch (err) {
+    setSettingsStatus(String(err), true);
+  }
+  applyAnimSettings();
+  renderAnimGroups();
+}
+function positionAnimMenu() {
+  const h = animMenu.offsetHeight;
+  animMenu.style.top = Math.max(6, animRow.offsetTop - h - 6) + "px";
+}
+function openAnimMenu() {
+  animMenuLoad().then(() => {
+    renderAnimGroups();
+    positionAnimMenu();
+    animMenu.classList.add("visible");
+    animRow.classList.add("open");
+    animMenuOpen = true;
+  });
+}
+function closeAnimMenu() {
+  if (!animMenuOpen) return;
+  animMenuOpen = false;
+  animMenu.classList.remove("visible");
+  animRow.classList.remove("open");
+}
+if (animRow) {
+  animRow.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (animMenuOpen) closeAnimMenu();
+    else openAnimMenu();
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!animMenuOpen) return;
+    if (e.target instanceof Element && (animMenu.contains(e.target) || animRow.contains(e.target))) return;
+    closeAnimMenu();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (animMenuOpen && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAnimMenu();
+    }
+  }, true);
+  animMenuLoad().then(renderAnimCount);
+}
+
 const authorLink = document.getElementById("author-link");
 if (authorLink) {
   authorLink.addEventListener("click", (e) => {
@@ -767,6 +924,7 @@ const bgSwatchesEl = document.getElementById("bg-swatches");
 const accentCustom = document.getElementById("accent-custom");
 const bgCustom = document.getElementById("bg-custom");
 const radiusVal = document.getElementById("setting-radius-val");
+const gapVal = document.getElementById("setting-gap-val");
 const alphaVal = document.getElementById("setting-alpha-val");
 const borderRow = document.getElementById("setting-border-row");
 const borderToggle = document.getElementById("setting-border");
@@ -868,11 +1026,14 @@ function applyTheme() {
   // Row/search/gap sizing comes from the [data-density] rules in the
   // stylesheet, so it stays overridable by custom themes.
   root.dataset.density = theme.density || "full";
+  // Inline, so a chosen spacing wins over the density preset it came from.
+  root.style.setProperty("--gap", (theme.gap ?? 12) + "px");
   root.style.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
   root.dataset.borderPos = theme.borderOn ? theme.borderPos : "center";
   root.style.setProperty("--glow-size", (theme.glow ? theme.glowStrength : 0) + "px");
   if (typeof applyDock === "function") applyDock();
   setVal(radiusVal, theme.radius);
+  setVal(gapVal, theme.gap ?? 12);
   setVal(alphaVal, Math.round(theme.cardAlpha * 100) + "%");
   setVal(borderWVal, theme.borderW);
   setVal(glowVal, theme.glow ? theme.glowStrength : "off");
@@ -1190,7 +1351,9 @@ function bindScrub(el, get, set, pxPerStep = 9) {
   });
 }
 bindStepper("setting-radius-minus", "setting-radius-plus",
-  () => theme.radius, (v) => { theme = { ...theme, radius: Math.max(4, Math.min(24, v)) }; saveTheme(); });
+  () => theme.radius, (v) => { theme = { ...theme, radius: Math.max(0, Math.min(24, v)) }; saveTheme(); });
+bindStepper("setting-gap-minus", "setting-gap-plus",
+  () => theme.gap ?? 12, (v) => { theme = { ...theme, gap: Math.max(0, Math.min(24, v)) }; saveTheme(); });
 bindStepper("setting-alpha-minus", "setting-alpha-plus",
   () => Math.round(theme.cardAlpha * 100), (v) => {
     theme = { ...theme, cardAlpha: Math.max(0.4, Math.min(1, v / 100)) };
@@ -1207,6 +1370,30 @@ bindStepper("setting-glow-minus", "setting-glow-plus",
     theme = { ...theme, glowStrength: Math.max(0, Math.min(40, v)), glow: true };
     saveTheme();
   });
+
+/* Drag a number sideways to change it, like a design tool. bindScrub used to
+   exist with a cursor already on .zoom-stepper span, but nothing ever called
+   it, so the cursor promised a drag that could not happen. */
+const clampStep = (min, max) => (v) => Math.max(min, Math.min(max, v));
+bindScrub(settingZoomVal,
+  () => parseFloat(settingZoomVal.textContent) || 1,
+  (v) => applyZoom(v, true),
+  3);
+bindScrub(alphaVal,
+  () => Math.round(theme.cardAlpha * 100),
+  (v) => { theme = { ...theme, cardAlpha: clampStep(40, 100)(v) / 100 }; saveTheme(); });
+bindScrub(radiusVal,
+  () => theme.radius,
+  (v) => { theme = { ...theme, radius: clampStep(0, 24)(Math.round(v)) }; saveTheme(); });
+bindScrub(gapVal,
+  () => theme.gap ?? 12,
+  (v) => { theme = { ...theme, gap: clampStep(0, 24)(Math.round(v)) }; saveTheme(); });
+bindScrub(borderWVal,
+  () => theme.borderW,
+  (v) => { theme = { ...theme, borderW: clampStep(0, 8)(v), borderOn: true }; saveTheme(); });
+bindScrub(glowVal,
+  () => theme.glowStrength,
+  (v) => { theme = { ...theme, glowStrength: clampStep(0, 40)(Math.round(v)), glow: true }; saveTheme(); });
 borderRow.addEventListener("click", () => {
   theme = { ...theme, borderOn: !theme.borderOn };
   saveTheme();
@@ -1247,6 +1434,7 @@ async function loadTheme() {
     if (theme.followSystem) systemTheme = await invoke("get_system_theme").catch(() => null);
     await loadThemes();
     applyTheme();
+    applyAnimSettings();
   } catch (e) {
     console.warn("theme load failed:", e);
   }
@@ -1363,11 +1551,16 @@ function hideWindow() {
   contextMenu.classList.remove("visible");
   appContainer.classList.remove("window-showing");
   appContainer.classList.add("window-hidden");
-  clearTimeout(placeholderTimer); 
+  clearTimeout(placeholderTimer);
 
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
     invoke("hide_window");
+    // Only now, with the window gone and its fade finished, take the list off
+    // screen: the rows stay put while the app is still fading out, so nothing
+    // vanishes early. On the next open the class is what keeps the finished
+    // list from flashing before the staggered animation.
+    appContainer.classList.add("content-stale");
     isHiding = false;
   }, 280);
 }
@@ -1527,11 +1720,11 @@ let rowDragging = false;
 function endRowDrag() {
   setTimeout(() => { rowDragging = false; }, 0);
 }
-Sortable.create(pinsList, {
-  animation: 250,
-  easing: "cubic-bezier(0.25, 1, 0.5, 1)",
-  ghostClass: "sortable-ghost",
-  dragClass: "sortable-drag",
+const pinsSortable = Sortable.create(pinsList, {
+        animation: animOff.includes("move") ? 0 : 250,
+        easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+        ghostClass: "sortable-ghost",
+        dragClass: "sortable-drag",
   delay: 50,
   delayOnTouchOnly: true,
   // Tauri takes over drag-and-drop on Windows (for files dropped from Explorer), so native
@@ -2636,7 +2829,7 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   appContainer.classList.add("window-showing");
   animateAllRows = true;
   if (theme && theme.followSystem) refreshSystemTheme();
-  performSearch("");
+  performSearch("").finally(() => appContainer.classList.remove("content-stale"));
   // Tray > Settings shows the window straight on the settings panel.
   if (event.payload && event.payload.openSettings && settingsSection.classList.contains("hidden")) toggleSettings();
   showWelcomeCard();

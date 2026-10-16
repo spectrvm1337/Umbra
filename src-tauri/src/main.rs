@@ -163,6 +163,8 @@ fn main() {
             commands::get_available_drives,
             commands::get_disabled_drives,
             commands::set_drive_enabled,
+            commands::get_anim_off,
+            commands::set_anim_off,
             commands::open_themes_folder,
             commands::get_custom_themes,
             commands::get_app_version,

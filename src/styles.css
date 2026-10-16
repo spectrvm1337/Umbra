@@ -92,15 +92,15 @@
   --tile-media: #8B7EC8;
   --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
 --ease-out-apple: cubic-bezier(0.32, 0.72, 0, 1);
-  transition:
-    --card-h .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --search-h .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --search-icon .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --btn .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --result-icon .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --gap .24s cubic-bezier(0.32, 0.72, 0, 1),
-    --pad-y .24s cubic-bezier(0.32, 0.72, 0, 1);
-}
+transition:
+      --card-h var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --search-h var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --search-icon var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --btn var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --result-icon var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --gap var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
+      --pad-y var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1)
+  }
 /* Density modes. `full` is the roomy default and needs no rule here.
    Both compact modes shrink the rows and tighten the gap; only
    `compact-full` also shrinks the search bar. Kept as attribute selectors so
@@ -172,9 +172,9 @@ body {
   opacity: 0;
   filter: blur(16px);
   transform: translateY(-24px);
-  transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
-    filter 380ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition:  opacity var(--t-fade, 320ms) cubic-bezier(0.16, 1, 0.3, 1),
+    filter var(--t-blur, 380ms) cubic-bezier(0.16, 1, 0.3, 1),
+    transform var(--t-move, 320ms) cubic-bezier(0.16, 1, 0.3, 1)
 }
 #app-container.window-showing {
   opacity: 1;
@@ -189,7 +189,7 @@ body {
 #app-container.dragging {
   opacity: 0.85;
   filter: drop-shadow(0 0 20px rgba(80, 112, 144, 0.3));
-  transition: opacity 0.15s, filter 0.15s;
+  transition:  opacity var(--t-fade, 0.15s), filter var(--t-blur, 0.15s)
 }
 .drag-bar {
   position: relative;
@@ -217,28 +217,28 @@ body {
   box-shadow: 0 0 0 0 transparent;
   overflow: hidden;
   opacity: 1;
-  transition: width 0.3s var(--ease-out-apple),
-    height 0.3s var(--ease-out-apple),
-    padding 0.3s var(--ease-out-apple),
+  transition:  width var(--t-size, 0.3s) var(--ease-out-apple),
+    height var(--t-size, 0.3s) var(--ease-out-apple),
+    padding var(--t-move, 0.3s) var(--ease-out-apple),
     border-radius 0.3s var(--ease-out-apple),
-    background-color 0.25s ease,
-    border-color 0.25s ease,
-    box-shadow 0.25s ease,
-    opacity 0.2s ease;
+    background-color var(--t-color, 0.25s) ease,
+    border-color var(--t-color, 0.25s) ease,
+    box-shadow var(--t-glow, 0.25s) ease,
+    opacity var(--t-fade, 0.2s) ease
 }
 .drag-bar:hover:not(.notify):not(.active) .db-rect {
   width: 40px;
   height: 6px;
   background-color: rgba(178, 178, 178, 0.5);
   opacity: 1;
-  transition: width 0.38s var(--ease-spring),
-    height 0.38s var(--ease-spring),
-    padding 0.25s cubic-bezier(0.2, 1, 0.3, 1),
+  transition:  width var(--t-size, 0.38s) var(--ease-spring),
+    height var(--t-size, 0.38s) var(--ease-spring),
+    padding var(--t-move, 0.25s) cubic-bezier(0.2, 1, 0.3, 1),
     border-radius 0.25s cubic-bezier(0.2, 1, 0.3, 1),
-    background-color 0.3s ease,
-    border-color 0.25s ease,
-    box-shadow 0.25s ease,
-    opacity 0.3s ease;
+    background-color var(--t-color, 0.3s) ease,
+    border-color var(--t-color, 0.25s) ease,
+    box-shadow var(--t-glow, 0.25s) ease,
+    opacity var(--t-fade, 0.3s) ease
 }
 .drag-bar.notify .db-progress {
   opacity: 0;
@@ -272,10 +272,10 @@ body {
   opacity: 0;
   filter: blur(6px);
   visibility: hidden;
-  transition: opacity 0.18s ease,
-    filter 0.22s ease,
-    transform 0.26s var(--ease-out-apple),
-    visibility 0s linear 0.22s;
+  transition:  opacity var(--t-fade, 0.18s) ease,
+    filter var(--t-blur, 0.22s) ease,
+    transform var(--t-move, 0.26s) var(--ease-out-apple),
+    visibility 0s linear 0.22s
   z-index: 2;
 }
 .drag-bar.notify:not(.expanded) .ntf-short,
@@ -310,16 +310,16 @@ body {
   height: 6px;
   border-radius: 100px;
   background-color: rgba(178, 178, 178, 0.5);
-  transition: width 0.3s var(--ease-out-apple),
-    height 0.3s var(--ease-out-apple),
-    background-color 0.25s ease;
+  transition:  width var(--t-size, 0.3s) var(--ease-out-apple),
+    height var(--t-size, 0.3s) var(--ease-out-apple),
+    background-color var(--t-color, 0.25s) ease
 }
 .side-pill:hover .sp-grip {
   width: 8px;
   height: 8px;
-  transition: width 0.38s var(--ease-spring),
-    height 0.38s var(--ease-spring),
-    background-color 0.3s ease;
+  transition:  width var(--t-size, 0.38s) var(--ease-spring),
+    height var(--t-size, 0.38s) var(--ease-spring),
+    background-color var(--t-color, 0.3s) ease
 }
 .side-pill.active .sp-grip {
   width: 8px;
@@ -414,7 +414,7 @@ body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: width 0.2s ease, margin 0.2s ease, opacity 0.2s ease, visibility 0.2s ease;
+  transition:  width var(--t-size, 0.2s) ease, margin var(--t-move, 0.2s) ease, opacity var(--t-fade, 0.2s) ease, visibility var(--t-fade, 0.2s) ease
 }
 #index-spinner svg {
   width: calc(var(--btn) * 0.58);
@@ -454,7 +454,7 @@ body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: width 0.2s ease, margin 0.2s ease, opacity 0.2s ease, visibility 0.2s ease, background 0.12s ease;
+  transition:  width var(--t-size, 0.2s) ease, margin var(--t-move, 0.2s) ease, opacity var(--t-fade, 0.2s) ease, visibility var(--t-fade, 0.2s) ease, background var(--t-color, 0.12s) ease
 }
 #update-status svg {
   width: calc(var(--btn) * 0.58);
@@ -466,7 +466,7 @@ body {
 }
 #update-status .ring-fill {
   stroke-dasharray: 0 60;
-  transition: stroke-dasharray 0.2s ease-out;
+  transition:  stroke-dasharray var(--t-size, 0.2s) ease-out
 }
 #update-btn svg {
   width: calc(var(--btn) * 0.62);
@@ -504,7 +504,7 @@ body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: width 0.2s ease, opacity 0.2s ease, visibility 0.2s ease, background 0.15s, color 0.15s;
+  transition:  width var(--t-size, 0.2s) ease, opacity var(--t-fade, 0.2s) ease, visibility var(--t-fade, 0.2s) ease, background var(--t-color, 0.15s), color var(--t-color, 0.15s)
 }
 #clear-btn:hover {
   color: var(--text);
@@ -532,7 +532,7 @@ body {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
-  transition: color 0.15s ease, transform 0.3s ease, background 0.12s ease;
+  transition:  color var(--t-color, 0.15s) ease, transform var(--t-move, 0.3s) ease, background var(--t-color, 0.12s) ease
 }
 #settings-btn svg {
   width: calc(var(--btn) * 0.58);
@@ -565,7 +565,7 @@ body {
 }
 .settings-row.interactive {
   cursor: pointer;
-  transition: background 0.1s;
+  transition:  background var(--t-color, 0.1s)
 }
 .settings-row.interactive:hover {
   background: var(--card-hover);
@@ -620,7 +620,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s, color 0.12s, transform 0.1s;
+  transition:  background var(--t-color, 0.12s), color var(--t-color, 0.12s), transform var(--t-move, 0.1s)
 }
 .stepper-btn:hover {
   background: var(--card-hover);
@@ -651,7 +651,7 @@ body {
   background: var(--card-hover);
   position: relative;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition:  background var(--t-color, 0.15s)
 }
 .toggle-knob {
   position: absolute;
@@ -661,7 +661,7 @@ body {
   height: 14px;
   border-radius: 50%;
   background: var(--text);
-  transition: left 0.15s ease;
+  transition:  left var(--t-move, 0.15s) ease
 }
 .toggle.on {
   background: var(--accent);
@@ -704,7 +704,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   padding: 5px 12px;
   border-radius: 7px;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition:  background var(--t-color, 0.12s), color var(--t-color, 0.12s)
 }
 .seg-btn:hover {
   color: var(--text);
@@ -740,7 +740,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   font-weight: var(--weight-medium);
   cursor: pointer;
   padding: 6px 12px;
-  transition: background 0.12s, opacity 0.1s;
+  transition:  background var(--t-color, 0.12s), opacity var(--t-fade, 0.1s)
 }
 .settings-text-btn:hover:not(:disabled) {
   background: var(--card-hover);
@@ -761,7 +761,8 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 .settings-status.error {
   color: #C97A7A;
 }
-#content-menu {
+#content-menu,
+#anim-menu {
   position: absolute;
   right: 12px;
   width: 232px;
@@ -779,22 +780,24 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   opacity: 0;
   transform: scale(0.97) translateY(4px);
   transform-origin: bottom right;
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0.15s
 }
-#content-menu.visible {
+#content-menu.visible,
+#anim-menu.visible {
   visibility: visible;
   opacity: 1;
   transform: scale(1) translateY(0);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0s
 }
 .exclude-chevron {
   display: inline-block;
   color: var(--text-dim);
   font-size: 14px;
   line-height: 1;
-  transition: transform 0.15s ease;
+  transition:  transform var(--t-move, 0.15s) ease
 }
-#setting-exclude-row.open .exclude-chevron {
+#setting-exclude-row.open .exclude-chevron,
+#setting-anim-row.open .exclude-chevron {
   transform: rotate(90deg);
 }
 .ms-head {
@@ -813,7 +816,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   padding: 0 12px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition:  background var(--t-color, 0.1s)
 }
 .ms-item:hover {
   background: var(--card-hover);
@@ -826,7 +829,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   flex-shrink: 0;
   opacity: 0;
   transform: scale(0.5);
-  transition: opacity 0.12s, transform 0.12s;
+  transition:  opacity var(--t-fade, 0.12s), transform var(--t-move, 0.12s)
 }
 .ms-tick svg {
   width: 100%;
@@ -1022,7 +1025,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   transform: scale(0.88);
 }
 .swatch {
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition:  transform var(--t-move, 0.12s) ease, box-shadow var(--t-glow, 0.12s) ease
 }
 /* Pinned apps dock (dock.js). The window grows by --dock-reserve on the dock's
    side; tiles hug the panel 12px away and grow outward to show the app name.
@@ -1097,7 +1100,7 @@ html[data-pins="right"] #pin-dock {
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
   cursor: pointer;
-  transition: background-color 0.1s ease-out, padding 0.2s var(--ease-out-apple);
+  transition:  background-color var(--t-color, 0.1s) ease-out, padding var(--t-move, 0.2s) var(--ease-out-apple)
 }
 .dock-tile:first-child {
   --tile-h: var(--search-h);
@@ -1123,7 +1126,7 @@ html[data-pins="right"] .dock-tile:not(.dock-empty):hover {
   font-size: 15px;
   font-weight: var(--weight-medium);
   color: var(--text);
-  transition: max-width 0.2s var(--ease-out-apple), opacity 0.15s ease-out, margin 0.2s var(--ease-out-apple);
+  transition:  max-width var(--t-size, 0.2s) var(--ease-out-apple), opacity var(--t-fade, 0.15s) ease-out, margin var(--t-move, 0.2s) var(--ease-out-apple)
 }
 .dock-tile:hover .dock-label {
   max-width: 92px;
@@ -1181,7 +1184,7 @@ body > .result-item.sortable-fallback {
   background: transparent;
   opacity: 1;
   pointer-events: auto;
-  transition: opacity 0.2s, background 0.2s;
+  transition:  opacity var(--t-fade, 0.2s), background var(--t-color, 0.2s)
   z-index: 5;
 }
 #custom-scrollbar.hidden {
@@ -1196,7 +1199,7 @@ body > .result-item.sortable-fallback {
   border-radius: 3px;
   background: rgba(178, 178, 178, 0.55);
   cursor: grab;
-  transition: background 0.15s;
+  transition:  background var(--t-color, 0.15s)
   will-change: transform, height;
 }
 #custom-scrollbar:hover #custom-thumb,
@@ -1221,7 +1224,7 @@ body > .result-item.sortable-fallback {
   --mask-top: 0px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
-  transition: --mask-top 0.2s ease;
+  transition:  --mask-top var(--t-fade, 0.2s) ease
 }
 #results-wrapper.is-scrolled {
   --mask-top: 12px;
@@ -1278,7 +1281,7 @@ body > .result-item.sortable-fallback {
   border-radius: var(--card-radius);
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
-  transition: background-color 0.1s ease-out, box-shadow 0.1s ease-out, transform 0.15s ease-out;
+  transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out
   flex-shrink: 0;
   animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
 }
@@ -1444,7 +1447,7 @@ body > .result-item.pin-drag-copy {
   flex-shrink: 0;
   padding: 0;
   opacity: 0.75;
-  transition: opacity 0.15s, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.12s ease;
+  transition:  opacity var(--t-fade, 0.15s), transform var(--t-move, 0.2s) cubic-bezier(0.34, 1.56, 0.64, 1), background var(--t-color, 0.12s) ease
 }
 /* Ctrl held: rows 1-9 show their Ctrl+number where the pin button is (same width). */
 .show-shortcuts .result-item[data-shortcut] .result-pin {
@@ -1501,7 +1504,7 @@ body > .result-item.pin-drag-copy {
   width: 16px;
   height: 16px;
   color: var(--icon);
-  transition: color 0.2s;
+  transition:  color var(--t-color, 0.2s)
 }
 #context-menu {
   position: fixed;
@@ -1518,14 +1521,14 @@ body > .result-item.pin-drag-copy {
   visibility: hidden;
   opacity: 0;
   transform: scale(0.97) translateY(-4px);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0.15s
   transform-origin: top left;
 }
 #context-menu.visible {
   visibility: visible;
   opacity: 1;
   transform: scale(1) translateY(0);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0s
 }
 .ctx-item {
   height: 40px;
@@ -1537,7 +1540,7 @@ body > .result-item.pin-drag-copy {
   border-radius: 10px;
   box-shadow: none;
   cursor: pointer;
-  transition: background 0.1s;
+  transition:  background var(--t-color, 0.1s)
 }
 .ctx-item:hover {
   background: var(--card-hover);
@@ -1589,7 +1592,7 @@ body > .result-item.pin-drag-copy {
   height: calc(var(--card-h) - 2 * var(--card-border-w));
   padding: 0 16px 0 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition:  background var(--t-color, 0.1s)
   color: var(--text);
   font-size: 15px;
   font-weight: var(--weight-medium);
@@ -1702,7 +1705,7 @@ body > .result-item.pin-drag-copy {
   color: var(--accent);
   text-decoration: none;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition:  opacity var(--t-fade, 0.2s)
 }
 .settings-link:hover {
   opacity: 0.8;
@@ -1845,7 +1848,7 @@ body > .result-item.pin-drag-copy {
   font-weight: var(--weight-light);
   line-height: 14px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition:  background var(--t-color, 0.1s)
 }
 .fx-chip:hover {
   background: var(--card-line);
@@ -1928,13 +1931,13 @@ body > .result-item.pin-drag-copy {
   z-index: 1000;
   /* Grows out of the swatch it was opened from (transform-origin is set in openPicker). */
   transform-origin: top right;
-  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 1, 0.3, 1), visibility 0s linear 0s;
+  transition:  opacity var(--t-fade, 0.18s) ease, transform var(--t-move, 0.22s) cubic-bezier(0.2, 1, 0.3, 1), visibility 0s linear 0s
 }
 #color-picker.cp-hidden {
   visibility: hidden;
   opacity: 0;
   transform: scale(0.92);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0.15s
 }
 .cp-sv {
   position: relative;
@@ -2008,7 +2011,7 @@ body > .result-item.pin-drag-copy {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:  background var(--t-color, 0.12s) ease, color var(--t-color, 0.12s) ease
 }
 .align-cell:hover {
   background: var(--card-hover);
@@ -2075,4 +2078,59 @@ html[data-pins="left"] .dock-tile.kbd-focus .dock-label {
 }
 html[data-pins="right"] .dock-tile.kbd-focus .dock-label {
   margin-left: 18px;
+}
+
+
+/* While the window is closed, and until the first search of the next open has
+   rendered, the previous list must not be painted: the window fades in and the
+   rows then run their staggered enter animation. Without this the finished
+   list from before the hide is on screen for a beat, then jumps back to the
+   animation. */
+#app-container.content-stale :is(#results-section, #pins-section, #pin-dock) {
+  visibility: hidden;
+}
+
+/* ===== Settings > Animations: the keyframe animations =====
+
+   The --t-* variables above cover transitions, which is most of the motion.
+   Keyframe animations have a fixed duration written in the `animation`
+   shorthand, so they are switched off by name instead. Each one is mapped to
+   the kind it really belongs to, and is dropped as soon as either of its kinds
+   is off: result-enter moves *and* fades, so turning off either one kills it. */
+
+html[data-anim-fade="off"] :is(
+    #settings-section:not(.hidden) .settings-row,
+    #empty-state,
+    .result-item,
+    .special-card,
+    .i18n-fade),
+html[data-anim-move="off"] :is(
+    #settings-section:not(.hidden) .settings-row,
+    #empty-state,
+    .result-item,
+    .special-card,
+    .i18n-fade) {
+  animation: none;
+}
+
+/* The pin button's bounce is a scale, so it belongs to Size. */
+html[data-anim-size="off"] .result-pin.pinned {
+  animation: none;
+}
+
+
+/* Blur and Movement off mean the effect is not drawn at all, not that it
+   arrives instantly. --t-blur: 0s only removes the duration: the window would
+   snap to blur(16px) and stay blurred for the whole fade, which is the opposite
+   of what "no blur" should look like. Dropping the property instead leaves the
+   hide/show as a plain opacity fade. */
+html[data-anim-blur="off"] #app-container.window-hidden {
+  filter: none;
+}
+html[data-anim-blur="off"] .drag-bar .ntf-short,
+html[data-anim-blur="off"] .drag-bar .ntf-detail {
+  filter: none;
+}
+html[data-anim-move="off"] #app-container.window-hidden {
+  transform: none;
 }

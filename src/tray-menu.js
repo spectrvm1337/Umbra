@@ -28,6 +28,22 @@ async function applyTheme() {
     root.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
   } catch {}
 }
+
+// The tray menu is its own window, so it has to pick the motion settings up
+// itself: same var(--t-<kind>) trick as the main window.
+async function applyAnimSettings() {
+  try {
+    const off = await invoke("get_anim_off");
+    const root = document.documentElement;
+    for (const kind of ["blur", "fade", "move", "size", "color", "glow"]) {
+      const isOff = off.includes(kind);
+      if (isOff) root.style.setProperty("--t-" + kind, "0s");
+      // The window outlives one showing, so a kind turned back on has to have
+      // its variable removed again or it stays stuck at zero.
+      else root.style.removeProperty("--t-" + kind);
+    }
+  } catch {}
+}
 const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 function escapeText(s) {
   const d = document.createElement("div");
@@ -69,7 +85,7 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 listen("tray-menu-show", async () => {
-  await Promise.all([applyTheme(), render()]);
+  await Promise.all([applyTheme(), applyAnimSettings(), render()]);
   menu.classList.remove("shown");
   // The window is sized to the menu plus room for its shadow.
   const rect = menu.getBoundingClientRect();

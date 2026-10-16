@@ -31,9 +31,15 @@ pub struct Config {
 
     #[serde(default)]
     pub disabled_drives: Vec<String>,
-
-    #[serde(default = "default_language")]
+#[serde(default = "default_language")]
     pub language: String,
+
+    /// Kinds of motion switched off in Settings > Animations. Anything not in
+    /// `ANIM_KINDS` is ignored, so an old or hand-edited config cannot make the
+    /// frontend set a variable it does not know.
+    #[serde(default)]
+    pub anim_off: Vec<String>,
+
     #[serde(default = "default_true")]
     pub autostart: bool,
 }
@@ -52,6 +58,7 @@ impl Default for Config {
             disabled_kinds: vec![],
             disabled_drives: vec![],
             language: default_language(),
+            anim_off: vec![],
             autostart: true,
         }
     }
@@ -110,6 +117,11 @@ pub struct ThemeConfig {
     pub radius: u32,
     #[serde(default = "default_density")]
     pub density: String,
+    /// Space between result rows and between sections. The density presets set
+    /// this too, but the slider writes it inline afterwards, so a chosen value
+    /// wins over the density it came from.
+    #[serde(default = "default_gap")]
+    pub gap: u32,
     /// Experimental: stretch the window down to the bottom of the screen's work area.
     #[serde(default)]
     pub tall_results: bool,
@@ -152,6 +164,9 @@ fn default_pins_style() -> String {
 fn default_density() -> String {
     "full".into()
 }
+fn default_gap() -> u32 {
+    12
+}
 impl Default for ThemeConfig {
     fn default() -> Self {
         ThemeConfig {
@@ -160,6 +175,7 @@ impl Default for ThemeConfig {
             card_alpha: 1.0,
             radius: 12,
             density: default_density(),
+            gap: default_gap(),
             tall_results: false,
             text: "#e3e3e3".into(),
             glow: false,
@@ -184,7 +200,8 @@ impl ThemeConfig {
             self.card_alpha = 1.0;
         }
         self.card_alpha = self.card_alpha.clamp(0.4, 1.0);
-        self.radius = self.radius.clamp(4, 24);
+        self.radius = self.radius.clamp(0, 24);
+        self.gap = self.gap.clamp(0, 24);
         match self.density.as_str() {
             "compact-results" | "compact-full" => {}
             _ => self.density = default_density(),
@@ -360,6 +377,34 @@ pub fn set_kind_enabled(kind: u8, enabled: bool) -> Vec<u8> {
 pub fn get_disabled_drives() -> Vec<String> {
     read(|c| c.disabled_drives.clone())
 }
+
+/// The kinds of motion Settings > Animations can switch off. The names match
+/// the `--t-*` duration variables the stylesheet reads. The looping animations
+/// (icon placeholders, the indexing spinner, the eyedropper loupe) are not here
+/// on purpose: they are the only motion that tells the user something is still
+/// happening, so they stay on.
+pub const ANIM_KINDS: [&str; 6] = ["blur", "fade", "move", "size", "color", "glow"];
+
+pub fn get_anim_off() -> Vec<String> {
+    read(|c| c.anim_off.clone())
+}
+
+/// Switches one kind of motion off or on and returns the new list.
+pub fn set_anim_off(kind: String, off: bool) -> Vec<String> {
+    update(|c| {
+        let list = &mut c.anim_off;
+        if off {
+            if ANIM_KINDS.contains(&kind.as_str()) && !list.contains(&kind) {
+                list.push(kind);
+            }
+        } else {
+            list.retain(|k| k != &kind);
+        }
+        list.sort();
+        list.dedup();
+        list.clone()
+    })
+}
 /// Turns one drive on or off and returns the new disabled list.
 pub fn set_drive_enabled(drive: &str, enabled: bool) -> Vec<String> {
     let d = drive.trim().to_uppercase();
@@ -434,6 +479,32 @@ mod tests {
         let on: ThemeConfig = serde_json::from_str(r#"{"tallResults": true}"#).unwrap();
         assert!(on.tall_results);
         assert!(serde_json::to_string(&on).unwrap().contains(r#""tallResults":true"#));
+    }
+    #[test]
+    fn corner_radius_goes_down_to_a_square_card() {
+        assert_eq!(ThemeConfig { radius: 0, ..Default::default() }.sanitized().radius, 0);
+        assert_eq!(ThemeConfig { radius: 2, ..Default::default() }.sanitized().radius, 2);
+        // Still bounded above, so a hand-edited config cannot make it silly.
+        assert_eq!(ThemeConfig { radius: 99, ..Default::default() }.sanitized().radius, 24);
+    }
+    #[test]
+    fn row_spacing_is_clamped_and_survives_an_old_config() {
+        assert_eq!(ThemeConfig { gap: 0, ..Default::default() }.sanitized().gap, 0);
+        assert_eq!(ThemeConfig { gap: 40, ..Default::default() }.sanitized().gap, 24);
+        // Written before the slider existed: the default has to fill it in.
+        let cfg: Config = serde_json::from_str(r#"{"theme": {"radius": 12}}"#).unwrap();
+        assert_eq!(cfg.theme.gap, 12);
+    }
+    #[test]
+    fn only_known_animation_kinds_are_kept() {
+        // set_anim_off goes through update(), which writes the file, so the
+        // validation itself is what matters here: a kind the frontend does not
+        // know would set a variable nothing reads.
+        assert!(ANIM_KINDS.contains(&"blur"));
+        assert!(!ANIM_KINDS.contains(&"wobble"));
+        // The looping animations are permanent, so they are not switchable.
+        assert!(!ANIM_KINDS.contains(&"pulse"));
+        assert_eq!(ANIM_KINDS.len(), 6);
     }
     #[test]
     fn a_config_written_before_density_existed_still_loads() {

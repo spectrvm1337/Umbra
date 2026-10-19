@@ -964,6 +964,9 @@ const THEME_PRESETS = [
   { name: "Default", cardBg: "#1e1e1e", accent: "#507090", alpha: 1, text: "#e3e3e3" },
   { name: "Paper",   cardBg: "#f2f0e5", accent: "#205ea6", alpha: 1, text: "#100f0f" },
   { name: "Flexoki", cardBg: "#1e1918", accent: "#d14d41", alpha: 1, text: "#cecdc3" },
+  { name: "Cream",   cardBg: "#f5f0dc", accent: "#f0442e", alpha: 1, text: "#171717" },
+  { name: "Rust",    cardBg: "#20252b", accent: "#b7472a", alpha: 1, text: "#bfc4c7" },
+  { name: "Frost",   cardBg: "#d9e7e8", accent: "#528a9a", alpha: 1, text: "#25252b" },
 ];
 // Flexoki accents: red, orange, blue, green, purple (yellow, cyan and magenta
 // went away — the row was too long to scan). Light values are the 600 steps,

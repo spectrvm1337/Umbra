@@ -260,14 +260,17 @@ function fxChartHtml(series, C) {
       <path class="fx-line" d="${fxSmoothPath(pts)}"/>
       <circle class="fx-dot" cx="${last.x}" cy="${last.y}" r="3"/>
       <g class="fx-cursor" visibility="hidden">
-        <line class="fx-cursor-line" y1="${C.cursorTop}" y2="${C.base}"/>
+        <line class="fx-cursor-line" x1="0" x2="0" y1="${C.cursorTop}" y2="${C.base}"/>
         <circle class="fx-dot" r="3"/>
-        <text class="fx-tip" y="18" text-anchor="end"></text>
+        <g class="fx-tip-g">
+          <rect class="fx-tip-bg" height="20" rx="6"/>
+          <text class="fx-tip" x="8" y="14"><tspan class="fx-tip-val"></tspan><tspan class="fx-tip-date" dx="6"></tspan></text>
+        </g>
       </g>
       <g class="fx-change fx-change--${dir}">
         <title>${days}-day change</title>
-        <text class="fx-change-text" x="${C.w - (dir === "flat" ? 11 : 23)}" y="18" text-anchor="end">${deltaText}</text>
-        ${dir === "flat" ? "" : fxTrendSvg(dir, C.w - 19, 11)}
+        <text class="fx-change-text" x="${C.w - (dir === "flat" ? 15 : 27)}" y="19" text-anchor="end">${deltaText}</text>
+        ${dir === "flat" ? "" : fxTrendSvg(dir, C.w - 23, 12)}
       </g>
     </svg>`;
 }
@@ -282,11 +285,29 @@ function fxDrawChart(card, series) {
   const cursor = svg.querySelector(".fx-cursor");
   const line = cursor.querySelector("line");
   const dot = cursor.querySelector("circle");
-  const tip = cursor.querySelector("text");
+  const tipG = cursor.querySelector(".fx-tip-g");
+  const tipBg = tipG.querySelector("rect");
+  const tipText = tipG.querySelector("text");
+  const tipVal = tipG.querySelector(".fx-tip-val");
+  const tipDate = tipG.querySelector(".fx-tip-date");
+  const change = svg.querySelector(".fx-change");
+  // The change figure sits on a soft tinted pill of its own colour.
+  const cb = change.getBBox();
+  if (cb.width) {
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("class", "fx-change-bg");
+    bg.setAttribute("x", cb.x - 7);
+    bg.setAttribute("y", cb.y - 3);
+    bg.setAttribute("width", cb.width + 14);
+    bg.setAttribute("height", cb.height + 6);
+    bg.setAttribute("rx", 7);
+    change.insertBefore(bg, change.firstChild);
+  }
   const changeLeft = () => {
-    const box = svg.querySelector(".fx-change").getBBox();
+    const box = change.getBBox();
     return box.width ? box.x : C.w;
   };
+  let shown = false;
 
   svg.addEventListener("mousemove", (e) => {
     const rect = svg.getBoundingClientRect();
@@ -294,18 +315,30 @@ function fxDrawChart(card, series) {
     let idx = 0;
     for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i].x - x) < Math.abs(pts[idx].x - x)) idx = i;
     const p = pts[idx];
-    line.setAttribute("x1", p.x);
-    line.setAttribute("x2", p.x);
-    dot.setAttribute("cx", p.x);
-    dot.setAttribute("cy", p.y);
-    tip.textContent = `${formatFxFixed(series[idx].value, decimals)} ${fxFormatDate(series[idx].date)}`;
-    // Design puts the label's right edge just past the cursor; keep it clear of the panel edge and the change badge.
-    const width = tip.getComputedTextLength();
-    const right = Math.max(6 + width, Math.min(p.x + 8, changeLeft() - 8));
-    tip.setAttribute("x", right);
-    cursor.setAttribute("visibility", "visible");
+    tipVal.textContent = formatFxFixed(series[idx].value, decimals);
+    tipDate.textContent = fxFormatDate(series[idx].date);
+    const bw = Math.ceil(tipText.getBBox().width) + 16;
+    tipBg.setAttribute("width", bw);
+    // Centred on the cursor, kept inside the panel and clear of the change pill.
+    const room = Math.min(C.w - 6, changeLeft() - 8) - bw;
+    const tx = Math.max(6, Math.min(p.x - bw / 2, room));
+    if (!shown) {
+      svg.classList.add("fx-snap");
+      cursor.setAttribute("visibility", "visible");
+    }
+    line.style.transform = `translateX(${p.x}px)`;
+    dot.style.transform = `translate(${p.x}px, ${p.y}px)`;
+    tipG.style.transform = `translate(${tx}px, 6px)`;
+    if (!shown) {
+      shown = true;
+      svg.getBoundingClientRect();
+      svg.classList.remove("fx-snap");
+    }
   });
-  svg.addEventListener("mouseleave", () => cursor.setAttribute("visibility", "hidden"));
+  svg.addEventListener("mouseleave", () => {
+    shown = false;
+    cursor.setAttribute("visibility", "hidden");
+  });
 }
 
 // Shrink the big numbers until the whole "amount → result" line fits next to the graph.

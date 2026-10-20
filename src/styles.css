@@ -1976,10 +1976,9 @@ body > .result-item.pin-drag-copy {
 .fx-val {
   font-family: var(--fx-font-num);
   font-size: 1em;
-  font-weight: var(--weight-regular);
+  font-weight: var(--weight-medium);
   line-height: 35px;
   color: var(--text);
-  font-variant-numeric: tabular-nums;
 }
 .fx-val.fx-pending {
   color: var(--text-dim);
@@ -1987,7 +1986,7 @@ body > .result-item.pin-drag-copy {
 /* The whole widget is one family (Google Sans Flex, which ships Regular and Medium only). */
 .fx-code {
   font-size: 16px;
-  font-weight: var(--weight-regular);
+  font-weight: var(--weight-medium);
   line-height: 15px;
   color: var(--text);
 }
@@ -2000,9 +1999,10 @@ body > .result-item.pin-drag-copy {
 .fx-rate {
   margin-top: 12px;
   font-size: 17px;
-  font-weight: var(--weight-regular);
+  font-weight: var(--weight-medium);
   line-height: 20px;
   color: var(--text);
+  opacity: 0.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2025,7 +2025,7 @@ body > .result-item.pin-drag-copy {
   color: var(--text);
   font-family: inherit;
   font-size: 12px;
-  font-weight: var(--weight-regular);
+  font-weight: var(--weight-medium);
   line-height: 14px;
   cursor: pointer;
   transition:  background var(--t-color, 0.1s)
@@ -2076,17 +2076,45 @@ body > .result-item.pin-drag-copy {
   stroke-width: 2;
   stroke-linecap: round;
 }
+/* The cursor glides from point to point: the elements sit at 0 and are moved with
+   a transform, which can be transitioned (x1/cx cannot). .fx-snap switches that
+   off for the frame in which the cursor first appears, so it does not slide in
+   from wherever it was last left. */
+.fx-cursor-line,
+.fx-cursor .fx-dot,
+.fx-tip-g {
+  transition: transform var(--t-move, 0.16s) var(--ease-out-apple);
+}
+.fx-snap .fx-cursor-line,
+.fx-snap .fx-dot,
+.fx-snap .fx-tip-g {
+  transition: none;
+}
+.fx-tip-bg {
+  fill: var(--card-bg);
+  stroke: color-mix(in srgb, var(--text) 14%, transparent);
+  stroke-width: 1;
+}
 .fx-tip {
   fill: var(--text);
   font-family: var(--fx-font-num);
-  font-size: 10px;
-  font-weight: var(--weight-regular);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+.fx-tip-date {
+  fill: var(--text);
+  fill-opacity: 0.5;
+}
+.fx-change-bg {
+  fill: currentColor;
+  fill-opacity: 0.14;
 }
 .fx-change-text {
   fill: currentColor;
   font-family: var(--fx-font-num);
-  font-size: 12px;
-  font-weight: var(--weight-regular);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
 }
 .fx-change--down {
   color: var(--fx-down);

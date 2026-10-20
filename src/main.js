@@ -1780,6 +1780,7 @@ function createResultItem(item, index, query) {
   const visualKind = getVisualKind(item);
   const needsIcon = needsRealIcon(item) && !iconSrc && !iconCache.has(item.path);
   div.innerHTML = `
+    <div class="result-num">${index < 9 ? index + 1 : ""}</div>
     <div class="result-icon${needsIcon ? " icon-skeleton" : ""}">
       ${iconSrc ? `<img src="${iconSrc}" alt="">` : ""}
       <div class="result-icon-fallback ${visualKind}" style="${iconSrc ? 'display:none' : ''}">${getTypeIcon(visualKind)}</div>
@@ -2703,13 +2704,17 @@ function shortcutRows() {
   return [...document.querySelectorAll("#pins-list .result-item, #results-list .result-item")]
     .filter((el) => el.offsetParent !== null && Number(el.dataset.index) < 9);
 }
-// Holding Ctrl for a moment shows each row's number in place of its pin button.
+// Holding Ctrl for a moment slides each row's icon and name over and shows its
+// number in the gap. The mark stays on the rows when Ctrl is let go, so the
+// number can fade back out instead of vanishing with it.
 let shortcutHintTimer = null;
 function showRowShortcuts(on) {
   clearTimeout(shortcutHintTimer);
+  if (on) {
+    document.querySelectorAll(".result-item[data-shortcut]").forEach((el) => delete el.dataset.shortcut);
+    shortcutRows().forEach((el) => { el.dataset.shortcut = Number(el.dataset.index) + 1; });
+  }
   document.body.classList.toggle("show-shortcuts", on);
-  document.querySelectorAll(".result-item[data-shortcut]").forEach((el) => delete el.dataset.shortcut);
-  if (on) shortcutRows().forEach((el) => { el.dataset.shortcut = Number(el.dataset.index) + 1; });
 }
 document.addEventListener("keydown", (e) => {
   if (e.key === "Control") {

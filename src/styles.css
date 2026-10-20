@@ -1552,7 +1552,9 @@ body > .result-item.pin-drag-copy {
   min-width: 0;
   max-width: 40%;
   font-size: 15px;
-  font-weight: var(--weight-regular);
+  /* Stolzl has no Medium, so name (500) and a Regular path were the same face
+     apart from colour; Light for the path gives the row an actual hierarchy. */
+  font-weight: var(--weight-light);
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -1576,23 +1578,29 @@ body > .result-item.pin-drag-copy {
   opacity: 0.75;
   transition:  opacity var(--t-fade, 0.15s), transform var(--t-move, 0.2s) cubic-bezier(0.34, 1.56, 0.64, 1), background var(--t-color, 0.12s) ease
 }
-/* Ctrl held: rows 1-9 show their Ctrl+number where the pin button is (same width). */
-.show-shortcuts .result-item[data-shortcut] .result-pin {
-  display: none;
-}
-.show-shortcuts .result-item[data-shortcut]::after {
-  content: attr(data-shortcut);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Ctrl held: rows 1-9 push their icon and name aside and show the Ctrl+number in
+   the room that opens up. Closed, the box is 0 wide with a -12px margin that
+   cancels the row's gap, so nothing moves. */
+.result-num {
+  width: 0;
+  margin-right: -12px;
   flex-shrink: 0;
-  width: 28px;
-  height: 22px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 10%, transparent);
-  color: var(--text-dim);
-  font-size: 12px;
+  overflow: hidden;
+  text-align: center;
+  font-size: 14px;
   font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: width var(--t-size, 0.2s) var(--ease-out-apple),
+    margin var(--t-size, 0.2s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.18s) ease
+}
+.show-shortcuts .result-item[data-shortcut] .result-num {
+  width: 14px;
+  margin-right: 0;
+  opacity: 1;
 }
 /* A setting that another one makes pointless is not shown at all, rather than
    greyed out: "Match Windows" decides the colours, so the pickers go; with the

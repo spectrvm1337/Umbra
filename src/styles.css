@@ -1940,8 +1940,8 @@ body > .result-item.pin-drag-copy {
 .fx-card {
   --fx-up: #4CC38A;
   --fx-down: #FF4242;
-  --fx-font-num: 'Google Sans Flex', 'Stolzl', sans-serif;
-  font-family: 'Stolzl', sans-serif;
+  --fx-font-num: 'Google Sans Flex', var(--font-main);
+  font-family: var(--fx-font-num);
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -1984,10 +1984,10 @@ body > .result-item.pin-drag-copy {
 .fx-val.fx-pending {
   color: var(--text-dim);
 }
-/* Stolzl Regular renders noticeably heavier on Windows than in Figma; Light matches the mock. */
+/* The whole widget is one family (Google Sans Flex, which ships Regular and Medium only). */
 .fx-code {
   font-size: 16px;
-  font-weight: var(--weight-light);
+  font-weight: var(--weight-regular);
   line-height: 15px;
   color: var(--text);
 }
@@ -2000,7 +2000,7 @@ body > .result-item.pin-drag-copy {
 .fx-rate {
   margin-top: 12px;
   font-size: 17px;
-  font-weight: var(--weight-light);
+  font-weight: var(--weight-regular);
   line-height: 20px;
   color: var(--text);
   white-space: nowrap;
@@ -2016,7 +2016,6 @@ body > .result-item.pin-drag-copy {
   margin-top: 13px;
 }
 .fx-chip {
-  font-family: 'Stolzl', sans-serif;
   min-width: 80px;
   height: 25px;
   padding: 0 11px;
@@ -2024,9 +2023,9 @@ body > .result-item.pin-drag-copy {
   border-radius: 5px;
   background: var(--card-hover);
   color: var(--text);
-  font-family: var(--font-main);
+  font-family: inherit;
   font-size: 12px;
-  font-weight: var(--weight-light);
+  font-weight: var(--weight-regular);
   line-height: 14px;
   cursor: pointer;
   transition:  background var(--t-color, 0.1s)

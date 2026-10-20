@@ -245,8 +245,9 @@ function fxChartHtml(series, C) {
   const first = pts[0];
   const last = pts[pts.length - 1];
   const grid = pts
-    .filter((_, i) => i > 0 && i < pts.length - 1 && i % 2 === 0)
-    .map((p) => `<line class="fx-grid" x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${C.base}"/>`)
+    .map((p, i) => ({ p, i }))
+    .filter(({ i }) => i > 0 && i < pts.length - 1 && i % 2 === 0)
+    .map(({ p, i }) => `<line class="fx-grid" data-i="${i}" x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${C.base}"/>`)
     .join("");
   const dec = fxRateDecimals(series[series.length - 1].value);
   const delta = Number((series[series.length - 1].value - series[0].value).toFixed(dec));
@@ -255,7 +256,7 @@ function fxChartHtml(series, C) {
   const days = series.length;
   return `
     <svg class="fx-chart" width="${C.w}" height="${C.h}" viewBox="0 0 ${C.w} ${C.h}">
-      <path class="fx-grid" d="M${C.left} ${first.y}V${C.base}H${C.right}V${last.y}"/>
+      <path class="fx-grid fx-edge" d="M${C.left} ${first.y}V${C.base}H${C.right}V${last.y}"/>
       ${grid}
       <path class="fx-line" d="${fxSmoothPath(pts)}"/>
       <circle class="fx-dot" cx="${last.x}" cy="${last.y}" r="3"/>
@@ -275,12 +276,55 @@ function fxChartHtml(series, C) {
     </svg>`;
 }
 
-function fxDrawChart(card, series) {
+// Motion follows the "move" switch in settings.
+function fxMotionOn() {
+  return document.documentElement.dataset.animMove !== "off";
+}
+
+// Puts the curve, its frame and the grid on a given set of points; the chart is
+// morphed from one shape to the next by feeding this a point set per frame.
+function fxApplyShape(card, svg, pts, C) {
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  svg.querySelector(".fx-edge").setAttribute("d", `M${C.left} ${first.y}V${C.base}H${C.right}V${last.y}`);
+  svg.querySelector(".fx-line").setAttribute("d", fxSmoothPath(pts));
+  svg.querySelectorAll("line.fx-grid").forEach((l) => l.setAttribute("y1", pts[l.dataset.i].y));
+  svg.querySelector(":scope > .fx-dot").setAttribute("cy", last.y);
+  card._fxShown = { pts, w: C.w };
+}
+
+// Brings a previous set of points to the length of the new one, so a 7-day and a
+// 3-day history can still be morphed into each other.
+function fxResample(from, to) {
+  if (from.length === to.length) return from;
+  return to.map((p, k) => {
+    const t = (k / (to.length - 1)) * (from.length - 1);
+    const i = Math.min(from.length - 2, Math.floor(t));
+    return { x: p.x, y: from[i].y + (from[i + 1].y - from[i].y) * (t - i) };
+  });
+}
+
+function fxDrawChart(card, series, from) {
+  cancelAnimationFrame(card._fxRaf);
   const graph = card.querySelector(".fx-graph");
   const C = fxChartBox(graph.clientWidth);
   graph.innerHTML = fxChartHtml(series, C);
   const svg = graph.querySelector(".fx-chart");
   const pts = fxChartPoints(series.map((s) => s.value), C);
+  card._fxShown = { pts, w: C.w };
+  if (from && from.w === C.w && fxMotionOn()) {
+    const start = fxResample(from.pts, pts);
+    fxApplyShape(card, svg, start, C);
+    svg.classList.add("fx-morph");
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / 460);
+      const e = 1 - Math.pow(1 - k, 3);
+      fxApplyShape(card, svg, pts.map((p, i) => ({ x: p.x, y: start[i].y + (p.y - start[i].y) * e })), C);
+      if (k < 1) card._fxRaf = requestAnimationFrame(step);
+    };
+    card._fxRaf = requestAnimationFrame(step);
+  }
   const decimals = fxRateDecimals(series[series.length - 1].value);
   const cursor = svg.querySelector(".fx-cursor");
   const line = cursor.querySelector("line");
@@ -415,36 +459,144 @@ function fxWatchCard(card) {
   fxObserved = card;
 }
 
+// A number that runs from what is on screen to its new value instead of jumping.
+function fxCountTo(card, key, el, to, format) {
+  cancelAnimationFrame(card["_fxN" + key]);
+  const from = typeof el._fxV === "number" ? el._fxV : to;
+  if (!fxMotionOn() || from === to) {
+    el._fxV = to;
+    el.textContent = format(to);
+    return;
+  }
+  el.textContent = format(from);
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 460);
+    const e = 1 - Math.pow(1 - k, 3);
+    el._fxV = k < 1 ? from + (to - from) * e : to;
+    el.textContent = format(el._fxV);
+    if (k < 1) card["_fxN" + key] = requestAnimationFrame(step);
+  };
+  card["_fxN" + key] = requestAnimationFrame(step);
+}
+
+// Text that changes under the eye eases in rather than being swapped.
+function fxSwap(el) {
+  if (!fxMotionOn()) return;
+  el.classList.remove("fx-swap");
+  void el.offsetWidth;
+  el.classList.add("fx-swap");
+}
+
+function fxRateText(p, rate, decimals) {
+  return `1 ${p.from} = ${formatFxFixed(rate, decimals)} ${p.to}`;
+}
+
+function fxUpdateChips(card, p) {
+  const wrap = card.querySelector(".fx-chips");
+  const pairs = fxChipPairs(`${p.from}-${p.to}`, fxReadRecent());
+  const buttons = [...wrap.children];
+  pairs.forEach((pair, i) => {
+    let b = buttons[i];
+    if (!b) {
+      b = document.createElement("button");
+      b.className = "fx-chip";
+      wrap.appendChild(b);
+    } else if (b.dataset.pair === pair) return;
+    b.dataset.pair = pair;
+    b.textContent = pair;
+    fxSwap(b);
+  });
+  buttons.slice(pairs.length).forEach((b) => b.remove());
+}
+
+// The numbers, codes, chips and graph of the card that is already on screen
+// change in place, so a new amount or pair eases over instead of the whole card
+// being thrown away and drawn again.
+function fxUpdateCard(card, p, state) {
+  const result = p.amount * state.rate;
+  const vals = card.querySelectorAll(".fx-val");
+  const codes = card.querySelectorAll(".fx-code");
+  card._fxP = p;
+  card._fxResult = result;
+  [p.from, p.to].forEach((c, i) => {
+    if (codes[i].textContent !== c) {
+      codes[i].textContent = c;
+      fxSwap(codes[i]);
+    }
+  });
+  // Fit the line for the final numbers first; the count then runs inside that size.
+  vals[0].textContent = formatFxNumber(p.amount);
+  vals[1].textContent = formatFxNumber(result);
+  fxFitSum(card);
+  vals[1].classList.remove("fx-pending");
+  fxCountTo(card, "A", vals[0], p.amount, formatFxNumber);
+  fxCountTo(card, "B", vals[1], result, formatFxNumber);
+  const decimals = fxRateDecimals(state.rate);
+  const rateEl = card.querySelector(".fx-rate");
+  rateEl.classList.remove("fx-muted");
+  fxCountTo(card, "R", rateEl, state.rate, (v) => fxRateText(p, v, decimals));
+  fxUpdateChips(card, p);
+}
+
 function renderFxCard(p, state) {
   let card = specialContent.querySelector(".fx-card");
   if (!card) {
     specialContent.innerHTML = `<div class="special-card fx-card"></div>`;
     card = specialContent.querySelector(".fx-card");
+    // One listener for the card's whole life: its contents are updated in place,
+    // so it must read the current query and result, not the ones it was drawn with.
+    card.addEventListener("click", (e) => {
+      const chip = e.target.closest(".fx-chip");
+      if (chip) {
+        const [from, to] = chip.dataset.pair.toLowerCase().split("-");
+        const raw = card._fxP && card._fxP.raw;
+        searchInput.value = `${raw ? raw + " " : ""}${from} to ${to}`;
+        searchInput.dispatchEvent(new Event("input"));
+        searchInput.focus();
+      } else if (e.target.closest(".fx-sum[title]") && card._fxResult != null) {
+        copyPath(fxCopyText(card._fxResult));
+      }
+    });
   }
-  card.innerHTML = fxCardHtml(p, state);
-  fxFitSum(card);
-  if (document.fonts) document.fonts.ready.then(() => fxFitSum(card));
+  card.classList.remove("fx-loading");
 
+  const chartNow = !!(state.series && state.series.length >= 2);
+  const inPlace = card._fxOk && state.rate != null && !state.error && card._fxHasChart === chartNow
+    && card.querySelector(".fx-sum[title]");
   const result = state.rate == null ? null : p.amount * state.rate;
+
+  if (inPlace) {
+    fxUpdateCard(card, p, state);
+    card._fxSeries = chartNow ? state.series : null;
+    if (chartNow) fxDrawChart(card, state.series, card._fxShown);
+  } else {
+    cancelAnimationFrame(card._fxRaf);
+    ["A", "B", "R"].forEach((k) => cancelAnimationFrame(card["_fxN" + k]));
+    card.innerHTML = fxCardHtml(p, state);
+    fxFitSum(card);
+    if (document.fonts) document.fonts.ready.then(() => fxFitSum(card));
+    card._fxP = p;
+    card._fxResult = result;
+    card._fxOk = state.rate != null && !state.error;
+    card._fxHasChart = chartNow;
+    card._fxShown = null;
+    const vals = card.querySelectorAll(".fx-val");
+    if (result != null) {
+      vals[0]._fxV = p.amount;
+      vals[1]._fxV = result;
+      const rateEl = card.querySelector(".fx-rate");
+      if (rateEl) rateEl._fxV = state.rate;
+    }
+    card._fxSeries = chartNow ? state.series : null;
+    if (chartNow) fxDrawChart(card, state.series);
+  }
+
   selectableItems = [{
     name: "", path: result == null ? "" : fxCopyText(result), kind: "copy",
     icon_data: null, pinned: false,
   }];
   selectedIndex = 0;
-
-  if (result != null) {
-    card.querySelector(".fx-sum").addEventListener("click", () => copyPath(fxCopyText(result)));
-  }
-  card.querySelectorAll(".fx-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const [from, to] = chip.dataset.pair.toLowerCase().split("-");
-      searchInput.value = `${p.raw ? p.raw + " " : ""}${from} to ${to}`;
-      searchInput.dispatchEvent(new Event("input"));
-      searchInput.focus();
-    });
-  });
-  card._fxSeries = state.series && state.series.length >= 2 ? state.series : null;
-  if (card._fxSeries) fxDrawChart(card, card._fxSeries);
   fxWatchCard(card);
 }
 
@@ -465,7 +617,15 @@ function handleCurrencyCommand(query) {
     return true;
   }
 
-  renderFxCard(p, {});
+  const live = specialContent.querySelector(".fx-card");
+  if (live && live._fxOk) {
+    // Keep the card that is showing, slightly dimmed, until the new rates arrive.
+    live.classList.add("fx-loading");
+    selectableItems = [{ name: "", path: "", kind: "copy", icon_data: null, pinned: false }];
+    selectedIndex = 0;
+  } else {
+    renderFxCard(p, {});
+  }
   // The user may have typed something else (or opened settings) while rates were loading.
   const stale = () => id !== fxRenderId || lastQuery !== query || specialSection.classList.contains("hidden");
   fxLoadBundle(p.from)

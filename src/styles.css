@@ -2125,6 +2125,33 @@ body > .result-item.pin-drag-copy {
 .fx-change--flat {
   color: var(--text-dim);
 }
+/* Updates in place (currency.js): a changed code or chip eases in, the change pill
+   settles while the curve morphs, and a card waiting on new rates dims. */
+.fx-swap {
+  animation: fx-swap var(--t-fade, 0.28s) var(--ease-out-apple) both;
+}
+@keyframes fx-swap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.fx-morph .fx-change {
+  animation: fx-settle var(--t-fade, 0.4s) ease both;
+}
+@keyframes fx-settle {
+  from {
+    opacity: 0.3;
+  }
+}
+.fx-main,
+.fx-graph {
+  transition: opacity var(--t-fade, 0.2s) ease;
+}
+.fx-loading .fx-main,
+.fx-loading .fx-graph {
+  opacity: 0.6;
+}
 /* HSV color picker (accent / background), built in main.js. */
 #color-picker {
   position: fixed;

@@ -285,12 +285,15 @@ function colorInit() {
     }
     if (e.target.closest(".cc-dropper")) {
       e.stopPropagation();
-      if (colorPicking) return invoke("cancel_color_pick");
+      if (colorPicking) {
+        invoke("cancel_color_pick").catch((err) => console.warn("cancel failed:", err));
+        return;
+      }
       invoke("start_color_pick").then((started) => {
         if (!started) return;
         colorPicking = true;
         card.classList.add("picking");
-      });
+      }).catch((err) => console.warn("colour pick failed:", err));
       return;
     }
     const copy = e.target.closest("[data-copy]");
@@ -330,7 +333,7 @@ function colorInit() {
     if (e.key === "Escape" && colorPicking) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      invoke("cancel_color_pick");
+      invoke("cancel_color_pick").catch((err) => console.warn("cancel failed:", err));
     } else if (e.key === "Enter" && !colorPicking && colorShown && e.target === searchInput) {
       e.preventDefault();
       e.stopImmediatePropagation();

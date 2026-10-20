@@ -55,6 +55,18 @@
   font-weight: 400 500;
   font-display: block;
 }
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('./google_sans_flex_regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('./google_sans_flex_medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: block;
+}
 :root {
   --font-main: 'Stolzl', 'Noto Sans JP', 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   --weight-light: 300;
@@ -90,6 +102,11 @@
   --tile-exe: #5E5C64;
   --tile-folder: #DA702C;
   --tile-media: #8B7EC8;
+  /* How blurred the window is while it fades in and out. The cards sit 20px from
+     the window edge and the blur spreads about twice its radius, so a larger
+     value reaches the edge, where the window slices the haze off in a straight
+     line. Keep it at about half the side margin or less. */
+  --window-blur: 8px;
   --ease-spring: cubic-bezier(0.34, 1.3, 0.64, 1);
 --ease-out-apple: cubic-bezier(0.32, 0.72, 0, 1);
 transition:
@@ -170,7 +187,7 @@ body {
   padding-top: var(--pad-y);
   background: transparent;
   opacity: 0;
-  filter: blur(16px);
+  filter: blur(var(--window-blur));
   transform: translateY(-24px);
   transition:  opacity var(--t-fade, 320ms) cubic-bezier(0.16, 1, 0.3, 1),
     filter var(--t-blur, 380ms) cubic-bezier(0.16, 1, 0.3, 1),
@@ -183,7 +200,7 @@ body {
 }
 #app-container.window-hidden {
   opacity: 0;
-  filter: blur(16px);
+  filter: blur(var(--window-blur));
   transform: translateY(-24px);
 }
 #app-container.dragging {
@@ -240,9 +257,6 @@ body {
     box-shadow var(--t-glow, 0.25s) ease,
     opacity var(--t-fade, 0.3s) ease
 }
-.drag-bar.notify .db-progress {
-  opacity: 0;
-}
 .drag-bar.pinned .db-rect {
   width: 40px;
   height: 6px;
@@ -257,37 +271,89 @@ body {
   position: absolute;
   left: 50%;
   bottom: 18px;
+  /* No vertical padding here on purpose. The window gives this hint only a few
+     pixels above the drag bar -- in the compact densities --pad-y is 6, so the
+     line box is already level with the top edge and anything taller is clipped
+     by the window, not by this element. */
+  padding: 0 6px;
   transform: translateX(-50%) translateY(6px);
-  max-width: min(480px, calc(100vw - 60px));
+  max-width: min(480px, calc(100vw - 48px));
   font-size: 13px;
   line-height: 16px;
   font-weight: var(--weight-semibold);
   color: #fff;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65), 0 0 12px rgba(0, 0, 0, 0.35);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Clipped only when the text is actually too long. `overflow: hidden` is what
+     the ellipsis needs and what chops the shadow off at the edges, so the class
+     is added from JS once a measurement says the text really does overflow --
+     most hints are short enough to keep their glow. */
+  overflow: visible;
   text-align: center;
   pointer-events: none;
+  /* Hidden by opacity, never by `visibility`. An element that is
+     `visibility: hidden` counts as not rendered, and Chromium refuses to start a
+     transition on one -- so the hint would appear with no animation at all.
+     Opacity leaves it rendered and every transition runs. */
   opacity: 0;
   filter: blur(6px);
-  visibility: hidden;
   transition:  opacity var(--t-fade, 0.18s) ease,
     filter var(--t-blur, 0.22s) ease,
-    transform var(--t-move, 0.26s) var(--ease-out-apple),
-    visibility 0s linear 0.22s
+    transform var(--t-move, 0.26s) var(--ease-out-apple);
   z-index: 2;
 }
-.drag-bar.notify:not(.expanded) .ntf-short,
-.drag-bar.notify.expanded .ntf-detail {
-  visibility: visible;
-  transition-delay: 0.06s, 0.06s, 0.06s, 0s;
+.drag-bar .ntf-short.ntf-clip,
+.drag-bar .ntf-detail.ntf-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The type of the hint. It used to make no difference at all: an error and a
+   success looked the same on screen, and the only sign of which it was was how
+   long it stayed. The colour is not the only cue -- the line also gets a tint
+   of its own, so it reads without relying on hue alone. */
+.drag-bar .ntf-short,
+.drag-bar .ntf-detail {
+  --ntf-tint: #ffffff;
+}
+/* All white for now, until the palette is chosen. The old tints were
+   success #7fd6a2, error #ff9d9d, warn #f0c674, info #a8c8e8. */
+.drag-bar.success .ntf-short,
+.drag-bar.success .ntf-detail {
+  --ntf-tint: #ffffff;
+}
+.drag-bar.error .ntf-short,
+.drag-bar.error .ntf-detail {
+  --ntf-tint: #ffffff;
+}
+.drag-bar.warn .ntf-short,
+.drag-bar.warn .ntf-detail {
+  --ntf-tint: #ffffff;
+}
+.drag-bar.info .ntf-short,
+.drag-bar.info .ntf-detail {
+  --ntf-tint: #ffffff;
+}
+.drag-bar.notify .ntf-short,
+.drag-bar.notify .ntf-detail {
+  color: var(--ntf-tint);
 }
 .drag-bar.notify.shown:not(.expanded) .ntf-short,
 .drag-bar.notify.expanded.shown .ntf-detail {
   opacity: 1;
   filter: blur(0);
   transform: translateX(-50%) translateY(2px);
+}
+/* The little jump a value makes when it changes. The class was being added for
+   a long time and there was no rule for it, so the motion never happened. */
+.pop {
+  animation: value-pop 0.2s var(--ease-out-apple);
+}
+@keyframes value-pop {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 .side-pill {
   position: absolute;
@@ -301,6 +367,13 @@ body {
   cursor: nwse-resize;
   flex-shrink: 0;
   z-index: 6;
+  /* The grips are invisible until the pointer is near them, and they should grow
+     out of nothing rather than snap into size. */
+  border-radius: var(--card-radius);
+  transition: background-color var(--t-color, 0.2s) ease;
+}
+.side-pill:hover {
+  background: color-mix(in srgb, var(--card-hover) 55%, transparent);
 }
 .sp-grip {
   position: absolute;
@@ -636,6 +709,7 @@ body {
   cursor: ew-resize;
   touch-action: none;
   padding: 4px 0;
+  transition: color var(--t-color, 0.12s);
 }
 .zoom-stepper span:hover {
   color: var(--text);
@@ -725,6 +799,10 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition:  color var(--t-color, 0.12s), background var(--t-color, 0.12s)
+}
+.monitor-btn:hover {
+  color: var(--text);
 }
 .monitor-btn.active {
   color: #fff;
@@ -820,6 +898,36 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 }
 .ms-item:hover {
   background: var(--card-hover);
+}
+/* "Select All" on folds every other item away; off, they come back. The items
+   sit in a plain block, so a folded one must not carry a margin: a negative one
+   collapsed through the block and left its bottom clipped by the menu. */
+.ms-item.ms-fold {
+  overflow: clip;
+  transition:  height var(--t-size, 0.24s) var(--ease-out-apple),
+    min-height var(--t-size, 0.24s) var(--ease-out-apple),
+    margin var(--t-size, 0.24s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.18s) ease,
+    background var(--t-color, 0.1s),
+    visibility 0s linear 0s
+}
+.ms-folded .ms-item.ms-fold {
+  height: 0;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition:  height var(--t-size, 0.24s) var(--ease-out-apple),
+    min-height var(--t-size, 0.24s) var(--ease-out-apple),
+    margin var(--t-size, 0.24s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.18s) ease,
+    background var(--t-color, 0.1s),
+    visibility 0s linear var(--t-size, 0.24s)
+}
+/* Applied on first paint of a menu, so it opens already folded instead of
+   playing the fold. */
+.ms-instant .ms-item.ms-fold {
+  transition: none
 }
 .ms-tick {
   margin-left: auto;
@@ -1054,12 +1162,19 @@ html[data-pins="right"] .side-pill {
      so it follows the animated density change instead of catching its first frame. */
   top: calc(3 * var(--pad-y) + 16px);
   bottom: 0;
-  width: calc(var(--dock-reserve) + var(--pad-x) - 12px);
+  /* Ten pixels wider than the tiles need, all of it on the side facing the list.
+     The dock is a scroll container, so it clips whatever its children paint past
+     the padding box -- and the tiles sit hard against that edge, which cut their
+     glow off with a straight vertical edge. The padding is the room the shadow
+     needs and the extra width cancels it, so the tiles do not move. */
+  width: calc(var(--dock-reserve) + var(--pad-x) - 12px + 10px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: var(--gap);
+  padding-top: 8px;
   padding-bottom: var(--gap);
+  margin-top: -8px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
@@ -1072,10 +1187,13 @@ html[data-pins="right"] .side-pill {
 }
 html[data-pins="left"] #pin-dock {
   left: 0;
+  /* The room for the tile shadow, on the edge that faces the list. */
+  padding-right: 10px;
 }
 html[data-pins="right"] #pin-dock {
   right: 0;
   align-items: flex-start;
+  padding-left: 10px;
 }
 #pin-dock.drop-target {
   outline: 2px dashed var(--accent);
@@ -1100,7 +1218,17 @@ html[data-pins="right"] #pin-dock {
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
   cursor: pointer;
-  transition:  background-color var(--t-color, 0.1s) ease-out, padding var(--t-move, 0.2s) var(--ease-out-apple)
+  /* No `transform` here on purpose. The dock is a Sortable drag target and the
+     library writes transform inline on every pointer move; transitioning it
+     would make every one of those moves animate and the tile would trail behind
+     the cursor. The hover lift is done with colour instead. */
+  transition:  background-color var(--t-color, 0.1s) ease-out,
+    padding var(--t-move, 0.2s) var(--ease-out-apple),
+    box-shadow var(--t-glow, 0.25s) ease
+}
+.dock-tile:hover {
+  background: color-mix(in srgb, var(--card-bg) 88%, var(--text));
+  box-shadow: var(--card-shadow), 0 0 0 1px var(--card-border);
 }
 .dock-tile:first-child {
   --tile-h: var(--search-h);
@@ -1184,7 +1312,7 @@ body > .result-item.sortable-fallback {
   background: transparent;
   opacity: 1;
   pointer-events: auto;
-  transition:  opacity var(--t-fade, 0.2s), background var(--t-color, 0.2s)
+  transition:  opacity var(--t-fade, 0.2s), background var(--t-color, 0.2s);
   z-index: 5;
 }
 #custom-scrollbar.hidden {
@@ -1199,7 +1327,7 @@ body > .result-item.sortable-fallback {
   border-radius: 3px;
   background: rgba(178, 178, 178, 0.55);
   cursor: grab;
-  transition:  background var(--t-color, 0.15s)
+  transition:  background var(--t-color, 0.15s);
   will-change: transform, height;
 }
 #custom-scrollbar:hover #custom-thumb,
@@ -1281,7 +1409,7 @@ body > .result-item.sortable-fallback {
   border-radius: var(--card-radius);
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
-  transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out
+  transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out;
   flex-shrink: 0;
   animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
 }
@@ -1302,8 +1430,7 @@ body > .result-item.sortable-fallback {
 .result-item.selected {
   background: var(--card-selected);
   box-shadow: var(--card-shadow);
-}
-#pins-list .result-item {
+}#pins-list .result-item {
   user-select: none;
 }
 .result-item.sortable-ghost {
@@ -1467,13 +1594,39 @@ body > .result-item.pin-drag-copy {
   font-size: 12px;
   font-weight: var(--weight-medium);
 }
-/* "Match Windows" decides the colours, so the pickers rest. */
-/* (The rows themselves keep opacity 1 from their enter animation, so dim what is in them.) */
-.follows-system #row-presets > *,
-.follows-system #row-accent > *,
-.follows-system #row-bg > * {
-  opacity: 0.4;
+/* A setting that another one makes pointless is not shown at all, rather than
+   greyed out: "Match Windows" decides the colours, so the pickers go; with the
+   border off there is no width or style to choose. main.js puts .dep-hidden on
+   the row (applyTheme); the row folds away and comes back the same way.
+   Height goes to and from `auto`, which needs interpolate-size (older engines
+   just switch at once). */
+:root {
+  interpolate-size: allow-keywords;
+}
+.settings-row.dep-row {
+  overflow: clip;
+  /* The enter animation fills forwards and would hold opacity at 1. */
+  animation-fill-mode: backwards;
+  transition:  height var(--t-size, 0.26s) var(--ease-out-apple),
+    min-height var(--t-size, 0.26s) var(--ease-out-apple),
+    padding var(--t-size, 0.26s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.2s) ease,
+    visibility 0s linear 0s
+}
+.settings-row.dep-row.dep-hidden {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
   pointer-events: none;
+  /* Hidden for good only once it has folded: keeps it out of the keyboard walk. */
+  visibility: hidden;
+  transition:  height var(--t-size, 0.26s) var(--ease-out-apple),
+    min-height var(--t-size, 0.26s) var(--ease-out-apple),
+    padding var(--t-size, 0.26s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.2s) ease,
+    visibility 0s linear var(--t-size, 0.26s)
 }
 .result-pin:hover {
   opacity: 1;
@@ -1484,6 +1637,11 @@ body > .result-item.pin-drag-copy {
 }
 .result-pin.pinned {
   opacity: 1;
+}
+/* The bounce answers a click on the pin button (main.js adds this class), not
+   the pinned state: tied to the state it replayed on every pin, in every row,
+   each time a list was drawn again. */
+.result-pin.pin-pop {
   animation: pin-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 @keyframes pin-pop {
@@ -1499,6 +1657,14 @@ body > .result-item.pin-drag-copy {
 }
 .result-pin.pinned svg {
   color: var(--tile-folder);
+}
+/* The solid silhouette of the pin, laid under the outline; shown once pinned. */
+.result-pin .pin-fill {
+  opacity: 0;
+  transition: opacity var(--t-color, 0.2s)
+}
+.result-pin.pinned .pin-fill {
+  opacity: 1;
 }
 .result-pin svg {
   width: 16px;
@@ -1521,7 +1687,7 @@ body > .result-item.pin-drag-copy {
   visibility: hidden;
   opacity: 0;
   transform: scale(0.97) translateY(-4px);
-  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0.15s
+  transition:  opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease, visibility 0s linear 0.15s;
   transform-origin: top left;
 }
 #context-menu.visible {
@@ -1592,7 +1758,7 @@ body > .result-item.pin-drag-copy {
   height: calc(var(--card-h) - 2 * var(--card-border-w));
   padding: 0 16px 0 8px;
   cursor: pointer;
-  transition:  background var(--t-color, 0.1s)
+  transition:  background var(--t-color, 0.1s);
   color: var(--text);
   font-size: 15px;
   font-weight: var(--weight-medium);
@@ -1742,6 +1908,12 @@ body > .result-item.pin-drag-copy {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
+  /* The ring that marks the chosen colour was appearing in one step. */
+  transition:  box-shadow var(--t-color, 0.16s) ease-out,
+    transform var(--t-move, 0.16s) var(--ease-out-apple)
+}
+.swatch:hover {
+  transform: scale(1.08);
 }
 .swatch.active {
   box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--text);
@@ -1762,8 +1934,10 @@ body > .result-item.pin-drag-copy {
 .fx-card {
   --fx-up: #4CC38A;
   --fx-down: #FF4242;
-  --fx-font-num: 'Google Sans Flex', var(--font-main);
+  --fx-font-num: 'Google Sans Flex', 'Stolzl', sans-serif;
+  font-family: 'Stolzl', sans-serif;
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 19px 18px 19px 20px;
 }
@@ -1836,6 +2010,7 @@ body > .result-item.pin-drag-copy {
   margin-top: 13px;
 }
 .fx-chip {
+  font-family: 'Stolzl', sans-serif;
   min-width: 80px;
   height: 25px;
   padding: 0 11px;
@@ -1859,6 +2034,7 @@ body > .result-item.pin-drag-copy {
 }
 .fx-graph {
   flex: 1 0 238px;
+  min-width: 0;
   height: 122px;
   border-radius: 5px;
   background: var(--card-hover);
@@ -2021,7 +2197,6 @@ body > .result-item.pin-drag-copy {
 }
 @media (prefers-reduced-motion: reduce) {
   .db-rect,
-  .db-progress,
   .drag-bar .ntf-short,
   .drag-bar .ntf-detail {
     transition-duration: 0.01s;
@@ -2114,7 +2289,7 @@ html[data-anim-move="off"] :is(
 }
 
 /* The pin button's bounce is a scale, so it belongs to Size. */
-html[data-anim-size="off"] .result-pin.pinned {
+html[data-anim-size="off"] .result-pin.pin-pop {
   animation: none;
 }
 
@@ -2133,4 +2308,421 @@ html[data-anim-blur="off"] .drag-bar .ntf-detail {
 }
 html[data-anim-move="off"] #app-container.window-hidden {
   transform: none;
+}
+
+/* ---- preview panel ----
+   position:fixed on <body> deliberately: #app-container carries a transform
+   and a filter while the window animates, which turns it into the containing
+   block for anything positioned inside it. The panel then sat behind the list
+   and let clicks through. z-index 2000 puts it above everything, including the
+   colour picker at 1000. Overlay geometry is computed in JS against the list's
+   own rect, so the panel covers exactly the list area and nothing else. */
+#preview-panel {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: var(--card-border-w) solid var(--card-border);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease;
+}
+#preview-panel.pv-hidden {
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+  /* Delay the flip to visibility so the fade is not clipped mid-way. */
+  transition: opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.15s) ease,
+    visibility 0s linear 0.15s;
+}
+#preview-panel.pv-open {
+  visibility: visible;
+  opacity: 1;
+}
+/* The preview is read, not steered, so selection is turned back on for it and
+   for the text inside -- the launcher disables it globally. */
+#preview-panel,
+.pv-text,
+.pv-url {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.pv-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* A plain scroll box, not a centring flex: with align-items:center the overflow
+   goes out of the top, where it can never be scrolled back to. Anything short
+   centres itself with auto margins instead. */
+.pv-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  text-align: center;
+  /* The app hides the native bar and draws its own; same here. */
+  scrollbar-width: none;
+}
+.pv-body::-webkit-scrollbar {
+  display: none;
+}
+.pv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.pv-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 20px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pv-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background var(--t-color, 0.1s) ease, color var(--t-color, 0.1s) ease;
+}
+.pv-close:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+.pv-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A plain scroll box, not a centring flex: with align-items:center the overflow
+   goes out of the top, where it can never be scrolled back to. Anything short
+   centres itself with auto margins instead. */
+.pv-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  text-align: center;
+}
+.pv-thumb {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: max(0px, calc(var(--card-radius) - 6px));
+}
+/* Cross-fade between two previews of the same shape. The outgoing picture stays
+   where it is and the incoming one comes up on top of it, so for a moment both
+   are visible -- which is what makes it read as a change rather than a jump. */
+.pv-body {
+  position: relative;
+}
+.pv-still {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.pv-still-in {
+  animation: pv-still-in 140ms ease-out both;
+}
+@keyframes pv-still-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.pv-text {
+  display: block;
+  margin: 0;
+  text-align: left;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 17px;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.pv-more {
+  padding-top: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: left;
+}
+.pv-kind {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 0;
+  color: var(--text-dim);
+}
+.pv-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+.pv-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: #000;
+}
+/* A peek is a paused frame, so it takes the whole card and shows no chrome. */
+#preview-panel[data-size="compact"] .pv-media {
+  background: #000;
+  border-radius: max(0px, calc(var(--card-radius) - 6px));
+}
+audio.pv-media {
+  height: auto;
+  min-height: 54px;
+  align-self: center;
+}
+.pv-url {
+  font-size: 13px;
+  line-height: 18px;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+  text-align: left;
+}
+.pv-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+.pv-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--card-deep);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pv-spin 0.8s linear infinite;
+}
+@keyframes pv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pv-meta {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 16px;
+}
+.pv-meta:empty {
+  display: none;
+}
+/* The preview's own bar, drawn the same way as the one over the results list:
+   a fixed-width rail on the right with a pill that tracks .pv-body. Both are
+   toggled from JS, which is also what decides whether there is anything to
+   scroll at all. */
+.pv-scrollbar {
+  flex-shrink: 0;
+  position: relative;
+  width: var(--custom-scrollbar-w, 6px);
+  margin-left: 8px;
+}
+.pv-scrollbar.pv-hidden {
+  display: none;
+}
+.pv-thumbbar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  border-radius: 3px;
+  background: var(--text-dim);
+  opacity: 0;
+  transition: opacity var(--t-fade, 0.15s) ease;
+}
+.pv-scrollbar:hover .pv-thumbbar,
+.pv-thumbbar.is-active {
+  opacity: 0.55;
+}
+.pv-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pv-actions:empty {
+  display: none;
+}
+.pv-btn {
+  flex: 1;
+  min-height: 28px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: max(0px, calc(var(--card-radius) - 4px));
+  background: var(--card-hover);
+  color: var(--text);
+  font-family: var(--font-main);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--t-color, 0.1s) ease;
+}
+.pv-btn:hover {
+  background: var(--card-selected);
+}
+.pv-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Popup is sized by its content and capped so a long document cannot grow past
+   the window; the placement code flips it when it hits an edge. */
+#preview-panel[data-mode][data-style="popup"],
+html[data-preview="popup"] #preview-panel {
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: min(460px, calc(100vh - 24px));
+}
+/* Hug contents: the card takes the size of what it is showing. A picture keeps
+   its own shape, a few lines of text stay short, and a bare filename does not
+   become a wide empty box. Only the caps come from JS, which then measures the
+   result and places it. */
+#preview-panel[data-size="compact"] {
+  width: auto;
+  height: auto;
+  max-width: min(260px, calc(100vw - 16px));
+  max-height: min(260px, calc(100vh - 16px));
+  padding: 8px 10px;
+  gap: 6px;
+}
+#preview-panel[data-size="compact"] .pv-head {
+  min-width: 0;
+}
+#preview-panel[data-size="compact"] .pv-title {
+  font-size: 12px;
+  line-height: 15px;
+}
+#preview-panel[data-size="compact"] .pv-close {
+  /* A peek is held, not opened: it closes the moment the key comes up, so a
+     close button on it would be a second way to do what releasing already does.
+     The full preview stays, because that one you dismiss yourself. */
+  display: none;
+}
+#preview-panel[data-size="compact"] .pv-meta,
+#preview-panel[data-size="compact"] .pv-actions,
+#preview-panel[data-size="compact"] .pv-more {
+  display: none;
+}
+#preview-panel[data-size="compact"] .pv-wrap {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+#preview-panel[data-size="compact"] .pv-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 208px;
+}
+#preview-panel[data-size="compact"] .pv-thumb {
+  width: auto;
+  max-width: 240px;
+  max-height: 208px;
+  object-fit: contain;
+}
+/* A paused frame, so it takes only the size the video actually is. */
+#preview-panel[data-size="compact"] .pv-media {
+  width: auto;
+  height: auto;
+  max-width: 240px;
+  max-height: 208px;
+  object-fit: contain;
+}
+#preview-panel[data-size="compact"] .pv-text {
+  max-width: 240px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 15px;
+}
+#preview-panel[data-size="compact"] .pv-note,
+#preview-panel[data-size="compact"] .pv-kind {
+  padding: 12px 8px;
+  font-size: 12px;
+}
+#preview-panel[data-size="compact"] .pv-scrollbar {
+  display: none;
+}
+#preview-panel[data-size="full"] .pv-head {
+  min-height: 24px;
+}
+/* The full preview hugs its content too, just with more room: an image is shown
+   at the size it is, a document only as tall as the text it has. The caps are
+   written from JS, which measures the result and centres it over the list. */
+#preview-panel[data-size="full"] {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+}
+#preview-panel[data-size="full"] .pv-wrap {
+  flex: 0 1 auto;
+}
+#preview-panel[data-size="full"] .pv-body {
+  flex: 0 1 auto;
+}
+#preview-panel[data-size="full"] .pv-thumb {
+  width: auto;
+  max-width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+}
+#preview-panel[data-size="full"] .pv-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+}
+#preview-panel[data-size="full"] .pv-text {
+  max-width: 460px;
+  max-height: 420px;
+}
+/* Popup is sized by its content; the caps come from JS so the card can be
+   measured before it is placed. Overlay sizes are set in JS against the list. */
+@media (prefers-reduced-motion: reduce) {
+  .pv-spinner {
+    animation: none;
+  }
 }

@@ -271,6 +271,27 @@ test("modified keys are not mistaken for typing", () => {
   assert.equal(P.isOpen(), true);
 });
 
+test("Ctrl+C and Ctrl+A reach the page, so the panel's text can be copied", () => {
+  const { P, sandbox } = load();
+  sandbox.selectableItems = [FILE];
+  P.handleKey(ev("Enter", { altKey: true }));
+  assert.equal(P.isOpen(), true);
+
+  // Not claimed: the document-level listener only calls preventDefault on keys
+  // handleKey returns true for, and that is exactly what cancels the copy.
+  const copy = ev("c", { ctrlKey: true, code: "KeyC" });
+  assert.equal(P.handleKey(copy), false, "Ctrl+C must not be claimed");
+  assert.equal(copy.defaultPrevented, false);
+  assert.equal(P.handleKey(ev("a", { ctrlKey: true, code: "KeyA" })), false, "nor Ctrl+A");
+  // The Russian layout reports a different key for the same physical key.
+  assert.equal(P.handleKey(ev("с", { ctrlKey: true, code: "KeyC" })), false);
+  assert.equal(P.handleKey(ev("Insert", { ctrlKey: true, code: "Insert" })), false, "nor Ctrl+Insert");
+  assert.equal(P.isOpen(), true, "and copying leaves the panel open");
+
+  // Every other key is still held back from the list underneath.
+  assert.equal(P.handleKey(ev("x", { ctrlKey: true, code: "KeyX" })), true);
+});
+
 test("programs, folders and system entries are never previewable", () => {
   const { P, sandbox } = load();
   for (const kind of ["app", "shortcut", "system", "folder"]) {

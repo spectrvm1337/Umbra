@@ -12,7 +12,8 @@ function showOpenCard(url, label) {
   `;
   specialContent.querySelector(".special-action").addEventListener("click", (e) => {
     const url = e.currentTarget.dataset.url;
-    invoke("launch_item", { path: url });
+    invoke("launch_item", { path: url })
+      .catch((err) => console.warn("launch failed:", err));
     hideWindow();
   });
   // Enter launches selectableItems[selectedIndex]; without this it opened the previous search's top result.
@@ -147,10 +148,14 @@ function handleSpecialCommand(query) {
     specialSection.classList.add("hidden");
     pinsSection.classList.add("hidden");
     resultsList.innerHTML = "";
+    let cmdIndex = 0;
     for (const c of cmds) {
       const el = document.createElement("div");
       el.className = "result-item";
       el.style.paddingLeft = "16px";
+      // The index is what the pointer and Ctrl+1..9 read. Without it they
+      // found NaN and the selection was lost.
+      el.dataset.index = String(cmdIndex++);
       el.innerHTML = `
         <div class="result-name" style="font-family:var(--font-main);font-weight:var(--weight-regular);font-size:13px">${escapeHtml(c.name)}</div>
         <div class="result-path" style="font-size:13px">${escapeHtml(c.desc)}</div>

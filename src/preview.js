@@ -609,6 +609,15 @@ function pvHandleKey(e) {
     return false;
   }
 
+  // Copying what is selected is the reason the panel's text is selectable. A
+  // modified key is not typing, so without this it fell through to the catch-all
+  // below and was swallowed with preventDefault, which cancels the copy. Matched
+  // by code, not key, so the Russian layout (where Ctrl+C reports "с") works too.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+      (e.code === "KeyC" || e.code === "KeyA" || e.code === "Insert")) {
+    return false;
+  }
+
   // Typing has to work while the full preview is open. Opening a preview must
   // never trap the user in it: the moment they start a new query, the panel
   // gets out of the way and the character reaches the search box.

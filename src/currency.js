@@ -360,6 +360,28 @@ function fxStateFromBundle(p, bundle) {
   return { rate, series };
 }
 
+// The window can be resized (and the dock widens it), so refit the sum and redraw the chart whenever the card's width changes.
+let fxResizeObs = null;
+let fxObserved = null;
+function fxWatchCard(card) {
+  if (typeof ResizeObserver === "undefined" || fxObserved === card) return;
+  if (fxResizeObs) fxResizeObs.disconnect();
+  let lastW = 0;
+  let lastGraphW = 0;
+  fxResizeObs = new ResizeObserver(() => {
+    const graph = card.querySelector(".fx-graph");
+    const w = card.clientWidth;
+    const gw = graph ? graph.clientWidth : 0;
+    if (w === lastW && gw === lastGraphW) return;
+    lastW = w;
+    lastGraphW = gw;
+    fxFitSum(card);
+    if (card._fxSeries && gw) fxDrawChart(card, card._fxSeries);
+  });
+  fxResizeObs.observe(card);
+  fxObserved = card;
+}
+
 function renderFxCard(p, state) {
   let card = specialContent.querySelector(".fx-card");
   if (!card) {
@@ -388,7 +410,9 @@ function renderFxCard(p, state) {
       searchInput.focus();
     });
   });
-  if (state.series && state.series.length >= 2) fxDrawChart(card, state.series);
+  card._fxSeries = state.series && state.series.length >= 2 ? state.series : null;
+  if (card._fxSeries) fxDrawChart(card, card._fxSeries);
+  fxWatchCard(card);
 }
 
 function handleCurrencyCommand(query) {

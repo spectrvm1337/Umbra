@@ -92,7 +92,12 @@ async function saveDockOrder(paths) {
 
 async function pinToDock(name, path, kind, index) {
   if (!currentPins.some((p) => p.path === path)) {
-    await invoke("add_pin", { name, path, kind });
+    try {
+      await invoke("add_pin", { name, path, kind });
+    } catch (err) {
+      console.warn("could not pin:", err);
+      return;
+    }
     const result = allResults.find((r) => r.path === path);
     if (result) result.pinned = true;
     currentPins.push({ name, path, kind, pinned: true, icon_data: result ? result.icon_data : null });

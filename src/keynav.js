@@ -222,8 +222,12 @@ function knDockKey(e) {
 
 function knInit() {
   document.addEventListener("keydown", (e) => {
-    // Hotkey capture, the colour picker and the indexing menu own the keyboard while open.
-    if (e.defaultPrevented || hotkeyCapturing || pickerOpen || contentMenuOpen || e.altKey || e.metaKey) return;
+    // Hotkey capture, the colour picker, the preview panel, the indexing menu
+    // and the animations menu own the keyboard while open.
+    if (e.defaultPrevented || hotkeyCapturing || pickerOpen || contentMenuOpen || animMenuOpen || e.altKey || e.metaKey) return;
+    // The preview panel runs in overlay mode over the list, so there is no row
+    // left for the arrow keys to move through.
+    if (window.UmbraPreview && window.UmbraPreview.isOpen()) return;
     let handled = false;
     if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
       handled = !contextMenu.classList.contains("visible") && settingsSection.classList.contains("hidden") && knOpenMenuForSelection();

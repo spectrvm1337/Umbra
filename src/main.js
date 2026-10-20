@@ -295,19 +295,27 @@ function toggleSettings() {
   setSettingsStatus("");
   if (opening) {
 
-    if (hotkeyCapturing) endHotkeyCapture();
-    closeContentMenu();
-    pinsSection.classList.add("hidden");
-    resultsSection.classList.add("hidden");
-    specialSection.classList.add("hidden");
-    emptyState.classList.add("hidden");
-    refreshSettingsValues();
-    searchInput.blur();
-  } else {
-
-    performSearch(searchInput.value);
+          if (hotkeyCapturing) endHotkeyCapture();
+            closeContentMenu();
+            closeAnimMenu();
+            pinsSection.classList.add("hidden");
+            resultsSection.classList.add("hidden");
+            specialSection.classList.add("hidden");
+            emptyState.classList.add("hidden");
+            refreshSettingsValues();
+            // The filter from last time is still hiding rows, and some of them
+            // may be the only way to reach a setting.
+            filterSettings(searchInput.value);
+            // A switch with nothing lit reads as broken, so the panel repaints it.
+            if (window.UmbraPreview) window.UmbraPreview.refreshSettings();
+            searchInput.blur();
+    } else {
+      // The rows the filter hid stay hidden otherwise, and the next time the
+      // settings open they are simply not there.
+      settingsSection.querySelectorAll(".settings-row").forEach((r) => { r.style.display = ""; });
+      performSearch(searchInput.value);
+    }
   }
-}
 settingsBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   toggleSettings();
@@ -361,7 +369,7 @@ document.addEventListener("keydown", (e) => {
     .then(res => {
       currentHotkey = combo;
       setSettingsStatus("");
-      showToast("Hotkey applied", false, res);
+      showToast("Hotkey applied");
     })
     .catch(err => {
       settingHotkeyValue.textContent = currentHotkey;
@@ -406,7 +414,7 @@ settingReindex.addEventListener("click", async (e) => {
     if (settingIndexed) settingIndexed.textContent = "indexing…";
     await invoke("reindex");
     toggleSettings();
-    showNotify("Rebuilding index", { type: "info", detail: "search stays available while it runs" });
+    showNotify("Rebuilding index", { type: "info", detail: "search still works" });
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -450,6 +458,52 @@ function msItem(labelText, on, onToggle) {
   item.addEventListener("click", onToggle);
   return item;
 }
+// What each menu remembers: whether "Select All" has folded its list away, and
+// what was chosen before it did, so unfolding brings that choice back instead of
+// starting over. Browser storage is only a convenience -- without it the menu
+// starts from the settings as they are.
+function menuStateRead(id) {
+  try {
+    const v = JSON.parse(localStorage.getItem("umbra.menu." + id) || "null");
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+function menuStateWrite(id, state) {
+  try { localStorage.setItem("umbra.menu." + id, JSON.stringify(state)); } catch {}
+}
+// Keeps a menu's rows in step with `entries` ({key, label, on, master, onToggle})
+// without rebuilding the ones that stay: a rebuilt row cannot animate. Handlers
+// are set once, so they must read current state when called rather than capture it.
+function syncMenuItems(container, entries) {
+  const have = new Map([...container.children].map((el) => [el.dataset.key, el]));
+  entries.forEach((entry, i) => {
+    let el = have.get(entry.key);
+    if (!el) {
+      el = msItem(entry.label, entry.on, entry.onToggle);
+      el.dataset.key = entry.key;
+      if (!entry.master) el.classList.add("ms-fold");
+    }
+    have.delete(entry.key);
+    el.classList.toggle("checked", entry.on);
+    const label = el.querySelector(".ms-label");
+    if (label.textContent !== entry.label) label.textContent = entry.label;
+    // Moving a node restarts its transitions, so only move one that is out of place.
+    if (container.children[i] !== el) container.insertBefore(el, container.children[i] || null);
+  });
+  for (const stale of have.values()) stale.remove();
+}
+// Folds or unfolds the list. `instant` is for a menu that is being drawn for the
+// first time, which should open already in its state rather than play the fold.
+function setMenuFolded(container, folded, instant) {
+  if (instant) container.classList.add("ms-instant");
+  container.classList.toggle("ms-folded", folded);
+  if (instant) {
+    void container.offsetWidth;
+    container.classList.remove("ms-instant");
+  }
+}
 const groupOn = (g) => g.kinds.every((k) => !disabledKinds.includes(k));
 function renderExcludeCount() {
   const off = CONTENT_GROUPS.filter((g) => !groupOn(g)).map((g) => getGroupLabel(g).toLowerCase());
@@ -463,22 +517,21 @@ function renderExcludeCount() {
     ? tr("everythingShown", "everything is shown")
     : tr("hiddenKinds", "Hidden") + ": " + totalOff.join(", ");
 }
-function renderContentGroups() {
+// True while "Select All" is on and the per-item list is folded away.
+let contentFolded = false;
+function renderContentGroups(instant) {
   const onKinds = CONTENT_GROUPS.length - CONTENT_GROUPS.filter((g) => !groupOn(g)).length;
   const onDrives = availableDrives.length - disabledDrives.length;
   const totalOn = onKinds + onDrives;
   const total = CONTENT_GROUPS.length + availableDrives.length;
   const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
   contentHead.textContent = tr("currentCount", "Current") + ": " + totalOn + "/" + total;
-  contentGroups.innerHTML = "";
-  contentGroups.appendChild(msItem(tr("selectAll", "Select All"), totalOn === total, toggleAll));
-  for (const g of CONTENT_GROUPS) {
-    contentGroups.appendChild(msItem(getGroupLabel(g), groupOn(g), () => toggleGroup(g)));
-  }
-  for (const d of availableDrives) {
-    const isEnabled = !disabledDrives.includes(d);
-    contentGroups.appendChild(msItem(d, isEnabled, () => toggleDrive(d)));
-  }
+  syncMenuItems(contentGroups, [
+    { key: "all", master: true, label: tr("selectAll", "Select All"), on: contentFolded, onToggle: toggleAll },
+    ...CONTENT_GROUPS.map((g) => ({ key: "g:" + g.id, label: getGroupLabel(g), on: groupOn(g), onToggle: () => toggleGroup(g) })),
+    ...availableDrives.map((d) => ({ key: "d:" + d, label: d, on: !disabledDrives.includes(d), onToggle: () => toggleDrive(d) })),
+  ]);
+  setMenuFolded(contentGroups, contentFolded, instant);
   renderExcludeCount();
 }
 async function toggleGroup(g) {
@@ -503,21 +556,36 @@ async function toggleDrive(d) {
   }
   renderContentGroups();
 }
+// "Select All": on, everything is shown and the list folds away after noting
+// what was chosen; off, the list unfolds and that choice comes back.
 async function toggleAll() {
-  const allKindsOn = CONTENT_GROUPS.every(groupOn);
-  const allDrivesOn = disabledDrives.length === 0;
-  const enable = !(allKindsOn && allDrivesOn);
+  const state = menuStateRead("content");
   try {
-    let cur = disabledKinds;
-    for (const g of CONTENT_GROUPS) {
-      for (const k of g.kinds) {
-        cur = await invoke("set_kind_enabled", { kind: k, enabled: enable });
+    if (contentFolded) {
+      let kinds = disabledKinds;
+      for (const k of (state.savedKinds || []).filter(Number.isInteger)) {
+        kinds = await invoke("set_kind_enabled", { kind: k, enabled: false });
       }
+      disabledKinds = kinds;
+      for (const d of (state.savedDrives || []).filter((x) => availableDrives.includes(x))) {
+        disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: false });
+      }
+      contentFolded = false;
+    } else {
+      state.savedKinds = disabledKinds.slice();
+      state.savedDrives = disabledDrives.slice();
+      let kinds = disabledKinds;
+      for (const k of disabledKinds.slice()) {
+        kinds = await invoke("set_kind_enabled", { kind: k, enabled: true });
+      }
+      disabledKinds = kinds;
+      for (const d of disabledDrives.slice()) {
+        disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: true });
+      }
+      contentFolded = true;
     }
-    disabledKinds = cur;
-    for (const d of availableDrives) {
-      disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: enable });
-    }
+    state.folded = contentFolded;
+    menuStateWrite("content", state);
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -533,17 +601,26 @@ async function contentMenuLoad() {
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
+  // Folded only while it is true: with everything shown (and the menu not left
+  // unfolded last time), there is nothing per item to pick yet.
+  const everythingOn = disabledKinds.length === 0 && disabledDrives.length === 0;
+  contentFolded = everythingOn && menuStateRead("content").folded !== false;
 }
 function positionContentMenu() {
   const h = contentMenu.offsetHeight;
   contentMenu.style.top = Math.max(6, excludeRow.offsetTop - h - 6) + "px";
+}
+// The menu hangs above its row; as its list folds and unfolds its height
+// changes, so it is hung again on every size change.
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => { if (contentMenuOpen) positionContentMenu(); }).observe(contentMenu);
 }
 function openContentMenu() {
   if (contentMenuLoading) return;
   contentMenuLoading = true;
   contentMenuLoad().then(() => {
     contentMenuLoading = false;
-    renderContentGroups();
+    renderContentGroups(true);
     positionContentMenu();
     contentMenu.classList.add("visible");
     excludeRow.classList.add("open");
@@ -631,6 +708,8 @@ async function animMenuLoad() {
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
+  // Folded only while everything is on, and unless it was left unfolded last time.
+  animFolded = animOff.length === 0 && menuStateRead("anim").folded !== false;
   applyAnimSettings();
 }
 function renderAnimCount() {
@@ -642,21 +721,19 @@ function renderAnimCount() {
     ? tr("animAllOn", "everything animates")
     : tr("animStill", "Still") + ": " + animOff.map(animLabel).join(", ").toLowerCase();
 }
-function renderAnimGroups() {
+// True while "Select All" is on and the per-kind list is folded away: with
+// everything on there is nothing per kind to change yet.
+let animFolded = false;
+function renderAnimGroups(instant) {
   const kinds = Object.keys(ANIM_LABELS);
   const totalOn = kinds.length - animOff.length;
-  const allOn = totalOn === kinds.length;
   const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
   animHead.textContent = tr("currentCount", "Current") + ": " + totalOn + "/" + kinds.length;
-  animGroups.innerHTML = "";
-  animGroups.appendChild(msItem(tr("selectAll", "Select All"), allOn, toggleAnimAll));
-  // Everything is on, so there is nothing per kind to change yet: the list only
-  // appears once Select All is off, which is also the only way in.
-  if (!allOn) {
-    for (const kind of kinds) {
-      animGroups.appendChild(msItem(animLabel(kind), !animOff.includes(kind), () => toggleAnimKind(kind)));
-    }
-  }
+  syncMenuItems(animGroups, [
+    { key: "all", master: true, label: tr("selectAll", "Select All"), on: animFolded, onToggle: toggleAnimAll },
+    ...kinds.map((kind) => ({ key: kind, label: animLabel(kind), on: !animOff.includes(kind), onToggle: () => toggleAnimKind(kind) })),
+  ]);
+  setMenuFolded(animGroups, animFolded, instant);
   renderAnimCount();
 }
 async function toggleAnimKind(kind) {
@@ -669,15 +746,27 @@ async function toggleAnimKind(kind) {
   applyAnimSettings();
   renderAnimGroups();
 }
+// Same idea as the content menu's: on, everything animates and the list folds
+// away after noting what was off; off, the list unfolds and that comes back.
 async function toggleAnimAll() {
-  // One loop like the content menu's: turn every kind the way the master is.
-  const off = animOff.length === 0;
+  const state = menuStateRead("anim");
   try {
     let cur = animOff;
-    for (const kind of Object.keys(ANIM_LABELS)) {
-      cur = await invoke("set_anim_off", { kind, off });
+    if (animFolded) {
+      for (const kind of (state.saved || []).filter((k) => k in ANIM_LABELS)) {
+        cur = await invoke("set_anim_off", { kind, off: true });
+      }
+      animFolded = false;
+    } else {
+      state.saved = animOff.slice();
+      for (const kind of animOff.slice()) {
+        cur = await invoke("set_anim_off", { kind, off: false });
+      }
+      animFolded = true;
     }
     animOff = cur;
+    state.folded = animFolded;
+    menuStateWrite("anim", state);
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -688,9 +777,13 @@ function positionAnimMenu() {
   const h = animMenu.offsetHeight;
   animMenu.style.top = Math.max(6, animRow.offsetTop - h - 6) + "px";
 }
+// Hung above its row, so it is hung again whenever the fold changes its height.
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => { if (animMenuOpen) positionAnimMenu(); }).observe(animMenu);
+}
 function openAnimMenu() {
   animMenuLoad().then(() => {
-    renderAnimGroups();
+    renderAnimGroups(true);
     positionAnimMenu();
     animMenu.classList.add("visible");
     animRow.classList.add("open");
@@ -817,11 +910,11 @@ async function checkForUpdates(manual) {
     updateState = { phase: "idle", info, downloaded: null, error: null };
     if (!info.update_available) {
       renderUpdatePanel();
-      if (manual) showToast(`Umbra ${info.current} is the latest version`);
+      if (manual) showToast("Umbra is up to date");
     } else {
       updateState.phase = "available";
       renderUpdatePanel();
-      if (manual) showToast(`Umbra ${info.latest} is available`, false, "downloading in the background");
+      if (manual) showToast("Update available", false, "downloading in the background");
       startUpdateDownload(info);
     }
   } catch (err) {
@@ -846,9 +939,9 @@ async function startUpdateDownload(info) {
     renderUpdatePanel();
     return;
   }
-  updateState = { phase: "downloading", info, downloaded: null, error: null };
-  updatePct = 0;
-  renderUpdatePanel();
+    updateState = { phase: "downloading", info, downloaded: null, error: null };
+    updatePct = 0;
+    renderUpdatePanel();
   try {
     await invoke("download_update", {
       url: info.asset_url,
@@ -965,8 +1058,6 @@ const THEME_PRESETS = [
   { name: "Paper",   cardBg: "#f2f0e5", accent: "#205ea6", alpha: 1, text: "#100f0f" },
   { name: "Flexoki", cardBg: "#1e1918", accent: "#d14d41", alpha: 1, text: "#cecdc3" },
   { name: "Cream",   cardBg: "#f5f0dc", accent: "#f0442e", alpha: 1, text: "#171717" },
-  { name: "Rust",    cardBg: "#20252b", accent: "#b7472a", alpha: 1, text: "#bfc4c7" },
-  { name: "Frost",   cardBg: "#d9e7e8", accent: "#528a9a", alpha: 1, text: "#25252b" },
 ];
 // Flexoki accents: red, orange, blue, green, purple (yellow, cyan and magenta
 // went away — the row was too long to scan). Light values are the 600 steps,
@@ -1002,6 +1093,14 @@ function hexWithAlpha(hex, alpha) {
     .toString(16).padStart(2, "0");
   return hex + a;
 }
+// `inert` keeps a folded row out of the tab order and away from assistive tech
+// as well; the stylesheet does the folding.
+function setDepHidden(id, hidden) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("dep-hidden", hidden);
+  el.inert = hidden;
+}
 function applyTheme() {
   if (!theme) return;
   const root = document.documentElement;
@@ -1025,6 +1124,11 @@ function applyTheme() {
   root.style.setProperty("--text", colors.text);
   systemToggle.classList.toggle("on", !!theme.followSystem);
   document.body.classList.toggle("follows-system", !!theme.followSystem);
+  // Settings that another one makes pointless are not shown (see .dep-row in the
+  // stylesheet): Windows decides the colours, and with no border there is no
+  // width or style to pick.
+  for (const id of ["row-presets", "row-accent", "row-bg"]) setDepHidden(id, !!theme.followSystem);
+  for (const id of ["row-borderw", "row-borderpos"]) setDepHidden(id, !theme.borderOn);
   root.style.setProperty("--card-radius", theme.radius + "px");
   // Row/search/gap sizing comes from the [data-density] rules in the
   // stylesheet, so it stays overridable by custom themes.
@@ -1071,12 +1175,19 @@ function markActiveSwatches() {
   bgSwatchesEl.querySelectorAll(".swatch").forEach((el) =>
     el.classList.toggle("active", el.dataset.color === theme.cardBg));
 }
+// Two saves that overlap can come back in the other order, and the older
+// answer would then roll the newer setting back. The counter says which
+// answer is the one that counts.
+let themeSaveId = 0;
 async function saveTheme() {
+  const myId = ++themeSaveId;
   try {
-    theme = await invoke("set_theme", { theme });
+    const saved = await invoke("set_theme", { theme });
+    if (myId !== themeSaveId) return;
+    theme = saved;
     applyTheme();
   } catch (err) {
-    setSettingsStatus(String(err), true);
+    if (myId === themeSaveId) setSettingsStatus(String(err), true);
   }
 }
 function buildSwatches(container, colors, onPick) {
@@ -1552,9 +1663,17 @@ function hideWindow() {
   if (isHiding) return;
   isHiding = true;
   contextMenu.classList.remove("visible");
+  // The window is going away, so the panel must not ride along into the next
+  // summon just because the selection happens to still match.
+  if (window.UmbraPreview) window.UmbraPreview.close();
   appContainer.classList.remove("window-showing");
   appContainer.classList.add("window-hidden");
+  // The timer is cleared but the variable was left pointing at a dead id, so
+  // the next time the window opened the check below found it set and the
+  // placeholder never started again -- the typing examples were gone for good
+  // after the first close.
   clearTimeout(placeholderTimer);
+  placeholderTimer = null;
 
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
@@ -1582,7 +1701,7 @@ function updateSelectableItems() {
 const EXE_GLYPH = `<span class="glyph-text">&lt;&gt;</span>`;
 const FOLDER_GLYPH = `<svg class="tile-glyph" viewBox="7.896 5.212 35 35" fill="none"><path d="M16.8961 19.3485C16.8961 18.2506 16.8961 17.7017 17.1098 17.2824C17.2977 16.9135 17.5976 16.6136 17.9665 16.4257C18.3858 16.212 18.9348 16.212 20.0327 16.212H23.4382C23.9177 16.212 24.1575 16.212 24.3831 16.2662C24.583 16.3142 24.7743 16.3934 24.9497 16.5009C25.1475 16.6221 25.3171 16.7916 25.6561 17.1307L25.779 17.2537C26.1181 17.5927 26.2876 17.7622 26.4854 17.8835C26.6609 17.9909 26.8521 18.0701 27.0521 18.1182C27.2777 18.1723 27.5174 18.1723 27.9969 18.1723H31.4025C32.5004 18.1723 33.0494 18.1723 33.4687 18.386C33.8375 18.5739 34.1374 18.8738 34.3253 19.2427C34.539 19.662 34.539 20.211 34.539 21.3088V26.7977C34.539 27.8956 34.539 28.4446 34.3253 28.8639C34.1374 29.2327 33.8375 29.5327 33.4687 29.7206C33.0494 29.9342 32.5004 29.9342 31.4025 29.9342H20.0327C18.9348 29.9342 18.3858 29.9342 17.9665 29.7206C17.5976 29.5327 17.2977 29.2327 17.1098 28.8639C16.8961 28.4446 16.8961 27.8956 16.8961 26.7977V19.3485Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PHOTO_GLYPH = `<svg viewBox="0 0 22 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9C8.10457 9 9 8.1046 9 7C9 5.89543 8.10457 5 7 5C5.89543 5 5 5.89543 5 7C5 8.1046 5.89543 9 7 9Z"/><path d="M6 20C11.4112 7.90548 15.9093 5.78644 21 13.6329"/><path d="M17 1H5C2.79086 1 1 2.89035 1 5.22222V15.7778C1 18.1096 2.79086 20 5 20H17C19.2091 20 21 18.1096 21 15.7778V5.22222C21 2.89035 19.2091 1 17 1Z"/></svg>`;
-const PIN_GLYPH = `<svg viewBox="0 0 16.4641 16.4641" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1087 0.659162C11.0853 -0.364249 9.3758 -0.169198 8.60922 1.05845L6.47534 4.47586C6.47534 4.47586 6.47422 4.47774 6.47022 4.48061C6.46533 4.48411 6.45489 4.49015 6.43738 4.49509C6.39911 4.50586 6.34913 4.50503 6.30448 4.48848C5.57617 4.21848 4.32599 3.92188 3.02779 4.41087C2.32836 4.67432 1.97934 5.28065 1.94131 5.89581C1.90502 6.48275 2.14207 7.08611 2.57806 7.52209L5.22968 10.1737L0.21967 15.1837C-0.0732232 15.4767 -0.0732232 15.9515 0.21967 16.2444C0.51256 16.5373 0.987437 16.5373 1.28033 16.2444L6.29035 11.2344L8.942 13.8861C9.37797 14.322 9.98135 14.5591 10.5683 14.5228C11.1834 14.4848 11.7898 14.1357 12.0532 13.4364C12.5422 12.1381 12.2456 10.8879 11.9757 10.1596C11.9591 10.115 11.9583 10.065 11.969 10.0267C11.9739 10.0092 11.98 9.99881 11.9835 9.99386C11.9864 9.98989 11.9882 9.98884 11.9882 9.98884L15.4056 7.85486C16.6333 7.08829 16.8284 5.37879 15.8049 4.35539L12.1087 0.659162ZM9.8816 1.85292C10.1371 1.44371 10.707 1.37869 11.0481 1.71983L14.7443 5.41604C15.0854 5.75718 15.0204 6.32702 14.6112 6.58253L11.1938 8.71646C10.4853 9.15889 10.3275 10.0293 10.5692 10.681C10.7835 11.2593 10.9545 12.0978 10.6495 12.9076C10.6287 12.9629 10.6055 12.9828 10.5912 12.9927C10.5731 13.0052 10.5373 13.0218 10.4757 13.0257C10.3426 13.0339 10.1525 12.9752 10.0026 12.8254L3.63872 6.46144C3.48891 6.31163 3.43022 6.12149 3.43845 5.98836C3.44225 5.92676 3.45895 5.89103 3.47148 5.87285C3.48128 5.85863 3.50124 5.83541 3.55652 5.81459C4.36639 5.50955 5.20483 5.68058 5.78309 5.89495C6.43488 6.13658 7.3052 5.97887 7.7477 5.27033L9.8816 1.85292Z"/></svg>`;
+const PIN_GLYPH = `<svg viewBox="0 0 16.4641 16.4641" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1087 0.659162C11.0853 -0.364249 9.3758 -0.169198 8.60922 1.05845L6.47534 4.47586C6.47534 4.47586 6.47422 4.47774 6.47022 4.48061C6.46533 4.48411 6.45489 4.49015 6.43738 4.49509C6.39911 4.50586 6.34913 4.50503 6.30448 4.48848C5.57617 4.21848 4.32599 3.92188 3.02779 4.41087C2.32836 4.67432 1.97934 5.28065 1.94131 5.89581C1.90502 6.48275 2.14207 7.08611 2.57806 7.52209L5.22968 10.1737L0.21967 15.1837C-0.0732232 15.4767 -0.0732232 15.9515 0.21967 16.2444C0.51256 16.5373 0.987437 16.5373 1.28033 16.2444L6.29035 11.2344L8.942 13.8861C9.37797 14.322 9.98135 14.5591 10.5683 14.5228C11.1834 14.4848 11.7898 14.1357 12.0532 13.4364C12.5422 12.1381 12.2456 10.8879 11.9757 10.1596C11.9591 10.115 11.9583 10.065 11.969 10.0267C11.9739 10.0092 11.98 9.99881 11.9835 9.99386C11.9864 9.98989 11.9882 9.98884 11.9882 9.98884L15.4056 7.85486C16.6333 7.08829 16.8284 5.37879 15.8049 4.35539L12.1087 0.659162ZM9.8816 1.85292C10.1371 1.44371 10.707 1.37869 11.0481 1.71983L14.7443 5.41604C15.0854 5.75718 15.0204 6.32702 14.6112 6.58253L11.1938 8.71646C10.4853 9.15889 10.3275 10.0293 10.5692 10.681C10.7835 11.2593 10.9545 12.0978 10.6495 12.9076C10.6287 12.9629 10.6055 12.9828 10.5912 12.9927C10.5731 13.0052 10.5373 13.0218 10.4757 13.0257C10.3426 13.0339 10.1525 12.9752 10.0026 12.8254L3.63872 6.46144C3.48891 6.31163 3.43022 6.12149 3.43845 5.98836C3.44225 5.92676 3.45895 5.89103 3.47148 5.87285C3.48128 5.85863 3.50124 5.83541 3.55652 5.81459C4.36639 5.50955 5.20483 5.68058 5.78309 5.89495C6.43488 6.13658 7.3052 5.97887 7.7477 5.27033L9.8816 1.85292Z"/><path class="pin-fill" d="M12.1087 0.659162C11.0853 -0.364249 9.3758 -0.169198 8.60922 1.05845L6.47534 4.47586C6.47534 4.47586 6.47422 4.47774 6.47022 4.48061C6.46533 4.48411 6.45489 4.49015 6.43738 4.49509C6.39911 4.50586 6.34913 4.50503 6.30448 4.48848C5.57617 4.21848 4.32599 3.92188 3.02779 4.41087C2.32836 4.67432 1.97934 5.28065 1.94131 5.89581C1.90502 6.48275 2.14207 7.08611 2.57806 7.52209L5.22968 10.1737L0.21967 15.1837C-0.0732232 15.4767 -0.0732232 15.9515 0.21967 16.2444C0.51256 16.5373 0.987437 16.5373 1.28033 16.2444L6.29035 11.2344L8.942 13.8861C9.37797 14.322 9.98135 14.5591 10.5683 14.5228C11.1834 14.4848 11.7898 14.1357 12.0532 13.4364C12.5422 12.1381 12.2456 10.8879 11.9757 10.1596C11.9591 10.115 11.9583 10.065 11.969 10.0267C11.9739 10.0092 11.98 9.99881 11.9835 9.99386C11.9864 9.98989 11.9882 9.98884 11.9882 9.98884L15.4056 7.85486C16.6333 7.08829 16.8284 5.37879 15.8049 4.35539L12.1087 0.659162Z"/></svg>`;
 function getTypeIcon(kind) {
   const icons = {
     app: EXE_GLYPH,
@@ -1672,6 +1791,14 @@ function createResultItem(item, index, query) {
   div.addEventListener("click", (e) => {
     if (rowDragging) return;
     if (e.target.closest(".result-pin")) { togglePin(e.target.closest(".result-pin")); return; }
+    // Shift+click previews instead of opening. Alt+Enter is the keyboard route;
+    // this is the mouse one. Nothing else in the app uses Shift+click, and
+    // user-select is off globally, so there is nothing to collide with.
+    if (e.shiftKey && window.UmbraPreview) {
+      e.preventDefault();
+      window.UmbraPreview.openFull(item, { x: e.clientX, y: e.clientY });
+      return;
+    }
     launchItem(item.path);
   });
   div.addEventListener("mouseenter", () => {
@@ -1707,11 +1834,18 @@ function renderResults(results, query) {
   }
 }
 function renderPins(pins) {
+  // As in renderResults: rows already on screen are drawn again without playing
+  // their enter animation. Without this every search that ended on the empty box
+  // (clearing, closing settings) replayed the whole pin list.
+  const shown = animateAllRows || pinsSection.classList.contains("hidden")
+    ? new Set()
+    : new Set([...pinsList.children].map(el => el.dataset.path));
   pinsList.innerHTML = "";
   currentPins = pins;
   updateSelectableItems();
   pins.forEach((pin, i) => {
     const el = createResultItem({ ...pin, pinned: true }, i, lastQuery);
+    if (shown.has(pin.path)) el.style.animation = "none";
     pinsList.appendChild(el);
   });
   if (typeof renderDock === "function") renderDock();
@@ -1808,7 +1942,9 @@ function requestIconsForResults(results) {
     })
     .catch(err => console.error("Icon load failed:", err));
 }
-function applySelection(doScroll) {
+// The order the rows are laid out in, which is also the order the keyboard
+// walks them: the pinned ones first when the box is empty, then the results.
+function selectableContainers() {
   const containers = [];
   if (lastQuery.trim() || !pinsInList()) {
     containers.push(resultsList);
@@ -1816,6 +1952,22 @@ function applySelection(doScroll) {
     if (currentPins.length > 0) containers.push(pinsList);
     containers.push(resultsList);
   }
+  return containers;
+}
+// Pinning or unpinning changes how many rows come before the results, so every
+// row's index has to be laid out again. Without this the rows kept the indices
+// they were built with and the pointer picked the wrong file.
+function renumberRows() {
+  let i = 0;
+  for (const container of selectableContainers()) {
+    container.querySelectorAll(".result-item").forEach((el) => {
+      el.dataset.index = i;
+      i++;
+    });
+  }
+}
+function applySelection(doScroll) {
+  const containers = selectableContainers();
   let flatIndex = 0;
   for (const container of containers) {
     const items = container.querySelectorAll(".result-item");
@@ -1834,6 +1986,8 @@ function applySelection(doScroll) {
       flatIndex++;
     });
   }
+  // A held peek follows the selection as it moves.
+  if (window.UmbraPreview) window.UmbraPreview.followSelection();
 }
 // Hovering a row only borrows the highlight: moving off the rows (onto the search box, or
 // out of the window) hands it back to the row the keyboard or the search had picked (none
@@ -1939,7 +2093,7 @@ async function launchItem(path) {
 async function copyPath(path) {
   try {
     await navigator.clipboard.writeText(path);
-    showToast("Copied", false, path);
+    showToast("Copied");
   } catch (e) {
     console.error("Clipboard copy failed:", e);
     showToast("Copy failed", true);
@@ -1950,6 +2104,7 @@ const ntfDetail = document.getElementById("ntf-detail");
 let ntfTimer = null;
 let ntfHover = false;
 let ntfShownAt = 0;
+// hint can tell whether it is still the current one.
 function collapseNotify() {
   dragBar.classList.remove("expanded");
 }
@@ -1960,9 +2115,11 @@ function hideNotify() {
     return;
   }
   clearTimeout(ntfTimer);
-
+  // Taking `shown` away starts the fade out; the state is cleared straight
+  // after so the next hint does not arrive on top of a half-faded one.
   collapseNotify();
   dragBar.classList.remove("shown", "notify", "tip", "success", "error", "warn", "info");
+  ntfOnScreen = null;
   syncDragTip();
   ntfCurrent = null;
   ntfTag = null;
@@ -2002,24 +2159,65 @@ function showNotify(short, opts = {}) {
   }
   renderNotify(short, opts, type);
 }
+// The hint fades itself with a CSS transition. It used to be hidden with
+// `visibility: hidden`, and an element in that state counts as not rendered --
+// Chromium refuses to start a transition on one, so the hint appeared with no
+// animation at all. It is hidden by opacity now, and the motion is plain CSS.
+//
+// The only thing JS has to do is make sure the browser has computed the hidden
+// state before the shown one is applied. Both classes go on in the same turn of
+// the event loop, so without a forced layout there would be one style pass and
+// nothing to interpolate from.
+let ntfOnScreen = null;
+
+function ntfCancel(el) {
+  if (!el) return;
+  el.style.opacity = "";
+  el.style.filter = "";
+  el.style.transform = "";
+}
+
+// The hint has a hard width limit and a full path or a .NET exception message
+// runs straight past it. Trim from the front, because the tail is the part that
+// identifies a path or names the failure.
+const NTF_DETAIL_MAX = 44;
+function ntfTrim(text) {
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  if (s.length <= NTF_DETAIL_MAX) return s;
+  return "…" + s.slice(-(NTF_DETAIL_MAX - 1));
+}
 function renderNotify(short, { detail = "", duration = 0, tag = null } = {}, type = "info") {
   ntfCurrent = type;
   ntfTag = tag;
   const wasExp = ntfHover && dragBar.classList.contains("expanded");
   clearTimeout(ntfTimer);
-  tipTarget = null; 
+  tipTarget = null;
   dragBar.classList.remove("expanded", "shown", "notify", "tip", "success", "error", "warn", "info");
   dragBar.classList.add("notify", type);
-  dragBar.removeAttribute("data-tip"); 
-  ntfShort.textContent = short;
-  ntfDetail.textContent = detail || short;
-  dragBar.classList.add("shown");
+  dragBar.removeAttribute("data-tip");
+  ntfShort.textContent = ntfTrim(short);
+  ntfDetail.textContent = ntfTrim(detail || short);
+  // The classes decide which line is on screen and that it is shown at all.
+  // `expanded` first, because that is what says which of the two lines it is.
   if (wasExp) dragBar.classList.add("expanded");
-
+  // The hidden state has to be computed before the shown one is applied, or
+  // there is nothing for the transition to start from. Reading a box property
+  // forces that style pass to happen right here.
+  void ntfShort.offsetWidth;
+  dragBar.classList.add("shown");
+  ntfOnScreen = dragBar.classList.contains("expanded") ? ntfDetail : ntfShort;
   ntfHover = dragBar.matches(":hover");
   ntfShownAt = Date.now();
   const dur = duration || (type === "success" ? 1900 : 3400);
   ntfTimer = setTimeout(hideNotify, dur);
+  // Clip only when the text really is longer than the hint allows. Doing it in
+  // CSS alone means every hint pays for an ellipsis it does not need, and with
+  // `overflow: hidden` the glow around the text is chopped off at the box.
+  ntfShort.classList.remove("ntf-clip");
+  ntfDetail.classList.remove("ntf-clip");
+  if (ntfShort.scrollWidth > ntfShort.clientWidth + 1) ntfShort.classList.add("ntf-clip");
+  if (ntfDetail.scrollWidth > ntfDetail.clientWidth + 1) ntfDetail.classList.add("ntf-clip");
 }
 dragBar.addEventListener("mouseenter", () => {
   ntfHover = true;
@@ -2030,7 +2228,14 @@ dragBar.addEventListener("mousemove", (e) => {
   const r = el.getBoundingClientRect();
   const over = e.clientX >= r.left && e.clientX <= r.right &&
                e.clientY >= r.top && e.clientY <= r.bottom;
+  const wasExpanded = dragBar.classList.contains("expanded");
   dragBar.classList.toggle("expanded", over);
+  // Expanding swaps which of the two lines is on screen, so the other one has
+  // to be brought in with its own little motion.
+  if (wasExpanded !== over) {
+    ntfOnScreen = over ? ntfDetail : ntfShort;
+    void ntfShort.offsetWidth;
+  }
 });
 dragBar.addEventListener("mouseleave", () => {
   ntfHover = false;
@@ -2052,7 +2257,7 @@ dragBar.addEventListener("contextmenu", (e) => {
   setTimeout(() => { pinBusy = false; }, 3000);
   const pinned = !dragBar.classList.contains("pinned");
   invoke("set_window_pin", { pinned })
-    .then((ok) => {
+          .then((ok) => {
       dragBar.classList.toggle("pinned", !!ok);
       if (ok) {
         showNotify("Position pinned", {
@@ -2061,11 +2266,13 @@ dragBar.addEventListener("contextmenu", (e) => {
           detail: "window stays here on next summons — right-click to unpin",
         });
       } else {
-        showNotify("Position unpinned", { type: "info", tag: "pin", detail: "window recenters on next summons" });
+        showNotify("Position unpinned", { type: "info", tag: "pin", detail: "recenters next time" });
       }
     })
     .catch((err) => showNotify("Pin failed", { type: "error", detail: String(err) }))
-    .finally(() => { pinBusy = false; });
+    // The flag is released by the timer above, not by the promise: releasing it
+    // as soon as the call came back left nothing between two quick right
+    // clicks, and the window flipped pinned and unpinned in a row.
 });
 function showToast(message, isError, detail) {
   showNotify(message, {
@@ -2129,10 +2336,21 @@ document.addEventListener("pointerdown", () => {
 document.addEventListener("wheel", () => {
   hideBarTip();
 }, { passive: true });
+// The bounce for a pin that was just pinned. Taken off again when it ends, so
+// the next time the row is drawn it is still.
+function popPin(btn) {
+  btn.classList.remove("pin-pop");
+  void btn.offsetWidth;
+  btn.classList.add("pin-pop");
+  btn.addEventListener("animationend", () => btn.classList.remove("pin-pop"), { once: true });
+}
 function setPinnedButtons(path, pinned) {
   document
     .querySelectorAll('#results-list .result-pin[data-path="' + CSS.escape(path) + '"]')
-    .forEach(b => b.classList.toggle("pinned", pinned));
+    .forEach(b => {
+      b.classList.toggle("pinned", pinned);
+      if (pinned) popPin(b);
+    });
 }
 async function togglePin(btn) {
   const { path, name, kind } = btn.dataset;
@@ -2146,7 +2364,6 @@ async function togglePin(btn) {
 
       const card = btn.closest(".result-item");
       if (card && pinsList.contains(card)) card.remove();
-      pinsList.querySelectorAll(".result-item").forEach((el, i) => { el.dataset.index = i; });
       setPinnedButtons(path, false);
     } else {
       await invoke("add_pin", { name, path, kind });
@@ -2156,10 +2373,13 @@ async function togglePin(btn) {
       const modelIdx = allResults.findIndex(r => r.path === path);
       if (modelIdx !== -1) allResults[modelIdx].pinned = true;
 
-      pinsList.appendChild(createResultItem({ ...pin }, idx, lastQuery));
+      const row = createResultItem({ ...pin }, idx, lastQuery);
+      pinsList.appendChild(row);
+      popPin(row.querySelector(".result-pin"));
       setPinnedButtons(path, true);
     }
     updateSelectableItems();
+    renumberRows();
     updateGhost();
     pinsSection.classList.toggle("hidden", currentPins.length === 0 || !!lastQuery.trim());
     updateSelection();
@@ -2185,6 +2405,14 @@ let placeholderIndex = 0;
 let placeholderCharIndex = 0;
 let placeholderDeleting = false;
 let placeholderTimer = null;
+// There is at most one typing loop: every step and every (re)start goes through
+// here, and each replaces whatever is pending instead of running beside it.
+// A start that kept no handle (the one at load did) left a second loop going
+// that nothing could clear.
+function schedulePlaceholder(fn, ms) {
+  clearTimeout(placeholderTimer);
+  placeholderTimer = setTimeout(fn, ms);
+}
 function animatePlaceholder() {
   if (searchInput.value.length > 0 || appContainer.classList.contains("window-hidden")) {
     searchInput.placeholder = "";
@@ -2196,13 +2424,13 @@ function animatePlaceholder() {
     searchInput.placeholder = currentWord.substring(0, placeholderCharIndex + 1);
     placeholderCharIndex++;
     if (placeholderCharIndex >= currentWord.length) {
-      placeholderTimer = setTimeout(() => {
+      schedulePlaceholder(() => {
         placeholderDeleting = true;
         animatePlaceholder();
       }, 1500);
       return;
     }
-    placeholderTimer = setTimeout(animatePlaceholder, 80);
+    schedulePlaceholder(animatePlaceholder, 80);
   } else {
     searchInput.placeholder = currentWord.substring(0, placeholderCharIndex);
     placeholderCharIndex--;
@@ -2210,10 +2438,10 @@ function animatePlaceholder() {
       placeholderDeleting = false;
       placeholderCharIndex = 0;
       placeholderIndex++;
-      placeholderTimer = setTimeout(animatePlaceholder, 400);
+      schedulePlaceholder(animatePlaceholder, 400);
       return;
     }
-    placeholderTimer = setTimeout(animatePlaceholder, 50);
+    schedulePlaceholder(animatePlaceholder, 50);
   }
 }
 document.addEventListener("mousemove", (e) => {
@@ -2288,6 +2516,14 @@ contextMenu.addEventListener("click", (e) => {
     case "copy":
       copyPath(path);
       break;
+    case "preview":
+      // This row, not whatever the keyboard happened to have selected, and
+      // anchored where the menu item was clicked.
+      contextMenu.classList.remove("visible");
+      if (window.UmbraPreview) {
+        window.UmbraPreview.openFull(contextTargetItem, { x: e.clientX, y: e.clientY });
+      }
+      return;
     case "pin":
       setItemPinned(contextTargetItem, !isPinned(path));
       break;
@@ -2360,10 +2596,9 @@ clearBtn.addEventListener("click", (e) => {
   clearBtn.classList.remove("visible");
   clearGhost();
   performSearch("");
-  if (placeholderTimer) clearTimeout(placeholderTimer);
   placeholderDeleting = false;
   placeholderCharIndex = 0;
-  placeholderTimer = setTimeout(animatePlaceholder, 500);
+  schedulePlaceholder(animatePlaceholder, 500);
   searchInput.focus();
 });
 function fetchWithTimeout(url, ms = 8000) {
@@ -2489,6 +2724,11 @@ document.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => showRowShortcuts(false));
 searchInput.addEventListener("keydown", (e) => {
+  // Shift+Space peeks and Alt+Enter opens the full preview, but preview.js owns
+  // those keys itself: it listens on the document in the capture phase, which
+  // runs before this handler and stops the event when it claims it. Delegating
+  // here as well would mean every key was handled twice -- Alt+Enter would open
+  // the panel and close it again in the same tick.
   if (e.altKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     e.preventDefault();
     stepQueryHistory(e.key === "ArrowUp" ? 1 : -1);
@@ -2567,9 +2807,13 @@ searchInput.addEventListener("keydown", (e) => {
     e.preventDefault();
 
     if (!settingsSection.classList.contains("hidden")) {
-      settingsSection.classList.add("hidden");
-      settingsBtn.classList.remove("open");
-      closeContentMenu();
+  settingsSection.classList.add("hidden");
+  settingsBtn.classList.remove("open");
+  closeContentMenu();
+  // The animation menu kept its open state when the settings closed, so the
+  // next time it opened it was already showing a stale list and the first
+  // click closed it instead of opening it.
+  closeAnimMenu();
       performSearch(searchInput.value);
       searchInput.focus();
       return;
@@ -2698,15 +2942,26 @@ document.addEventListener("pointerdown", (e) => {
     }
     return;
   }
-  const onCard =
-    e.target instanceof Element &&
-    // #pin-dock covers the whole dock column, so grabbing a tile to drag it, or
-    // missing a tile by a few pixels, doesn't count as a click outside the window.
-    e.target.closest("#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #color-picker, .drag-bar, .side-pill, #pin-dock");
-  if (!onCard) {
+  // #pin-dock covers the whole dock column, so grabbing a tile to drag it, or
+  // missing a tile by a few pixels, doesn't count as a click outside the window.
+  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #preview-panel";
+  const onCard = e.target instanceof Element && e.target.closest(CARD_SEL);
+  if (!onCard && !pointOverCard(e.clientX, e.clientY, CARD_SEL)) {
     hideWindow();
   }
 });
+// While a button is mid-transform (the gear turning, a pin bouncing) the hit test
+// can come back empty over the whole card for a few frames, so the click is
+// checked against where the cards are, not only against what was reported.
+function pointOverCard(x, y, selector) {
+  for (const el of document.querySelectorAll(selector)) {
+    if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+      && getComputedStyle(el).visibility !== "hidden") return true;
+  }
+  return false;
+}
 function filterSettings(query) {
   const q = query.toLowerCase().trim();
   const rows = settingsSection.querySelectorAll(".settings-row");
@@ -2727,10 +2982,9 @@ searchInput.addEventListener("input", () => {
   clearTimeout(debounceTimer);
 
   if (!hasText) {
-    if (placeholderTimer) clearTimeout(placeholderTimer);
     placeholderDeleting = false;
     placeholderCharIndex = 0;
-    placeholderTimer = setTimeout(animatePlaceholder, 500);
+    schedulePlaceholder(animatePlaceholder, 500);
   } else {
     if (placeholderTimer) clearTimeout(placeholderTimer);
     placeholderTimer = null;
@@ -2747,7 +3001,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadTheme();
   searchInput.focus();
   performSearch("");
-  setTimeout(animatePlaceholder, 500);
+  schedulePlaceholder(animatePlaceholder, 500);
 });
 // The saved UI language used to be applied only when settings were opened, so
 // every start showed English until then. Load it right away.
@@ -2836,7 +3090,10 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   // Tray > Settings shows the window straight on the settings panel.
   if (event.payload && event.payload.openSettings && settingsSection.classList.contains("hidden")) toggleSettings();
   showWelcomeCard();
-  if (!placeholderTimer) placeholderTimer = setTimeout(animatePlaceholder, 600);
+  // Started unconditionally: the timer is cleared on hide, and relying on it
+  // being unset meant the examples came back only after typing and deleting
+  // something.
+  schedulePlaceholder(animatePlaceholder, 600);
   setTimeout(() => {
     searchInput.focus();
     setTimeout(() => { pointerGuard = false; }, 50);

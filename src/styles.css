@@ -203,6 +203,12 @@ body {
   filter: blur(var(--window-blur));
   transform: translateY(-24px);
 }
+/* While the window is resized for the pins dock (dock.js) the card steps out of sight, so
+   the frames in which the window and the layout disagree are never seen. */
+#app-container.dock-switching {
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+}
 #app-container.dragging {
   opacity: 0.85;
   filter: drop-shadow(0 0 20px rgba(80, 112, 144, 0.3));
@@ -482,7 +488,9 @@ body {
   justify-content: center;
   color: var(--icon);
   flex-shrink: 0;
-  margin: 0;
+  /* The bar's 12px gap would still sit around a zero-width item: the negative margin
+     takes it back, so a hidden control leaves no hole. */
+  margin: 0 0 0 -12px;
   padding: 0;
   opacity: 0;
   visibility: hidden;
@@ -505,7 +513,7 @@ body {
 /* Update download progress: takes the indexing spinner's slot while it runs. */
 #index-spinner.suppressed {
   width: 0;
-  margin: 0;
+  margin: 0 0 0 -12px;
   opacity: 0;
   visibility: hidden;
 }
@@ -518,7 +526,7 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin: 0;
+  margin: 0 0 0 -12px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -573,17 +581,19 @@ body {
   color: var(--icon);
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: -12px;
   padding: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition:  width var(--t-size, 0.2s) ease, opacity var(--t-fade, 0.2s) ease, visibility var(--t-fade, 0.2s) ease, background var(--t-color, 0.15s), color var(--t-color, 0.15s)
+  transition:  width var(--t-size, 0.2s) ease, margin var(--t-move, 0.2s) ease, opacity var(--t-fade, 0.2s) ease, visibility var(--t-fade, 0.2s) ease, background var(--t-color, 0.15s), color var(--t-color, 0.15s)
 }
 #clear-btn:hover {
   color: var(--text);
 }
 #clear-btn.visible {
   width: var(--btn);
+  margin-left: 0;
   opacity: 0.85;
   visibility: visible;
   pointer-events: auto;
@@ -988,6 +998,17 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 .cc-shade:last-child {
   border-bottom-left-radius: 8px;
 }
+.cc-shade,
+.cc-swatch,
+.cc-chip {
+  transition: background-color var(--t-color, 0.28s) ease, box-shadow var(--t-color, 0.15s) ease;
+}
+/* Eyedropper frames come ~30 times a second; easing them would only lag behind the cursor. */
+.color-card.picking .cc-shade,
+.color-card.picking .cc-swatch,
+.color-card.picking .cc-hex {
+  transition: none;
+}
 .cc-shade:hover {
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
@@ -995,10 +1016,24 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.75);
 }
 .cc-swatch {
+  position: relative;
   flex: 1;
   border-radius: 0 8px 8px 0;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.25);
   cursor: pointer;
+}
+/* The colour's hex, written on its own swatch in whichever of near-black / white reads. */
+.cc-hex {
+  position: absolute;
+  right: 11px;
+  bottom: 8px;
+  font-family: 'Google Sans Flex', var(--font-main);
+  font-size: 22px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  color: var(--cc-ink, #fff);
+  pointer-events: none;
+  transition: color var(--t-color, 0.28s) ease;
 }
 .cc-info {
   flex: 1;
@@ -1026,7 +1061,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 }
 .cc-history {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   margin-top: 2px;
   min-height: 18px;
 }
@@ -1036,6 +1071,16 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.cc-chip.cc-new {
+  animation: cc-chip-in var(--t-size, 0.22s) var(--ease-out-apple) both;
+}
+@keyframes cc-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
 }
 .cc-loupe {
   position: relative;
@@ -1086,12 +1131,15 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   padding: 0;
   border: none;
   background: none;
-  color: #b2b2b2;
+  /* Drawn from the text colour so it reads on the empty loupe in every theme; it used
+     to be a fixed grey that vanished into the light ones. */
+  color: color-mix(in srgb, var(--text) 62%, transparent);
   cursor: pointer;
+  transition: color var(--t-color, 0.18s) ease;
 }
 .cc-dropper:hover,
 .color-card.picking .cc-dropper {
-  color: #fff;
+  color: var(--text);
 }
 .color-card.picking .cc-loupe {
   outline: 2px solid var(--accent);
@@ -1265,6 +1313,27 @@ html[data-pins="left"] .dock-tile:hover .dock-label {
 }
 html[data-pins="right"] .dock-tile:hover .dock-label {
   margin-left: 18px;
+}
+/* Switching the pins to a dock (dock.js adds .dock-appear for a moment): the tiles
+   slide in from the window's edge one after another. */
+.dock-appear .dock-tile:not(.dock-empty) {
+  animation: dock-tile-in 0.34s var(--ease-out-apple) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+@keyframes dock-tile-in {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+html[data-pins="right"] .dock-appear .dock-tile:not(.dock-empty) {
+  animation-name: dock-tile-in-r;
+}
+@keyframes dock-tile-in-r {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
 }
 /* The "+" drop slot only appears while a result row or a file is being dragged. */
 .dock-empty {

@@ -225,15 +225,21 @@ function fxTrendSvg(dir, x, y) {
   return `<svg x="${x}" y="${y}" width="8" height="8.75" viewBox="0 0 8.00001 8.75" fill="none" overflow="visible"><path${flip} d="M4 1V7.75M7 4.9375L4 7.75L1 4.9375" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
+// Text comes from the language chosen in settings (i18n.js); the English strings are the fallback.
+function fxT(key, fallback, params) {
+  return window.i18n ? window.i18n.t(key, params) : fallback;
+}
+
 function fxFormatDate(iso) {
-  return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const lang = window.i18n ? window.i18n.getLang() : undefined;
+  return new Date(iso + "T00:00:00").toLocaleDateString(lang, { day: "numeric", month: "short" });
 }
 
 function fxSumHtml(p, result, placeholder = "…") {
   const left = formatFxNumber(p.amount);
   const right = result == null ? placeholder : formatFxNumber(result);
   return `
-    <div class="fx-sum"${result == null ? "" : ` title="Click or press Enter to copy"`}>
+    <div class="fx-sum"${result == null ? "" : ` title="${escapeHtml(fxT("fxCopyTip", "Click or press Enter to copy"))}"`}>
       <span class="fx-part"><span class="fx-val">${left}</span><span class="fx-code">${p.from}</span></span>
       ${FX_ARROW_SVG}
       <span class="fx-part"><span class="fx-val${result == null ? " fx-pending" : ""}">${right}</span><span class="fx-code">${p.to}</span></span>
@@ -269,7 +275,7 @@ function fxChartHtml(series, C) {
         </g>
       </g>
       <g class="fx-change fx-change--${dir}">
-        <title>${days}-day change</title>
+        <title>${escapeHtml(fxT("fxDayChange", "{n}-day change", { n: days }))}</title>
         <text class="fx-change-text" x="${C.w - (dir === "flat" ? 15 : 27)}" y="19" text-anchor="end">${deltaText}</text>
         ${dir === "flat" ? "" : fxTrendSvg(dir, C.w - 23, 12)}
       </g>
@@ -316,9 +322,11 @@ function fxDrawChart(card, series, from) {
     const start = fxResample(from.pts, pts);
     fxApplyShape(card, svg, start, C);
     svg.classList.add("fx-morph");
+    const travel = Math.max(...pts.map((p, i) => Math.abs(p.y - start[i].y))) / (C.bottom - C.top);
+    const dur = Math.min(450, 160 + 290 * Math.min(1, travel));
     const t0 = performance.now();
     const step = (now) => {
-      const k = Math.min(1, (now - t0) / 460);
+      const k = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - k, 3);
       fxApplyShape(card, svg, pts.map((p, i) => ({ x: p.x, y: start[i].y + (p.y - start[i].y) * e })), C);
       if (k < 1) card._fxRaf = requestAnimationFrame(step);
@@ -414,7 +422,7 @@ function fxCardHtml(p, state) {
   const graph = !state.series
     ? `<div class="fx-graph"></div>`
     : state.series.length < 2
-      ? `<div class="fx-graph fx-graph--empty"><span class="fx-muted">No history</span></div>`
+      ? `<div class="fx-graph fx-graph--empty"><span class="fx-muted">${escapeHtml(fxT("fxNoHistory", "No history"))}</span></div>`
       : `<div class="fx-graph"></div>`;
 
   return `
@@ -430,7 +438,7 @@ function fxStateFromBundle(p, bundle) {
   const from = p.from.toLowerCase();
   const to = p.to.toLowerCase();
   const rate = from === to ? 1 : bundle.rates[to];
-  if (typeof rate !== "number") return { error: `No rate for ${p.to}` };
+  if (typeof rate !== "number") return { error: fxT("fxNoRate", `No rate for ${p.to}`, { code: p.to }) };
   const series = bundle.history
     .map((h) => ({ date: h.date, value: from === to ? 1 : h.rates && h.rates[to] }))
     .filter((s) => typeof s.value === "number");
@@ -469,10 +477,13 @@ function fxCountTo(card, key, el, to, format) {
     return;
   }
   el.textContent = format(from);
+  // A small change settles quickly, a big one takes up to 450ms.
+  const rel = Math.abs(to - from) / Math.max(Math.abs(to), Math.abs(from), 1e-9);
+  const dur = Math.min(450, 140 + 310 * Math.sqrt(Math.min(1, rel)));
   const t0 = performance.now();
   const step = (now) => {
-    const k = Math.min(1, (now - t0) / 460);
-    const e = 1 - Math.pow(1 - k, 3);
+    const k = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 4);
     el._fxV = k < 1 ? from + (to - from) * e : to;
     el.textContent = format(el._fxV);
     if (k < 1) card["_fxN" + key] = requestAnimationFrame(step);
@@ -637,7 +648,7 @@ function handleCurrencyCommand(query) {
     })
     .catch(() => {
       if (stale()) return;
-      renderFxCard(p, { error: "Couldn't load rates" });
+      renderFxCard(p, { error: fxT("fxLoadFail", "Couldn't load rates") });
     });
   return true;
 }

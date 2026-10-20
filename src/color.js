@@ -47,6 +47,16 @@ function colorToHsl(c) {
   return `${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%`;
 }
 
+// Text colour that reads on top of c: near-black on light colours, white on dark ones.
+function colorInk(c) {
+  const lin = (v) => {
+    const x = v / 255;
+    return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  const lum = 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  return lum > 0.4 ? "#171717" : "#ffffff";
+}
+
 // amount > 0 mixes towards white, < 0 towards black.
 function colorShade(c, amount) {
   const target = amount > 0 ? 255 : 0;
@@ -88,6 +98,11 @@ const COLOR_PIN_SVG = `<svg class="cc-pin" width="34" height="43" viewBox="0 0 3
 
 const COLOR_DROPPER_SVG = `<svg width="17" height="18" viewBox="0 0 17 18" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.40525 13.7128C5.07988 14.2677 2.78716 15.8468 2.38647 15.4225C2.12682 15.1475 2.66162 14.0314 3.21288 12.8979H7.17495C7.00391 13.079 6.74734 13.3507 6.40525 13.7128Z" fill="currentColor"/><path d="M13.4328 4.99912C13.7647 4.64765 14.303 4.64765 14.6349 4.99912C14.9668 5.35059 14.9668 5.92044 14.6349 6.27191L7.00629 14.3492C6.92408 14.4363 6.82588 14.5046 6.71776 14.5499C6.38088 14.6908 6.03818 14.8685 5.22789 15.3105C4.82739 15.529 4.65054 15.6244 4.43417 15.7372C2.94828 16.5124 2.38983 16.6988 1.78543 16.0589C1.18217 15.4201 1.35767 14.8281 2.08449 13.2644C2.19218 13.0326 2.28338 12.8432 2.49221 12.4139C2.90957 11.5559 3.07743 11.193 3.21062 10.8364C3.25337 10.7219 3.31784 10.6179 3.40004 10.5309L11.0287 2.45354C11.3606 2.10207 11.8988 2.10207 12.2307 2.45354C12.5627 2.805 12.5627 3.37486 12.2307 3.72632L4.7234 11.6753C4.57529 12.0486 4.38902 12.4457 4.0035 13.2381C3.79954 13.6574 3.7113 13.8407 3.60979 14.0592C3.58865 14.1046 3.56827 14.1489 3.54867 14.1919C3.59205 14.1697 3.63676 14.1466 3.68284 14.1225C3.88696 14.0161 4.05814 13.9237 4.44945 13.7103C5.1979 13.3021 5.57289 13.1049 5.92548 12.948L13.4328 4.99912Z" fill="currentColor"/><path d="M12.2307 3.72635C11.8988 4.07783 11.3606 4.07783 11.0287 3.72635C10.6967 3.37488 10.6967 2.80503 11.0287 2.45356C12.0244 1.39915 13.639 1.39915 14.6349 2.45356C15.6307 3.50797 15.6307 5.21752 14.6349 6.27194C14.3029 6.62341 13.7647 6.62341 13.4328 6.27194C13.1009 5.92047 13.1009 5.35062 13.4328 4.99915C13.7647 4.64767 13.7647 4.07783 13.4328 3.72635C13.1009 3.37488 12.5627 3.37488 12.2307 3.72635Z" fill="currentColor"/><path d="M8.0217 4.36087C7.68976 4.0094 7.68976 3.43955 8.0217 3.08808C8.35366 2.7366 8.89185 2.7366 9.22377 3.08808L14.0321 8.17925C14.3641 8.53072 14.3641 9.10053 14.0321 9.45207C13.7001 9.80352 13.162 9.80352 12.8301 9.45207L8.0217 4.36087Z" fill="currentColor"/></svg>`;
 
+// Text comes from the language chosen in settings (i18n.js); the English strings are the fallback.
+function colorT(key, fallback, params) {
+  return window.i18n ? window.i18n.t(key, params) : fallback;
+}
+
 function colorCardHtml(c, base = c) {
   const hex = colorToHex(c);
   const history = colorReadHistory()
@@ -99,35 +114,38 @@ function colorCardHtml(c, base = c) {
         const shade = colorToHex(colorShade(base, k));
         return `<button class="cc-shade${k !== 0 && shade === hex ? " active" : ""}" data-hex="${shade}" style="background:${shade}" title="${shade}"></button>`;
       }).join("")}</div>
-      <div class="cc-swatch" style="background:${hex}" data-copy="${hex}" title="Click or press Enter to copy ${hex}"></div>
+      <div class="cc-swatch" style="background:${hex};--cc-ink:${colorInk(c)}" data-copy="${hex}" title="${escapeHtml(colorT("colorCopyHex", "Click or press Enter to copy {hex}", { hex }))}"><span class="cc-hex">${hex}</span></div>
     </div>
     <div class="cc-info">
-      <div class="cc-field" data-copy="${colorToRgb(c)}" title="Copy"><div class="cc-label">RGB</div><div class="cc-value">${colorToRgb(c)}</div></div>
-      <div class="cc-field" data-copy="hsl(${colorToHsl(c)})" title="Copy"><div class="cc-label">HSL</div><div class="cc-value">${colorToHsl(c)}</div></div>
-      <div class="cc-field"><div class="cc-label">History</div><div class="cc-history">${history}</div></div>
+      <div class="cc-field" data-copy="${colorToRgb(c)}" title="${colorT("colorCopy", "Copy")}"><div class="cc-label">RGB</div><div class="cc-value">${colorToRgb(c)}</div></div>
+      <div class="cc-field" data-copy="hsl(${colorToHsl(c)})" title="${colorT("colorCopy", "Copy")}"><div class="cc-label">HSL</div><div class="cc-value">${colorToHsl(c)}</div></div>
+      <div class="cc-field"><div class="cc-label">${colorT("colorHistory", "History")}</div><div class="cc-history">${history}</div></div>
     </div>
     <div class="cc-loupe">
       <canvas class="cc-pixels" width="${COLOR_GRID}" height="${COLOR_GRID}"></canvas>
       <canvas class="cc-skeleton"></canvas>
       ${COLOR_PIN_SVG}
-      <button class="cc-dropper" title="Pick a colour from the screen (Esc or right-click cancels)">${COLOR_DROPPER_SVG}</button>
+      <button class="cc-dropper" title="${escapeHtml(colorT("colorPickTip", "Pick a colour from the screen (Esc or right-click cancels)"))}">${COLOR_DROPPER_SVG}</button>
     </div>`;
 }
 
 // Eyedropper frames arrive ~30 times a second: change the values in place instead of
 // rebuilding the card (and its loupe canvas) on every frame. False if the card has not
 // been built yet.
-function colorUpdateCard(card, c) {
+function colorUpdateCard(card, c, base = c) {
   const swatch = card.querySelector(".cc-swatch");
   const shades = card.querySelectorAll(".cc-shade");
   const [rgb, hsl] = card.querySelectorAll(".cc-info .cc-field[data-copy]");
   if (!swatch || shades.length !== 3 || !rgb || !hsl) return false;
   const hex = colorToHex(c);
   swatch.style.background = hex;
+  swatch.style.setProperty("--cc-ink", colorInk(c));
+  const hexLabel = swatch.querySelector(".cc-hex");
+  if (hexLabel) hexLabel.textContent = hex;
   swatch.dataset.copy = hex;
-  swatch.title = `Click or press Enter to copy ${hex}`;
+  swatch.title = colorT("colorCopyHex", "Click or press Enter to copy {hex}", { hex });
   [0.25, 0, -0.25].forEach((k, i) => {
-    const shade = colorToHex(colorShade(c, k));
+    const shade = colorToHex(colorShade(base, k));
     shades[i].style.background = shade;
     shades[i].dataset.hex = shade;
     shades[i].title = shade;
@@ -138,6 +156,30 @@ function colorUpdateCard(card, c) {
   hsl.dataset.copy = `hsl(${colorToHsl(c)})`;
   hsl.querySelector(".cc-value").textContent = colorToHsl(c);
   return true;
+}
+
+// The history chips are changed one by one, so a new colour appears and the others
+// ease over to their new place instead of the row being drawn again.
+function colorUpdateHistory(card) {
+  const wrap = card.querySelector(".cc-history");
+  if (!wrap) return;
+  const list = colorReadHistory();
+  const kids = [...wrap.children];
+  list.forEach((h, i) => {
+    let b = kids[i];
+    if (!b) {
+      b = document.createElement("button");
+      b.className = "cc-chip cc-new";
+      wrap.appendChild(b);
+      b.style.background = h;
+    }
+    if (b.dataset.hex !== h) {
+      b.dataset.hex = h;
+      b.style.background = h;
+      b.title = h;
+    }
+  });
+  kids.slice(list.length).forEach((b) => b.remove());
 }
 
 function colorDrawLoupe(card, pixels) {
@@ -175,9 +217,19 @@ function colorStartSkeleton(card) {
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
-  const styles = getComputedStyle(card);
-  const accent = styles.getPropertyValue("--accent").trim() || "#e07a3a";
-  const dim = styles.getPropertyValue("--text-dim").trim() || "#737373";
+  // The dots and the drifting blobs are the loupe's own background lightened, so the
+  // placeholder is a lighter shade of its surface in every theme. Re-read now and then
+  // because the card stays on screen across theme changes.
+  let dim = "#ffffff";
+  let accent = "#ffffff";
+  let frames = 0;
+  const readTones = () => {
+    const m = getComputedStyle(loupe).backgroundColor.match(/[\d.]+/g);
+    if (!m || m.length < 3) return;
+    const mix = (k) => `rgb(${[0, 1, 2].map((i) => Math.round(+m[i] + (255 - +m[i]) * k)).join(",")})`;
+    dim = mix(0.3);
+    accent = mix(0.65);
+  };
   const step = Math.min(w, h) / COLOR_GRID;
   const blob = (t, a, b, phase) => [0.5 + 0.38 * Math.sin(t * a + phase), 0.5 + 0.38 * Math.cos(t * b + phase * 1.7)];
   const start = performance.now();
@@ -188,6 +240,7 @@ function colorStartSkeleton(card) {
     }
     // Looping is permanent, so the only thing that stills this is the system
     // asking for reduced motion.
+    if (frames++ % 30 === 0) readTones();
     const t = colorReduceMotion.matches ? 2 : (now - start) / 1000;
     const blobs = [blob(t, 0.55, 0.42, 0), blob(t, 0.37, 0.61, 2.4)];
     ctx.clearRect(0, 0, w, h);
@@ -199,7 +252,7 @@ function colorStartSkeleton(card) {
         for (const [bx, by] of blobs) glow = Math.max(glow, Math.exp(-((u - bx) ** 2 + (v - by) ** 2) / 0.06));
         const x = (col + 0.5) * step + (w - step * COLOR_GRID) / 2;
         const y = (row + 0.5) * step + (h - step * COLOR_GRID) / 2;
-        ctx.globalAlpha = 0.35;
+        ctx.globalAlpha = 1;
         ctx.fillStyle = dim;
         ctx.beginPath();
         ctx.arc(x, y, 0.9, 0, Math.PI * 2);
@@ -229,10 +282,18 @@ function renderColorCard(c) {
     specialContent.innerHTML = `<div class="special-card color-card"></div>`;
     card = specialContent.querySelector(".color-card");
   }
-  card.innerHTML = colorCardHtml(c, colorShadeBase || c);
+  const base = colorShadeBase || c;
+  const hasShades = card.querySelectorAll(".cc-shade").length === 3;
+  if (hasShades && colorUpdateCard(card, c, base)) {
+    // Same card, new colour: the swatch, shades and chips change in place (CSS eases them).
+    colorUpdateHistory(card);
+  } else {
+    card.innerHTML = colorCardHtml(c, base);
+    card.classList.toggle("picking", colorPicking);
+    colorDrawLoupe(card, colorLoupe);
+    colorStartSkeleton(card);
+  }
   card.classList.toggle("picking", colorPicking);
-  colorDrawLoupe(card, colorLoupe);
-  colorStartSkeleton(card);
   return card;
 }
 

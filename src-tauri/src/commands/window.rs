@@ -206,12 +206,40 @@ pub fn animate_recenter(app: &tauri::AppHandle) {
 pub fn recenter_window(app: tauri::AppHandle) {
     animate_recenter(&app);
 }
+/// Applies the new base size and moves the window's left edge by `shift` logical px
+/// (positive = further left) in one call. A dock on the left grows the window
+/// leftwards; doing the size and the position as two calls showed the panel
+/// jumping in between, so on Windows they go out together as one `SetWindowPos`.
+fn resize_and_shift(app: &tauri::AppHandle, shift: f64) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let (Ok(pos), Some(mon)) = (window.outer_position(), window.current_monitor().ok().flatten()) else {
+        refit_window(app);
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let (w, base_h) = base_size_physical(&window);
+    let h = fitted_height(base_h, pos.y, work_bottom(&mon), config::get_theme().tall_results);
+    let x = pos.x - (shift * scale).round() as i32;
+    #[cfg(target_os = "windows")]
+    if let Ok(hwnd) = window.hwnd() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
+        unsafe {
+            SetWindowPos(hwnd.0 as windows_sys::Win32::Foundation::HWND, 0 as _, x, pos.y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return;
+    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, pos.y));
+    let _ = window.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+}
 #[tauri::command]
-pub fn resize_main_window(app: tauri::AppHandle, width: f64, height: f64) {
+pub fn resize_main_window(app: tauri::AppHandle, width: f64, height: f64, shift_x: Option<f64>) {
     let width = width.clamp(480.0, 920.0);
     let height = height.clamp(400.0, 900.0);
     *BASE_SIZE.lock().unwrap() = (width, height);
-    refit_window(&app);
+    match shift_x {
+        Some(shift) if shift != 0.0 => resize_and_shift(&app, shift),
+        _ => refit_window(&app),
+    }
 }
 #[tauri::command]
 pub fn set_window_pin(app: tauri::AppHandle, pinned: bool) -> bool {

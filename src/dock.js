@@ -51,7 +51,11 @@ function renderDock() {
   dockEl.hidden = !dockSide;
   if (!dockSide || dockDragging) return;
   dockEl.innerHTML = "";
-  for (const pin of currentPins) dockEl.appendChild(dockTile(pin));
+  currentPins.forEach((pin, i) => {
+    const tile = dockTile(pin);
+    tile.style.setProperty("--i", Math.min(i, 8));
+    dockEl.appendChild(tile);
+  });
   // Drop slot; CSS only shows it while something is being dragged towards the dock.
   const empty = document.createElement("div");
   empty.className = "dock-tile dock-empty";
@@ -233,20 +237,46 @@ function ensureDock() {
 }
 
 // Grow or shrink the window by the dock's width, keeping the search panel where it is on screen.
-async function resizeForDock(before) {
-  invoke("resize_main_window", { width: mainLogicalW + dockExtraWidth(), height: mainLogicalH }).catch(() => {});
-  if (before === undefined) return;
+// Size and position go to Rust in one call (a dock on the left grows the window leftwards), so
+// there is no frame with the new width and the old position.
+function resizeForDock(before) {
   const leftBefore = before === "left" ? DOCK_RESERVE : 0;
   const leftNow = dockSide === "left" ? DOCK_RESERVE : 0;
-  if (leftBefore === leftNow) return;
-  try {
-    const win = window.__TAURI__.window.getCurrentWindow();
-    const pos = await win.outerPosition();
-    const scale = await win.scaleFactor();
-    const x = Math.round(pos.x + (leftBefore - leftNow) * scale);
-    await win.setPosition(new window.__TAURI__.dpi.PhysicalPosition(x, pos.y));
-  } catch (e) {
-    console.warn("Dock reposition failed:", e);
+  const shiftX = before === undefined ? 0 : leftNow - leftBefore;
+  return invoke("resize_main_window", { width: mainLogicalW + dockExtraWidth(), height: mainLogicalH, shiftX }).catch(() => {});
+}
+
+// Resolves once the webview has actually taken the new width (or after a moment): the layout
+// must not move to the dock's arrangement while the viewport is still the old size.
+function waitForViewportWidth(target) {
+  return new Promise((resolve) => {
+    if (Math.abs(window.innerWidth - target) < 1) return resolve();
+    const done = () => {
+      window.removeEventListener("resize", check);
+      clearTimeout(timer);
+      resolve();
+    };
+    const check = () => { if (Math.abs(window.innerWidth - target) < 1) done(); };
+    window.addEventListener("resize", check);
+    const timer = setTimeout(done, 180);
+  });
+}
+
+let dockApplyId = 0;
+let dockPending = false; // a switch is waiting for the window; later calls must not jump ahead of it
+let pinsAppearTimer = null;
+
+// Tiles slide in from the outside edge, or the list's rows come back, one after another.
+function playPinsAppear(side) {
+  if (motionOff()) return;
+  clearTimeout(pinsAppearTimer);
+  if (side) {
+    dockEl.classList.add("dock-appear");
+    pinsAppearTimer = setTimeout(() => dockEl.classList.remove("dock-appear"), 700);
+  } else if (typeof renderPins === "function" && typeof animateAllRows !== "undefined") {
+    animateAllRows = true;
+    renderPins(currentPins);
+    animateAllRows = false;
   }
 }
 
@@ -255,14 +285,38 @@ function applyDock() {
   ensureDock();
   const style = theme && theme.pinsStyle;
   const side = style === "left" || style === "right" ? style : null;
-  document.documentElement.dataset.pins = side || "list";
   document.querySelectorAll("#pins-style-seg .seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.pins === (side || "list")));
   resultsDragSortable.option("disabled", !side);
-  if (side !== dockSide) {
-    const before = dockSide;
-    dockSide = side;
+  const commit = () => {
+    document.documentElement.dataset.pins = side || "list";
+    renderDock();
+  };
+  if (side === dockSide) return dockPending ? undefined : commit();
+  const before = dockSide;
+  dockSide = side;
+  if (before === undefined) {
+    // First load: nothing is on screen yet to jump.
     resizeForDock(before);
+    return commit();
   }
-  renderDock();
+  const myId = ++dockApplyId;
+  dockPending = true;
+  // The window and the layout cannot change in the same frame, so for those few
+  // frames the card is faded out and then back in rather than shown jumping.
+  const mask = !motionOff() && appContainer.classList.contains("window-showing");
+  if (mask) appContainer.classList.add("dock-switching");
+  setTimeout(() => {
+    resizeForDock(before)
+      .then(() => waitForViewportWidth(mainLogicalW + dockExtraWidth()))
+      .then(() => {
+        if (myId !== dockApplyId) return;
+        dockPending = false;
+        commit();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          appContainer.classList.remove("dock-switching");
+          playPinsAppear(side);
+        }));
+      });
+  }, mask ? 90 : 0);
 }

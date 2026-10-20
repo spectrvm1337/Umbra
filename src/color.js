@@ -5,7 +5,12 @@
 const COLOR_HISTORY_KEY = "umbra.color.history";
 const COLOR_HISTORY_MAX = 7;
 const COLOR_REMEMBER_MS = 1000;
-const COLOR_GRID = 15;
+// The capture is COLOR_GRID pixels square (color_pick.rs); the loupe shows the middle of it at
+// one of COLOR_ZOOMS cells across, so the same capture can be zoomed in and out.
+const COLOR_GRID = 45;
+const COLOR_VIEW = 15; // cells across the empty placeholder
+const COLOR_ZOOMS = [45, 31, 21, 15, 9, 5];
+const COLOR_ZOOM_KEY = "umbra.color.zoom.v2";
 
 function parseColorQuery(query) {
   const q = query.trim();
@@ -85,6 +90,15 @@ function colorRemember(hex) {
 
 // ---- card ----
 
+function colorReadZoom() {
+  try {
+    const i = parseInt(localStorage.getItem(COLOR_ZOOM_KEY), 10);
+    if (i >= 0 && i < COLOR_ZOOMS.length) return i;
+  } catch {}
+  return 3;
+}
+let colorZoom = colorReadZoom(); // index into COLOR_ZOOMS
+
 let colorShown = null; // the parsed colour currently on the card
 // The shade strip keeps showing the colour it was built from while one of its shades is
 // picked, instead of shading the shade again.
@@ -122,9 +136,14 @@ function colorCardHtml(c, base = c) {
       <div class="cc-field"><div class="cc-label">${colorT("colorHistory", "History")}</div><div class="cc-history">${history}</div></div>
     </div>
     <div class="cc-loupe">
-      <canvas class="cc-pixels" width="${COLOR_GRID}" height="${COLOR_GRID}"></canvas>
+      <canvas class="cc-pixels" width="${COLOR_GRID}" height="${COLOR_GRID}" style="transform:scale(${COLOR_GRID / COLOR_ZOOMS[colorZoom]})"></canvas>
       <canvas class="cc-skeleton"></canvas>
       ${COLOR_PIN_SVG}
+      <div class="cc-tools">
+        <button class="cc-tool cc-zoom-out" title="${escapeHtml(colorT("colorZoomOut", "Zoom out"))}"${colorZoom === 0 ? " disabled" : ""}><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 5h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button class="cc-tool cc-zoom-in" title="${escapeHtml(colorT("colorZoomIn", "Zoom in"))}"${colorZoom === COLOR_ZOOMS.length - 1 ? " disabled" : ""}><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 5h7M5 1.5v7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <button class="cc-tool cc-clear" title="${escapeHtml(colorT("colorClearShot", "Remove the screenshot"))}"><svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       <button class="cc-dropper" title="${escapeHtml(colorT("colorPickTip", "Pick a colour from the screen (Esc or right-click cancels)"))}">${COLOR_DROPPER_SVG}</button>
     </div>`;
 }
@@ -200,7 +219,7 @@ function colorDrawLoupe(card, pixels) {
 }
 
 // Placeholder for the empty loupe: the same COLOR_GRID x COLOR_GRID grid as the
-// captured pixels, drawn as dim dots with two slow blobs of accent colour drifting
+// captured pixels, with two slow blobs of lighter dots drifting
 // across. Runs only while the loupe is empty and on screen.
 const colorReduceMotion = typeof window !== "undefined" && window.matchMedia
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -220,17 +239,15 @@ function colorStartSkeleton(card) {
   // The dots and the drifting blobs are the loupe's own background lightened, so the
   // placeholder is a lighter shade of its surface in every theme. Re-read now and then
   // because the card stays on screen across theme changes.
-  let dim = "#ffffff";
   let accent = "#ffffff";
   let frames = 0;
   const readTones = () => {
     const m = getComputedStyle(loupe).backgroundColor.match(/[\d.]+/g);
     if (!m || m.length < 3) return;
     const mix = (k) => `rgb(${[0, 1, 2].map((i) => Math.round(+m[i] + (255 - +m[i]) * k)).join(",")})`;
-    dim = mix(0.3);
     accent = mix(0.65);
   };
-  const step = Math.min(w, h) / COLOR_GRID;
+  const step = Math.min(w, h) / COLOR_VIEW;
   const blob = (t, a, b, phase) => [0.5 + 0.38 * Math.sin(t * a + phase), 0.5 + 0.38 * Math.cos(t * b + phase * 1.7)];
   const start = performance.now();
   const frame = (now) => {
@@ -244,19 +261,14 @@ function colorStartSkeleton(card) {
     const t = colorReduceMotion.matches ? 2 : (now - start) / 1000;
     const blobs = [blob(t, 0.55, 0.42, 0), blob(t, 0.37, 0.61, 2.4)];
     ctx.clearRect(0, 0, w, h);
-    for (let row = 0; row < COLOR_GRID; row++) {
-      for (let col = 0; col < COLOR_GRID; col++) {
-        const u = (col + 0.5) / COLOR_GRID;
-        const v = (row + 0.5) / COLOR_GRID;
+    for (let row = 0; row < COLOR_VIEW; row++) {
+      for (let col = 0; col < COLOR_VIEW; col++) {
+        const u = (col + 0.5) / COLOR_VIEW;
+        const v = (row + 0.5) / COLOR_VIEW;
         let glow = 0;
         for (const [bx, by] of blobs) glow = Math.max(glow, Math.exp(-((u - bx) ** 2 + (v - by) ** 2) / 0.06));
-        const x = (col + 0.5) * step + (w - step * COLOR_GRID) / 2;
-        const y = (row + 0.5) * step + (h - step * COLOR_GRID) / 2;
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = dim;
-        ctx.beginPath();
-        ctx.arc(x, y, 0.9, 0, Math.PI * 2);
-        ctx.fill();
+        const x = (col + 0.5) * step + (w - step * COLOR_VIEW) / 2;
+        const y = (row + 0.5) * step + (h - step * COLOR_VIEW) / 2;
         if (glow > 0.04) {
           ctx.globalAlpha = Math.min(1, glow * 1.2);
           ctx.fillStyle = accent;
@@ -274,6 +286,125 @@ function colorStartSkeleton(card) {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+}
+
+// ---- zoom, removing the screenshot ----
+
+function colorApplyZoom(card) {
+  const canvas = card.querySelector(".cc-pixels");
+  if (canvas) canvas.style.transform = `scale(${COLOR_GRID / COLOR_ZOOMS[colorZoom]})`;
+  const out = card.querySelector(".cc-zoom-out");
+  const inn = card.querySelector(".cc-zoom-in");
+  if (out) out.disabled = colorZoom === 0;
+  if (inn) inn.disabled = colorZoom === COLOR_ZOOMS.length - 1;
+}
+
+function colorStepZoom(card, dir) {
+  const next = Math.max(0, Math.min(COLOR_ZOOMS.length - 1, colorZoom + dir));
+  if (next === colorZoom) return;
+  colorZoom = next;
+  try { localStorage.setItem(COLOR_ZOOM_KEY, String(colorZoom)); } catch {}
+  colorApplyZoom(card);
+}
+
+function colorClearShot(card) {
+  colorLoupe = null;
+  colorDrawLoupe(card, null);
+  colorStartSkeleton(card);
+}
+
+// ---- the collapsed picker bar ----
+// While the eyedropper runs the card folds up into a small bar: a live loupe of the pixels
+// under the cursor, the colour's hex and RGB, a cancel button and a chevron to bring the
+// full card back. The bar's own buttons must stay clickable although the picker swallows
+// every other click, so its screen rectangle is handed to the Rust hook.
+
+const COLOR_X_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.8 1.8l8.4 8.4M10.2 1.8l-8.4 8.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const COLOR_CHEVRON_SVG = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 5l4.5 4.5L11.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function colorEnsurePill() {
+  let pill = document.getElementById("cc-pill");
+  if (pill) return pill;
+  pill = document.createElement("div");
+  pill.id = "cc-pill";
+  pill.innerHTML = `
+    <div class="ccp-swatch"></div>
+    <div class="ccp-text"><div class="ccp-hex"></div><div class="ccp-sub"></div></div>
+    <button class="ccp-btn ccp-cancel">${COLOR_X_SVG}</button>
+    <button class="ccp-btn ccp-expand">${COLOR_CHEVRON_SVG}</button>`;
+  appContainer.appendChild(pill);
+  pill.querySelector(".ccp-cancel").addEventListener("click", () => {
+    invoke("cancel_color_pick").catch((err) => console.warn("cancel failed:", err));
+  });
+  pill.querySelector(".ccp-expand").addEventListener("click", () => colorSetCompact(false));
+  return pill;
+}
+
+function colorLabelPill(pill) {
+  pill.title = colorT("colorPickHint", "Click to pick · Esc or right-click cancels");
+  pill.querySelector(".ccp-cancel").title = colorT("colorCancelPick", "Cancel");
+  pill.querySelector(".ccp-expand").title = colorT("colorExpand", "Show the full card");
+}
+
+function colorUpdatePill(c) {
+  const pill = document.getElementById("cc-pill");
+  if (!pill) return;
+  pill.querySelector(".ccp-swatch").style.background = colorToHex(c);
+  pill.querySelector(".ccp-hex").textContent = colorToHex(c);
+  pill.querySelector(".ccp-sub").textContent = `RGB ${colorToRgb(c)}`;
+}
+
+// Where the bar is on screen, for the mouse hook (physical px).
+async function colorSyncExclusion(on) {
+  try {
+    if (!on) return invoke("set_pick_exclusion", { left: 0, top: 0, right: 0, bottom: 0 });
+    const pill = document.getElementById("cc-pill");
+    const win = window.__TAURI__.window.getCurrentWindow();
+    const pos = await win.outerPosition();
+    const r = pill.getBoundingClientRect();
+    const d = window.devicePixelRatio || 1;
+    await invoke("set_pick_exclusion", {
+      left: Math.round(pos.x + r.left * d) - 4,
+      top: Math.round(pos.y + r.top * d) - 4,
+      right: Math.round(pos.x + r.right * d) + 4,
+      bottom: Math.round(pos.y + r.bottom * d) + 4,
+    });
+  } catch (err) {
+    console.warn("pick exclusion failed:", err);
+  }
+}
+
+// The bar rides to the top centre of the screen so it stays out of the way of what is picked.
+function colorDockWindow(on) {
+  const pill = document.getElementById("cc-pill");
+  if (!pill) return;
+  const d = window.devicePixelRatio || 1;
+  const host = appContainer.getBoundingClientRect();
+  invoke("dock_window_for_pick", {
+    on,
+    barCx: (host.left + pill.offsetLeft + pill.offsetWidth / 2) * d,
+    barTop: (host.top + pill.offsetTop) * d,
+    margin: 14 * d,
+  }).catch((err) => console.warn("dock failed:", err));
+}
+
+let colorCompactTimer = null;
+function colorSetCompact(on) {
+  const pill = colorEnsurePill();
+  colorLabelPill(pill);
+  clearTimeout(colorCompactTimer);
+  appContainer.classList.toggle("color-compact", on);
+  pill.classList.toggle("show", on);
+  if (!on) {
+    colorSyncExclusion(false);
+    colorDockWindow(false);
+    return;
+  }
+  if (colorShown) colorUpdatePill(colorShown);
+  // The bar settles in after its entrance; measure it once it is there.
+  colorDockWindow(true);
+  // The window needs its slide to the top of the screen to finish before the bar is measured.
+  colorCompactTimer = setTimeout(() => colorSyncExclusion(true), 700);
 }
 
 function renderColorCard(c) {
@@ -338,6 +469,9 @@ function colorInit() {
   specialContent.addEventListener("click", (e) => {
     const card = e.target.closest(".color-card");
     if (!card) return;
+    if (e.target.closest(".cc-zoom-in")) return colorStepZoom(card, 1);
+    if (e.target.closest(".cc-zoom-out")) return colorStepZoom(card, -1);
+    if (e.target.closest(".cc-clear")) return colorClearShot(card);
     // History chips and the lighter / darker shades both switch the card to that colour.
     const chip = e.target.closest(".cc-chip, .cc-shade");
     if (chip) {
@@ -354,12 +488,25 @@ function colorInit() {
         if (!started) return;
         colorPicking = true;
         card.classList.add("picking");
+        colorSetCompact(true);
       }).catch((err) => console.warn("colour pick failed:", err));
       return;
     }
     const copy = e.target.closest("[data-copy]");
     if (copy) colorCopy(copy.dataset.copy);
   });
+
+  // The wheel over the loupe zooms it, one step per notch.
+  specialContent.addEventListener("wheel", (e) => {
+    const loupe = e.target.closest(".cc-loupe");
+    const card = loupe && loupe.closest(".color-card");
+    if (!card || !loupe.classList.contains("has-capture")) return;
+    e.preventDefault();
+    const now = performance.now();
+    if (now - (card._ccWheel || 0) < 90) return;
+    card._ccWheel = now;
+    colorStepZoom(card, e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
 
   window.__TAURI__.event.listen("color-pick", (e) => {
     const frame = e.payload;
@@ -372,12 +519,14 @@ function colorInit() {
         if (c) {
           if (!colorUpdateCard(card, c)) card.innerHTML = colorCardHtml(c);
           card.classList.add("picking");
+          colorUpdatePill(c);
         }
         colorDrawLoupe(card, colorLoupe);
       }
       return;
     }
     colorPicking = false;
+    colorSetCompact(false);
     if (!frame.cancelled && frame.color) {
       const hex = frame.color.toUpperCase();
       colorRemember(hex);

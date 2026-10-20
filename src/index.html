@@ -138,22 +138,19 @@
             </div>
             <div class="settings-row interactive" id="setting-border-row">
               <span class="settings-label" data-i18n="lblBorder">Card Border</span>
+              <div class="row-extras dep-extras" id="border-extras">
+                <div class="zoom-stepper">
+                  <button id="setting-borderw-minus" class="stepper-btn">−</button>
+                  <span id="setting-borderw-val">1</span>
+                  <button id="setting-borderw-plus" class="stepper-btn">+</button>
+                </div>
+                <div class="seg-row" id="border-pos-seg">
+                  <button class="seg-btn" data-pos="inner" data-i18n-tip="borderInnerTip" data-i18n="borderInner">Inner</button>
+                  <button class="seg-btn" data-pos="outer" data-i18n-tip="borderOuterTip" data-i18n="borderOuter">Outer</button>
+                </div>
+                <button id="border-custom" class="swatch-custom" data-i18n-tip="customBorderTip" data-tip="Border colour"></button>
+              </div>
               <span class="toggle" id="setting-border"><span class="toggle-knob"></span></span>
-            </div>
-            <div class="settings-row dep-row" id="row-borderw">
-              <span class="settings-label" data-i18n="lblBorderW">Border Width</span>
-              <div class="zoom-stepper">
-                <button id="setting-borderw-minus" class="stepper-btn">−</button>
-                <span id="setting-borderw-val">1</span>
-                <button id="setting-borderw-plus" class="stepper-btn">+</button>
-              </div>
-            </div>
-            <div class="settings-row dep-row" id="row-borderpos">
-              <span class="settings-label" data-i18n="lblBorderPos">Border Style</span>
-              <div class="seg-row" id="border-pos-seg">
-                <button class="seg-btn" data-pos="inner" data-i18n-tip="borderInnerTip" data-i18n="borderInner">Inner</button>
-                <button class="seg-btn" data-pos="outer" data-i18n-tip="borderOuterTip" data-i18n="borderOuter">Outer</button>
-              </div>
             </div>
             <div class="settings-row">
               <span class="settings-label" data-i18n="lblGlow">Glow Effect</span>
@@ -162,6 +159,7 @@
                 <span id="setting-glow-val">off</span>
                 <button id="setting-glow-plus" class="stepper-btn">+</button>
               </div>
+              <button id="glow-custom" class="swatch-custom" data-i18n-tip="customGlowTip" data-tip="Glow colour"></button>
               <span class="toggle" id="setting-glow"><span class="toggle-knob"></span></span>
             </div>
             <div class="settings-row interactive" id="setting-anim-row" data-i18n-tip="animTip" data-tip="Pick what moves. Everything stays where it is; only the motion is dropped">
@@ -224,7 +222,7 @@
             </div>
             <div id="settings-status" class="settings-status"></div>
             <div class="settings-row">
-              <span class="settings-label">Umbra <span id="app-version">0.1.9</span> by <a href="#" class="settings-link" id="author-link">Spectrvm</a></span>
+              <span class="settings-label">Umbra <span id="app-version">0.2.0</span> <span data-i18n="settingsBy">by</span> <a href="#" class="settings-link" id="author-link">Spectrvm</a></span>
               <button class="settings-text-btn" id="check-update-btn">Check for updates</button>
             </div>
             <div id="update-panel" class="hidden">

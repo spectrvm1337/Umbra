@@ -86,7 +86,7 @@ function handleSpecialCommand(query) {
         setTimeout(hideWindow, 1000);
       } catch (e) {
         const el = specialContent.querySelector(".special-action span");
-        el.textContent = `error: ${e}`;
+        el.textContent = `${window.i18n.t("errorPrefix")}: ${e}`;
       }
     });
     return true;
@@ -118,7 +118,7 @@ function handleSpecialCommand(query) {
         el.textContent = labels[cmd] || result;
       } catch (e) {
         const el = specialContent.querySelector(".special-action span");
-        el.textContent = `error: ${e}`;
+        el.textContent = `${window.i18n.t("errorPrefix")}: ${e}`;
       }
     });
     return true;

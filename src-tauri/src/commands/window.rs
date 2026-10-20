@@ -184,6 +184,32 @@ pub fn place_window(app: &tauri::AppHandle) {
         }
     }
 }
+static DOCK_RETURN: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+
+/// While the eyedropper runs the window folds into a bar; this moves the window so the bar
+/// (its centre x and top, in physical px relative to the window) sits at the top centre of
+/// the monitor, and `on = false` brings the window back to where it was.
+#[tauri::command]
+pub fn dock_window_for_pick(app: tauri::AppHandle, on: bool, bar_cx: f64, bar_top: f64, margin: f64) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    if !on {
+        let back = DOCK_RETURN.lock().ok().and_then(|mut g| g.take());
+        if let Some((x, y)) = back {
+            animate_window_to(window, x, y);
+        }
+        return;
+    }
+    let (Ok(pos), Ok(Some(mon))) = (window.outer_position(), window.current_monitor()) else { return };
+    if let Ok(mut g) = DOCK_RETURN.lock() {
+        if g.is_none() {
+            *g = Some((pos.x, pos.y));
+        }
+    }
+    let tx = mon.position().x + (mon.size().width as f64 / 2.0 - bar_cx).round() as i32;
+    let ty = mon.position().y + (margin - bar_top).round() as i32;
+    animate_window_to(window, tx, ty);
+}
+
 pub fn animate_recenter(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let target = window.current_monitor().ok().flatten().map(|mon| {

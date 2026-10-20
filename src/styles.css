@@ -361,48 +361,41 @@ body {
     transform: scale(1);
   }
 }
+/* The resize handle: a vertical bar in the margin to the right of the search bar, drawn like
+   the drag bar's rectangle. The hit area is a little taller than the bar, and the bar only
+   shows while the pointer is in it, so it is there when you reach for it and gone otherwise. */
 .side-pill {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 28px;
-  height: 28px;
+  top: calc(3 * var(--pad-y) + 16px - 8px);
+  right: 0;
+  width: var(--pad-x);
+  height: calc(var(--search-h) + 16px);
   display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
   cursor: nwse-resize;
   flex-shrink: 0;
   z-index: 6;
-  /* The grips are invisible until the pointer is near them, and they should grow
-     out of nothing rather than snap into size. */
-  border-radius: var(--card-radius);
-  transition: background-color var(--t-color, 0.2s) ease;
-}
-.side-pill:hover {
-  background: color-mix(in srgb, var(--card-hover) 55%, transparent);
 }
 .sp-grip {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
   width: 6px;
-  height: 6px;
+  height: 0;
   border-radius: 100px;
   background-color: rgba(178, 178, 178, 0.5);
-  transition:  width var(--t-size, 0.3s) var(--ease-out-apple),
-    height var(--t-size, 0.3s) var(--ease-out-apple),
-    background-color var(--t-color, 0.25s) ease
+  opacity: 0;
+  transition: height var(--t-size, 0.3s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.2s) ease,
+    background-color var(--t-color, 0.25s) ease;
 }
-.side-pill:hover .sp-grip {
-  width: 8px;
-  height: 8px;
-  transition:  width var(--t-size, 0.38s) var(--ease-spring),
-    height var(--t-size, 0.38s) var(--ease-spring),
-    background-color var(--t-color, 0.3s) ease
+.side-pill:hover .sp-grip,
+.side-pill.active .sp-grip {
+  height: 36px;
+  opacity: 1;
+  transition: height var(--t-size, 0.38s) var(--ease-spring),
+    opacity var(--t-fade, 0.3s) ease,
+    background-color var(--t-color, 0.3s) ease;
 }
 .side-pill.active .sp-grip {
-  width: 8px;
-  height: 8px;
   background-color: var(--accent);
 }
 #search-box {
@@ -724,9 +717,6 @@ body {
 .zoom-stepper span:hover {
   color: var(--text);
 }
-#setting-glow {
-  margin-left: 12px;
-}
 .toggle {
   margin-left: auto;
   width: 36px;
@@ -781,7 +771,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   box-sizing: border-box;
   border: none;
   background: none;
-  color: var(--text-dim);
+  color: color-mix(in srgb, var(--text) 62%, transparent);
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: var(--weight-medium);
@@ -1107,8 +1097,71 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   image-rendering: auto;
   pointer-events: none;
 }
+.cc-loupe .cc-skeleton {
+  transition: opacity var(--t-fade, 0.3s) ease;
+}
 .cc-loupe.has-capture .cc-skeleton {
-  display: none;
+  opacity: 0;
+}
+/* The capture is COLOR_GRID cells wide (color.js); zooming is a scale of the whole canvas
+   about the pin, eased, and the loupe clips what spills out. */
+.cc-loupe .cc-pixels {
+  opacity: 0;
+  transform-origin: 50% 50%;
+  transition: transform var(--t-size, 0.3s) var(--ease-out-apple), opacity var(--t-fade, 0.3s) ease;
+}
+.cc-loupe.has-capture .cc-pixels {
+  opacity: 1;
+}
+/* Zoom buttons (bottom left) and "remove the screenshot" (top right) appear with the pointer. */
+.cc-tools {
+  position: absolute;
+  left: 8px;
+  bottom: 7px;
+  display: flex;
+  gap: 4px;
+}
+.cc-clear {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
+.cc-tools,
+.cc-clear {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fade, 0.2s) ease;
+}
+.cc-loupe.has-capture:hover .cc-tools,
+.cc-loupe.has-capture:hover .cc-clear,
+.cc-loupe.has-capture:focus-within .cc-tools,
+.cc-loupe.has-capture:focus-within .cc-clear {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cc-tool {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--card-bg) 82%, transparent);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: background var(--t-color, 0.15s) ease, opacity var(--t-fade, 0.15s) ease, transform var(--t-move, 0.12s) ease;
+}
+.cc-tool:hover:not(:disabled) {
+  background: var(--card-hover);
+}
+.cc-tool:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.cc-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .cc-pin {
   position: absolute;
@@ -1144,6 +1197,149 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 .color-card.picking .cc-loupe {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+/* The eyedropper bar: while picking, the search box and the card fold up out of the way and
+   this small bar (color.js) takes the search box's place. */
+#app-container > #search-box,
+#app-container > #pin-dock {
+  transition: opacity var(--t-fade, 0.28s) ease, transform var(--t-move, 0.4s) var(--ease-out-apple);
+}
+#app-container > #results-wrapper {
+  transform-origin: 50% 0;
+  transition: --mask-top var(--t-fade, 0.2s) ease, opacity var(--t-fade, 0.28s) ease, transform var(--t-move, 0.4s) var(--ease-out-apple);
+}
+#app-container.color-compact > #search-box {
+  opacity: 0;
+  transform: translateY(-14px) scale(0.97);
+  pointer-events: none;
+}
+#app-container.color-compact > #results-wrapper {
+  opacity: 0;
+  transform: translateY(-70px) scale(0.9, 0.25);
+  pointer-events: none;
+}
+#app-container.color-compact > #pin-dock,
+#app-container.color-compact > .side-pill,
+#app-container.color-compact > .drag-bar {
+  opacity: 0;
+  pointer-events: none;
+}
+#cc-pill {
+  position: absolute;
+  top: calc(3 * var(--pad-y) + 16px);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: 312px;
+  height: var(--search-h);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 0 7px;
+  background: var(--card-bg);
+  border: var(--card-border-w) solid var(--card-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--bar-shadow);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-18px) scale(0.92);
+  transform-origin: 50% 0;
+  transition: opacity var(--t-fade, 0.2s) ease, transform var(--t-move, 0.4s) var(--ease-out-apple), visibility 0s linear var(--t-move, 0.4s);
+}
+#cc-pill.show {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition: opacity var(--t-fade, 0.28s) ease 0.08s, transform var(--t-move, 0.4s) var(--ease-out-apple) 0.08s, visibility 0s;
+}
+html[data-pins="left"] #cc-pill {
+  left: var(--dock-reserve);
+}
+html[data-pins="right"] #cc-pill {
+  right: var(--dock-reserve);
+}
+.ccp-swatch {
+  flex-shrink: 0;
+  width: calc(var(--search-h) - 14px);
+  height: calc(var(--search-h) - 14px);
+  border-radius: 9px;
+  background: var(--card-deep);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: background var(--t-color, 0.12s) ease;
+}
+.ccp-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ccp-hex {
+  font-family: 'Google Sans Flex', var(--font-main);
+  font-size: 20px;
+  font-weight: var(--weight-medium);
+  line-height: 22px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ccp-sub {
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ccp-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--icon);
+  cursor: pointer;
+  transition: background var(--t-color, 0.15s) ease, color var(--t-color, 0.15s) ease;
+}
+.ccp-btn:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+/* The settings are several plates one under the other, grouped by what they are about. */
+.settings-card + .settings-card {
+  margin-top: var(--gap);
+}
+.settings-card.filtered-out {
+  display: none;
+}
+/* Extra controls that sit in a row beside its switch; they fold sideways with the switch off. */
+.row-extras {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  overflow: clip;
+  transition: max-width var(--t-size, 0.26s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) ease,
+    visibility 0s linear 0s;
+}
+.row-extras + .toggle,
+.swatch-custom + .toggle {
+  margin-left: 0;
+}
+.row-extras.dep-hidden {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: max-width var(--t-size, 0.26s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) ease,
+    visibility 0s linear var(--t-size, 0.26s);
 }
 /* Staggered entrance for the settings rows. */
 #settings-section:not(.hidden) .settings-row {
@@ -1201,7 +1397,7 @@ html[data-pins="right"] #pins-section {
   display: none;
 }
 html[data-pins="right"] .side-pill {
-  right: calc(var(--dock-reserve) + 6px);
+  right: var(--dock-reserve);
 }
 #pin-dock {
   position: absolute;
@@ -1617,6 +1813,8 @@ body > .result-item.pin-drag-copy {
   }
 }
 .result-path {
+  display: flex;
+  justify-content: flex-end;
   flex-shrink: 1;
   min-width: 0;
   max-width: 40%;
@@ -1630,8 +1828,24 @@ body > .result-item.pin-drag-copy {
   line-height: 20px;
   margin-left: 8px;
 }
+.rp-head {
+  min-width: 0;
+  flex: 0 1000 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp-tail {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .result-pin {
-  width: 28px;
+  /* Closed, the pin is 0 wide and its -12px margin cancels the row gap, so the path sits where
+     the button will be; the row opens it on hover and the path slides left to make room. */
+  width: 0;
+  margin-left: -12px;
+  overflow: hidden;
   height: 28px;
   border: none;
   border-radius: 8px;
@@ -1642,8 +1856,11 @@ body > .result-item.pin-drag-copy {
   justify-content: center;
   flex-shrink: 0;
   padding: 0;
-  opacity: 0.75;
-  transition:  opacity var(--t-fade, 0.15s), transform var(--t-move, 0.2s) cubic-bezier(0.34, 1.56, 0.64, 1), background var(--t-color, 0.12s) ease
+  opacity: 0;
+  transition:  opacity var(--t-fade, 0.15s), width var(--t-move, 0.24s) var(--ease-out-apple), margin-left var(--t-move, 0.24s) var(--ease-out-apple), transform var(--t-move, 0.2s) cubic-bezier(0.34, 1.56, 0.64, 1), background var(--t-color, 0.12s) ease
+}
+.result-pin svg {
+  flex-shrink: 0;
 }
 /* Ctrl held: rows 1-9 push their icon and name aside and show the Ctrl+number in
    the room that opens up. Closed, the box is 0 wide with a -12px margin that
@@ -1703,6 +1920,15 @@ body > .result-item.pin-drag-copy {
     opacity var(--t-fade, 0.2s) ease,
     visibility 0s linear var(--t-size, 0.26s)
 }
+/* The pin is there when the row is under the pointer or selected, not on every row at once. */
+.result-item:hover .result-pin,
+.result-item.selected .result-pin,
+.result-pin:focus-visible,
+.result-pin.pin-pop {
+  width: 28px;
+  margin-left: 0;
+  opacity: 0.75;
+}
 .result-pin:hover {
   opacity: 1;
   background: var(--card-hover);
@@ -1710,7 +1936,8 @@ body > .result-item.pin-drag-copy {
 .result-pin:active {
   transform: scale(0.85);
 }
-.result-pin.pinned {
+.result-item:hover .result-pin.pinned,
+.result-item.selected .result-pin.pinned {
   opacity: 1;
 }
 /* The bounce answers a click on the pin button (main.js adds this class), not
@@ -2260,6 +2487,23 @@ body > .result-item.pin-drag-copy {
   background: linear-gradient(to right,
       #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
 }
+.cp-alpha {
+  position: relative;
+  display: none;
+  height: 12px;
+  border-radius: 100px;
+  cursor: ew-resize;
+  touch-action: none;
+  background: repeating-conic-gradient(#8885 0% 25%, #fff5 0% 50%) 0 0 / 8px 8px;
+}
+#color-picker.cp-alpha-on .cp-alpha {
+  display: block;
+}
+.cp-alpha-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
 .cp-knob {
   position: absolute;
   width: 12px;
@@ -2280,6 +2524,7 @@ body > .result-item.pin-drag-copy {
   gap: 8px;
 }
 .cp-preview {
+  background-clip: padding-box;
   width: 28px;
   height: 28px;
   border-radius: 8px;

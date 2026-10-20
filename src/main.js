@@ -313,6 +313,7 @@ function toggleSettings() {
       // The rows the filter hid stay hidden otherwise, and the next time the
       // settings open they are simply not there.
       settingsSection.querySelectorAll(".settings-row").forEach((r) => { r.style.display = ""; });
+      settingsSection.querySelectorAll(".settings-card").forEach((c) => c.classList.remove("filtered-out"));
       performSearch(searchInput.value);
     }
   }
@@ -344,7 +345,7 @@ settingHotkeyRow.addEventListener("click", (e) => {
   if (hotkeyCapturing) return;
   hotkeyCapturing = true;
   settingHotkeyRow.classList.add("capturing");
-  settingHotkeyValue.textContent = "press keys…";
+  settingHotkeyValue.textContent = window.i18n.t("pressKeys");
   setSettingsStatus("");
 });
 document.addEventListener("pointerdown", (e) => {
@@ -369,7 +370,7 @@ document.addEventListener("keydown", (e) => {
     .then(res => {
       currentHotkey = combo;
       setSettingsStatus("");
-      showToast("Hotkey applied");
+      showToast(window.i18n.t("hotkeyApplied"));
     })
     .catch(err => {
       settingHotkeyValue.textContent = currentHotkey;
@@ -401,7 +402,7 @@ settingAutostartRow.addEventListener("click", async () => {
     settingAutostart.classList.toggle("on", !!now);
     showToast(now ? "Autostart on" : "Autostart off");
   } catch (err) {
-    showToast("Autostart failed", true, String(err).replace("Error:", "").trim());
+    showToast(window.i18n.t("autostartFailed"), true, String(err).replace("Error:", "").trim());
   }
 });
 settingReindex.addEventListener("click", async (e) => {
@@ -411,7 +412,7 @@ settingReindex.addEventListener("click", async (e) => {
     indexingActive = true;
     indexRan = true;
     indexSpinner.classList.add("visible");
-    if (settingIndexed) settingIndexed.textContent = "indexing…";
+    if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
     await invoke("reindex");
     toggleSettings();
     showNotify("Rebuilding index", { type: "info", detail: "search still works" });
@@ -868,27 +869,27 @@ function renderUpdatePanel() {
   updateNotes.textContent = info.notes || "";
   switch (phase) {
     case "available":
-      updateTitle.textContent = `Umbra ${info.latest} is available`;
-      updateMeta.textContent = `You have ${info.current}${info.asset_size ? " · " + formatBytes(info.asset_size) : ""}`;
-      updateAction.textContent = "Download";
+      updateTitle.textContent = window.i18n.t("updAvailable", { v: info.latest });
+      updateMeta.textContent = `${window.i18n.t("updYouHave", { v: info.current })}${info.asset_size ? " · " + formatBytes(info.asset_size) : ""}`;
+      updateAction.textContent = window.i18n.t("updDownload");
       updateAction.classList.remove("hidden");
       break;
     case "downloading":
-      updateTitle.textContent = "Downloading update…";
+      updateTitle.textContent = window.i18n.t("updDownloadingTitle");
       updateMeta.textContent = info.asset_size ? formatBytes(info.asset_size) : "";
-      updateAction.textContent = "Downloading…";
+      updateAction.textContent = window.i18n.t("updDownloading");
       updateAction.classList.add("hidden");
       break;
     case "ready":
-      updateTitle.textContent = `Umbra ${info.latest} downloaded`;
+      updateTitle.textContent = window.i18n.t("updDownloaded", { v: info.latest });
       updateMeta.textContent = downloaded ? `${downloaded.file_name} · ${formatBytes(downloaded.size)}` : "";
-      updateAction.textContent = "Install & restart";
+      updateAction.textContent = window.i18n.t("updInstall");
       updateAction.classList.remove("hidden");
       break;
     case "error":
-      updateTitle.textContent = "Update failed";
-      updateMeta.textContent = updateState.error || "Could not reach GitHub";
-      updateAction.textContent = "Try again";
+      updateTitle.textContent = window.i18n.t("updFailed");
+      updateMeta.textContent = updateState.error || window.i18n.t("updNoGithub");
+      updateAction.textContent = window.i18n.t("updRetry");
       updateAction.classList.remove("hidden");
       break;
   }
@@ -901,7 +902,7 @@ async function checkForUpdates(manual) {
   if (updateState.phase === "downloading") return;
   if (manual) {
     checkUpdateBtn.disabled = true;
-    checkUpdateBtn.textContent = "Checking…";
+    checkUpdateBtn.textContent = window.i18n.t("updChecking");
   }
   try {
     const info = await invoke("check_for_updates");
@@ -910,11 +911,11 @@ async function checkForUpdates(manual) {
     updateState = { phase: "idle", info, downloaded: null, error: null };
     if (!info.update_available) {
       renderUpdatePanel();
-      if (manual) showToast("Umbra is up to date");
+      if (manual) showToast(window.i18n.t("updUpToDate"));
     } else {
       updateState.phase = "available";
       renderUpdatePanel();
-      if (manual) showToast("Update available", false, "downloading in the background");
+      if (manual) showToast(window.i18n.t("updFound"), false, window.i18n.t("updFoundDetail"));
       startUpdateDownload(info);
     }
   } catch (err) {
@@ -922,14 +923,14 @@ async function checkForUpdates(manual) {
     if (manual) {
       updateState = { phase: "error", info: updateState.info, downloaded: null, error };
       renderUpdatePanel();
-      showToast("Update check failed", true, error);
+      showToast(window.i18n.t("updCheckFailed"), true, error);
     } else {
       console.warn("background update check failed:", error);
     }
   } finally {
     if (checkUpdateBtn) {
       checkUpdateBtn.disabled = false;
-      checkUpdateBtn.textContent = "Check for updates";
+      checkUpdateBtn.textContent = window.i18n.t("updCheck");
     }
   }
 }
@@ -964,13 +965,13 @@ async function runUpdateAction() {
       // The Rust side quits Umbra once the installer has been handed off,
       // so we only need to say goodbye before the window disappears.
       updateAction.disabled = true;
-      updateAction.textContent = "Installing…";
+      updateAction.textContent = window.i18n.t("updInstalling");
       updateState = { ...updateState, phase: "idle" };
       renderUpdateIndicator();
       await invoke("install_update");
     } catch (err) {
       updateAction.disabled = false;
-      showToast("Could not start installer", true, String(err).replace("Error:", "").trim());
+      showToast(window.i18n.t("updInstallFailed"), true, String(err).replace("Error:", "").trim());
     }
     return;
   }
@@ -1000,7 +1001,7 @@ listen("update-downloaded", (event) => {
   const done = event.payload || {};
   updateState = { ...updateState, phase: "ready", downloaded: done };
   renderUpdatePanel();
-  showToast("Update ready to install", false, done.file_name);
+  showToast(window.i18n.t("updReady"), false, done.file_name);
 });
 listen("update-error", (event) => {
   updateState = {
@@ -1009,7 +1010,7 @@ listen("update-error", (event) => {
     error: String(event.payload || "download failed"),
   };
   renderUpdatePanel();
-  showToast("Update failed", true, updateState.error);
+  showToast(window.i18n.t("updFailed"), true, updateState.error);
 });
 const themePresetsEl = document.getElementById("theme-presets");
 const accentSwatchesEl = document.getElementById("accent-swatches");
@@ -1050,6 +1051,8 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ref
 const tallToggle = document.getElementById("setting-tall");
 const glowToggle = document.getElementById("setting-glow");
 const glowVal = document.getElementById("setting-glow-val");
+const glowCustom = document.getElementById("glow-custom");
+const borderCustom = document.getElementById("border-custom");
 // Only two dark/light pairs of palettes: Default is the stock Umbra look,
 // Flexoki and Paper are the Flexoki scheme (dark and light), with the Flexoki
 // card red-tinted so it sits with the red accent instead of against it.
@@ -1128,7 +1131,7 @@ function applyTheme() {
   // stylesheet): Windows decides the colours, and with no border there is no
   // width or style to pick.
   for (const id of ["row-presets", "row-accent", "row-bg"]) setDepHidden(id, !!theme.followSystem);
-  for (const id of ["row-borderw", "row-borderpos"]) setDepHidden(id, !theme.borderOn);
+  setDepHidden("border-extras", !theme.borderOn);
   root.style.setProperty("--card-radius", theme.radius + "px");
   // Row/search/gap sizing comes from the [data-density] rules in the
   // stylesheet, so it stays overridable by custom themes.
@@ -1138,12 +1141,17 @@ function applyTheme() {
   root.style.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
   root.dataset.borderPos = theme.borderOn ? theme.borderPos : "center";
   root.style.setProperty("--glow-size", (theme.glow ? theme.glowStrength : 0) + "px");
+  // An empty colour leaves the stylesheet's own (accent-based glow, theme border).
+  if (theme.glowColor) root.style.setProperty("--glow-alpha", theme.glowColor);
+  else root.style.removeProperty("--glow-alpha");
+  if (theme.borderColor) root.style.setProperty("--card-border", theme.borderColor);
+  else root.style.removeProperty("--card-border");
   if (typeof applyDock === "function") applyDock();
   setVal(radiusVal, theme.radius);
   setVal(gapVal, theme.gap ?? 12);
   setVal(alphaVal, Math.round(theme.cardAlpha * 100) + "%");
   setVal(borderWVal, theme.borderW);
-  setVal(glowVal, theme.glow ? theme.glowStrength : "off");
+  setVal(glowVal, theme.glow ? theme.glowStrength : window.i18n.t("glowOff"));
   borderToggle.classList.toggle("on", !!theme.borderOn);
   glowToggle.classList.toggle("on", !!theme.glow);
   borderPosSeg.querySelectorAll(".seg-btn").forEach((b) =>
@@ -1152,6 +1160,8 @@ function applyTheme() {
     b.classList.toggle("active", b.dataset.density === theme.density));
   tallToggle.classList.toggle("on", !!theme.tallResults);
   accentCustom.style.background = theme.accent;
+  glowCustom.style.background = theme.glowColor || "var(--accent)";
+  borderCustom.style.background = theme.borderColor || "var(--card-border)";
   bgCustom.style.background = theme.cardBg;
   renderAccentSwatches();
   markActiveSwatches();
@@ -1229,7 +1239,7 @@ function renderThemePresets(customThemes) {
       const b = document.createElement("button");
       b.className = "swatch";
       b.style.background = "var(--text-dim)";
-      b.dataset.tip = "Custom: " + t.name;
+      b.dataset.tip = window.i18n.t("customTheme", { name: t.name });
       b.addEventListener("click", () => {
         theme = { ...theme, customTheme: t.name };
         saveTheme();
@@ -1247,7 +1257,7 @@ function renderThemePresets(customThemes) {
   addBtn.style.display = "flex";
   addBtn.style.alignItems = "center";
   addBtn.style.justifyContent = "center";
-  addBtn.dataset.tip = "Open themes folder";
+  addBtn.dataset.tip = window.i18n.t("openThemesFolder");
   addBtn.addEventListener("click", () => {
     invoke("open_themes_folder").catch(console.error);
     addBtn.blur();
@@ -1304,9 +1314,10 @@ picker.className = "cp-hidden";
 picker.innerHTML = `
   <div class="cp-sv" id="cp-sv"><div class="cp-knob" id="cp-sv-knob"></div></div>
   <div class="cp-hue" id="cp-hue"><div class="cp-knob" id="cp-hue-knob"></div></div>
+  <div class="cp-alpha" id="cp-alpha"><div class="cp-alpha-fill" id="cp-alpha-fill"></div><div class="cp-knob" id="cp-alpha-knob"></div></div>
   <div class="cp-row">
     <div class="cp-preview" id="cp-preview"></div>
-    <input class="cp-hex" id="cp-hex" maxlength="7" spellcheck="false" autocomplete="off">
+    <input class="cp-hex" id="cp-hex" maxlength="9" spellcheck="false" autocomplete="off">
   </div>
 `;
 document.body.appendChild(picker);
@@ -1314,9 +1325,16 @@ const cpSv = picker.querySelector("#cp-sv");
 const cpSvKnob = picker.querySelector("#cp-sv-knob");
 const cpHue = picker.querySelector("#cp-hue");
 const cpHueKnob = picker.querySelector("#cp-hue-knob");
+const cpAlpha = picker.querySelector("#cp-alpha");
+const cpAlphaFill = picker.querySelector("#cp-alpha-fill");
+const cpAlphaKnob = picker.querySelector("#cp-alpha-knob");
 const cpPreview = picker.querySelector("#cp-preview");
 const cpHex = picker.querySelector("#cp-hex");
-const pickerState = { h: 210, s: 0.5, v: 0.56, onChange: null };
+const pickerState = { h: 210, s: 0.5, v: 0.56, a: 1, aMin: 0, alpha: false, alphaInHex: false, onChange: null };
+// #rrggbb, or #rrggbbaa when the colour carries its own opacity.
+function composeColor(hex, a) {
+  return a >= 0.995 ? hex : hex + Math.round(a * 255).toString(16).padStart(2, "0");
+}
 let pickerOpen = false;
 let saveThemeTimer = null;
 function saveThemeDebounced() {
@@ -1332,9 +1350,13 @@ function pickerRefresh(syncHex = true) {
   cpSvKnob.style.left = (pickerState.s * 100) + "%";
   cpSvKnob.style.top = ((1 - pickerState.v) * 100) + "%";
   cpHueKnob.style.left = (pickerState.h / 360) * 100 + "%";
-  cpPreview.style.background = hex;
-  if (syncHex) cpHex.value = hex;
-  if (pickerState.onChange) pickerState.onChange(hex);
+  cpPreview.style.background = pickerState.alpha ? composeColor(hex, pickerState.a) : hex;
+  cpAlphaFill.style.background = `linear-gradient(to right, transparent, ${hex})`;
+  const span = 1 - pickerState.aMin || 1;
+  cpAlphaKnob.style.left = ((pickerState.a - pickerState.aMin) / span) * 100 + "%";
+  cpAlphaKnob.style.top = "50%";
+  if (syncHex) cpHex.value = pickerState.alphaInHex ? composeColor(hex, pickerState.a) : hex;
+  if (pickerState.onChange) pickerState.onChange(hex, pickerState.a);
 }
 function bindPickerDrag(el, onPoint) {
   el.addEventListener("pointerdown", (e) => {
@@ -1357,13 +1379,23 @@ bindPickerDrag(cpSv, (e) => {
   pickerState.v = 1 - clamp01((e.clientY - r.top) / r.height);
   pickerRefresh();
 });
+bindPickerDrag(cpAlpha, (e) => {
+  const r = cpAlpha.getBoundingClientRect();
+  const p = clamp01((e.clientX - r.left) / r.width);
+  pickerState.a = pickerState.aMin + p * (1 - pickerState.aMin);
+  pickerRefresh();
+});
 bindPickerDrag(cpHue, (e) => {
   const r = cpHue.getBoundingClientRect();
   pickerState.h = clamp01((e.clientX - r.left) / r.width) * 360;
   pickerRefresh();
 });
 cpHex.addEventListener("input", () => {
-  const hsv = hexToHsv(cpHex.value);
+  const m8 = /^#?([0-9a-f]{6})([0-9a-f]{2})$/i.exec(cpHex.value.trim());
+  if (m8 && pickerState.alphaInHex) {
+    pickerState.a = Math.max(pickerState.aMin, parseInt(m8[2], 16) / 255);
+  }
+  const hsv = hexToHsv(m8 ? m8[1] : cpHex.value);
   if (!hsv) return;
   pickerState.h = hsv.h;
   pickerState.s = hsv.s;
@@ -1377,8 +1409,16 @@ function closePicker() {
   saveThemeDebounced(); 
   pickerState.onChange = null;
 }
-function openPicker(anchor, initialHex, onChange) {
-  const hsv = hexToHsv(initialHex) || { h: 210, s: 0.5, v: 0.56 };
+// opts.alpha adds an opacity slider; opts.alphaValue is where it starts, opts.alphaMin its floor,
+// and opts.alphaInHex puts the opacity into the hex field as well (#rrggbbaa).
+function openPicker(anchor, initialHex, onChange, opts = {}) {
+  const m8 = /^#?([0-9a-f]{6})([0-9a-f]{2})$/i.exec(initialHex.trim());
+  const hsv = hexToHsv(m8 ? m8[1] : initialHex) || { h: 210, s: 0.5, v: 0.56 };
+  pickerState.alpha = !!opts.alpha;
+  pickerState.alphaInHex = !!opts.alphaInHex;
+  pickerState.aMin = opts.alphaMin || 0;
+  pickerState.a = m8 && opts.alphaInHex ? parseInt(m8[2], 16) / 255 : (opts.alphaValue ?? 1);
+  picker.classList.toggle("cp-alpha-on", pickerState.alpha);
   pickerState.h = hsv.h;
   pickerState.s = hsv.s;
   pickerState.v = hsv.v;
@@ -1410,15 +1450,31 @@ accentCustom.addEventListener("click", () => {
 });
 bgCustom.addEventListener("click", () => {
   if (pickerOpen) { closePicker(); return; }
-  openPicker(bgCustom, theme.cardBg, (hex) => {
-    theme = { ...theme, cardBg: hex, text: textForBg(hex) };
+  openPicker(bgCustom, theme.cardBg, (hex, a) => {
+    theme = { ...theme, cardBg: hex, cardAlpha: Math.max(0.4, Math.min(1, a)), text: textForBg(hex) };
     applyTheme();
     saveThemeDebounced();
-  });
+  }, { alpha: true, alphaMin: 0.4, alphaValue: theme.cardAlpha });
+});
+glowCustom.addEventListener("click", () => {
+  if (pickerOpen) { closePicker(); return; }
+  openPicker(glowCustom, theme.glowColor || theme.accent, (hex, a) => {
+    theme = { ...theme, glowColor: composeColor(hex, a), glow: true };
+    applyTheme();
+    saveThemeDebounced();
+  }, { alpha: true, alphaInHex: true, alphaValue: theme.glowColor ? 1 : 0.4 });
+});
+borderCustom.addEventListener("click", () => {
+  if (pickerOpen) { closePicker(); return; }
+  openPicker(borderCustom, theme.borderColor || "#ffffff", (hex, a) => {
+    theme = { ...theme, borderColor: composeColor(hex, a), borderOn: true };
+    applyTheme();
+    saveThemeDebounced();
+  }, { alpha: true, alphaInHex: true, alphaValue: theme.borderColor ? 1 : 0.08 });
 });
 document.addEventListener("pointerdown", (e) => {
   if (!pickerOpen) return;
-  if (e.target instanceof Element && (picker.contains(e.target) || e.target.closest("#accent-custom,#bg-custom"))) return;
+  if (e.target instanceof Element && (picker.contains(e.target) || e.target.closest("#accent-custom,#bg-custom,#glow-custom,#border-custom"))) return;
   closePicker();
 }, true);
 document.addEventListener("keydown", (e) => {
@@ -1508,12 +1564,13 @@ bindScrub(borderWVal,
 bindScrub(glowVal,
   () => theme.glowStrength,
   (v) => { theme = { ...theme, glowStrength: clampStep(0, 40)(Math.round(v)), glow: true }; saveTheme(); });
-borderRow.addEventListener("click", () => {
+borderRow.addEventListener("click", (e) => {
+  if (e.target.closest(".row-extras")) return;
   theme = { ...theme, borderOn: !theme.borderOn };
   saveTheme();
 });
 glowToggle.parentElement.addEventListener("click", (e) => {
-  if (e.target.closest(".zoom-stepper")) return;
+  if (e.target.closest(".zoom-stepper, .swatch-custom")) return;
   theme = { ...theme, glow: !theme.glow };
   saveTheme();
 });
@@ -1563,7 +1620,7 @@ const ALIGN_GRID = [
   ["cl", "cc", "cr"],
   ["bl", "bc", "br"],
 ];
-const ALIGN_TIPS = { t: "top", c: "center", b: "bottom", l: "left", r: "right" };
+const alignTip = (c) => window.i18n.t({ t: "alignTop", c: "alignCenter", b: "alignBottom", l: "alignLeft", r: "alignRight" }[c]);
 let placement = { align: "cc", monitor: -1 };
 let lastMonitors = [];
 function pop(el) {
@@ -1584,7 +1641,7 @@ function renderAlignGrid() {
       const b = document.createElement("button");
       b.className = "align-cell";
       b.dataset.code = code;
-      b.dataset.tip = `${ALIGN_TIPS[code[0]]} ${ALIGN_TIPS[code[1]]}`;
+      b.dataset.tip = `${alignTip(code[0])} ${alignTip(code[1])}`;
       b.addEventListener("click", () => {
         placement.align = code;
         updatePlacementUI();
@@ -1659,9 +1716,20 @@ function wheelStepPx() {
 }
 let isHiding = false;
 let hideTimer = null;
+// A long path keeps its end: the last two segments never shrink and the front gives way with an
+// ellipsis, so "C:UsersFre…RoamingHelium" and not "C:UsersFreezxAppDataR…".
+function pathHtml(path) {
+  const parts = path.split("\\");
+  if (parts.length < 4) return escapeHtml(path);
+  const head = parts.slice(0, -2).join("\\");
+  const tail = parts.slice(-2).join("\\");
+  return `<span class="rp-head">${escapeHtml(head)}</span><span class="rp-tail">\\${escapeHtml(tail)}</span>`;
+}
 function hideWindow() {
   if (isHiding) return;
   isHiding = true;
+  // An open colour picker must not still be there when the window comes back.
+  closePicker();
   contextMenu.classList.remove("visible");
   // The window is going away, so the panel must not ride along into the next
   // summon just because the selection happens to still match.
@@ -1786,7 +1854,7 @@ function createResultItem(item, index, query) {
       <div class="result-icon-fallback ${visualKind}" style="${iconSrc ? 'display:none' : ''}">${getTypeIcon(visualKind)}</div>
     </div>
     <div class="result-name">${highlightMatch(item.name, query)}</div>
-    <div class="result-path">${escapeHtml(item.path)}</div>
+    <div class="result-path">${pathHtml(item.path)}</div>
     <button class="result-pin ${item.pinned ? "pinned" : ""}" data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}" data-kind="${item.kind}">${PIN_GLYPH}</button>
    `;
   div.addEventListener("click", (e) => {
@@ -1896,10 +1964,10 @@ const pinsSortable = Sortable.create(pinsList, {
       layoutCustomScrollbar();
       invoke("reorder_pins", { orderedPaths: newOrder }).then(ok => {
         // The new order is already on screen; only a failure is worth a toast.
-        if (!ok) showToast("Couldn't save order", true);
-      }).catch(err => { console.warn("reorder failed", err); showToast("Save error", true); });
+        if (!ok) showToast(window.i18n.t("reorderSaveFailed"), true);
+      }).catch(err => { console.warn("reorder failed", err); showToast(window.i18n.t("saveError"), true); });
     } else {
-      showToast("Reorder failed", true);
+      showToast(window.i18n.t("reorderFailed"), true);
     }
   }
 });
@@ -2088,16 +2156,16 @@ async function launchItem(path) {
   } catch (e) {
     console.error("Launch error:", e);
 
-    showToast("Launch failed", true, String(e).replace("Error:", "").trim());
+    showToast(window.i18n.t("launchFailed"), true, String(e).replace("Error:", "").trim());
   }
 }
 async function copyPath(path) {
   try {
     await navigator.clipboard.writeText(path);
-    showToast("Copied");
+    showToast(window.i18n.t("copied"));
   } catch (e) {
     console.error("Clipboard copy failed:", e);
-    showToast("Copy failed", true);
+    showToast(window.i18n.t("copyFailed"), true);
   }
 }
 const ntfShort = document.getElementById("ntf-short");
@@ -2242,11 +2310,9 @@ dragBar.addEventListener("mouseleave", () => {
   ntfHover = false;
   collapseNotify();
 });
-const DRAG_TIP_IDLE = "Drag to move · Double-click to center · Right-click to pin";
-const DRAG_TIP_PINNED = "Position pinned — right-click to unpin";
 function syncDragTip() {
   if (dragBar.classList.contains("notify")) return;
-  dragBar.dataset.tip = dragBar.classList.contains("pinned") ? DRAG_TIP_PINNED : DRAG_TIP_IDLE;
+  dragBar.dataset.tip = dragBar.classList.contains("pinned") ? window.i18n.t("dragTipPinned") : window.i18n.t("dragTip");
 }
 let pinBusy = false;
 dragBar.addEventListener("contextmenu", (e) => {
@@ -2261,16 +2327,16 @@ dragBar.addEventListener("contextmenu", (e) => {
           .then((ok) => {
       dragBar.classList.toggle("pinned", !!ok);
       if (ok) {
-        showNotify("Position pinned", {
+        showNotify(window.i18n.t("posPinned"), {
           type: "warn",
           tag: "pin",
-          detail: "window stays here on next summons — right-click to unpin",
+          detail: window.i18n.t("posPinnedDetail"),
         });
       } else {
-        showNotify("Position unpinned", { type: "info", tag: "pin", detail: "recenters next time" });
+        showNotify(window.i18n.t("posUnpinned"), { type: "info", tag: "pin", detail: window.i18n.t("posUnpinnedDetail") });
       }
     })
-    .catch((err) => showNotify("Pin failed", { type: "error", detail: String(err) }))
+    .catch((err) => showNotify(window.i18n.t("pinFailed"), { type: "error", detail: String(err) }))
     // The flag is released by the timer above, not by the promise: releasing it
     // as soon as the call came back left nothing between two quick right
     // clicks, and the window flipped pinned and unpinned in a row.
@@ -2387,7 +2453,7 @@ async function togglePin(btn) {
     layoutCustomScrollbar();
     if (typeof renderDock === "function") renderDock();
   } catch (e) {
-    showToast("Pin failed", true, String(e).replace("Error:", "").trim());
+    showToast(window.i18n.t("pinFailed"), true, String(e).replace("Error:", "").trim());
   }
 }
 const placeholderWords = [];
@@ -2506,7 +2572,7 @@ contextMenu.addEventListener("click", (e) => {
         .then(() => hideWindow())
         .catch(err => {
           console.warn("launch admin failed:", err);
-          showToast("Admin launch failed", true, String(err).replace("Error:", "").trim());
+          showToast(window.i18n.t("adminLaunchFailed"), true, String(err).replace("Error:", "").trim());
         });
       break;
     case "directory":
@@ -2548,7 +2614,7 @@ async function setItemPinned(item, pin) {
     if (pin) await invoke("add_pin", { name: item.name, path: item.path, kind: item.kind || "file" });
     else await invoke("remove_pin", { path: item.path });
   } catch (e) {
-    showToast("Pin failed", true, String(e).replace("Error:", "").trim());
+    showToast(window.i18n.t("pinFailed"), true, String(e).replace("Error:", "").trim());
     return;
   }
   performSearch(lastQuery);
@@ -2582,7 +2648,7 @@ listen("index-progress", (event) => {
     indexSpinner.classList.remove("visible");
     syncIndexTip(false);
 
-    if (hadRun) showNotify("Index ready", { type: "success" });
+    if (hadRun) showNotify(window.i18n.t("indexReady"), { type: "success" });
   } else {
     indexingActive = true;
     indexRan = true;
@@ -2653,8 +2719,8 @@ async function performSearch(query) {
     const indexingNow = indexingActive && response.indexed === 0;
     if (!isEmpty && !hasResults) {
       emptyState.querySelector("span").textContent = indexingNow
-        ? "Indexing files — search will be ready in a moment"
-        : "No results found";
+        ? window.i18n.t("indexingEmpty")
+        : window.i18n.t("noResults");
     }
 
     hint.classList.toggle("hidden", !(isEmpty && !(hasPins && pinsInList())));
@@ -2949,7 +3015,7 @@ document.addEventListener("pointerdown", (e) => {
   }
   // #pin-dock covers the whole dock column, so grabbing a tile to drag it, or
   // missing a tile by a few pixels, doesn't count as a click outside the window.
-  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #preview-panel";
+  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #preview-panel, #cc-pill";
   const onCard = e.target instanceof Element && e.target.closest(CARD_SEL);
   if (!onCard && !pointOverCard(e.clientX, e.clientY, CARD_SEL)) {
     hideWindow();
@@ -2977,6 +3043,10 @@ function filterSettings(query) {
     } else {
       row.style.display = "none";
     }
+  });
+  settingsSection.querySelectorAll(".settings-card").forEach((card) => {
+    const any = [...card.querySelectorAll(".settings-row")].some((r) => r.style.display !== "none");
+    card.classList.toggle("filtered-out", !any);
   });
 }
 searchInput.addEventListener("input", () => {
@@ -3106,4 +3176,14 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
 });
 window.__TAURI__.event.listen("window-hide-requested", () => {
   hideWindow();
+});
+window.addEventListener("language-changed", () => {
+  if (!theme.glow) setVal(glowVal, window.i18n.t("glowOff"));
+  if (!checkUpdateBtn.disabled && updateState.phase !== "checking") checkUpdateBtn.textContent = window.i18n.t("updCheck");
+  syncDragTip();
+  renderAlignGrid();
+  updatePlacementUI();
+  renderUpdatePanel();
+  _lastCustomThemesStr = null;
+  loadThemes();
 });

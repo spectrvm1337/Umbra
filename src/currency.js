@@ -323,7 +323,7 @@ function fxDrawChart(card, series, from) {
     fxApplyShape(card, svg, start, C);
     svg.classList.add("fx-morph");
     const travel = Math.max(...pts.map((p, i) => Math.abs(p.y - start[i].y))) / (C.bottom - C.top);
-    const dur = Math.min(450, 160 + 290 * Math.min(1, travel));
+    const dur = 450 + 550 * Math.min(1, travel);
     const t0 = performance.now();
     const step = (now) => {
       const k = Math.min(1, (now - t0) / dur);
@@ -477,9 +477,9 @@ function fxCountTo(card, key, el, to, format) {
     return;
   }
   el.textContent = format(from);
-  // A small change settles quickly, a big one takes up to 450ms.
+  // Between 0.45s and 1s, longer the further the number has to travel.
   const rel = Math.abs(to - from) / Math.max(Math.abs(to), Math.abs(from), 1e-9);
-  const dur = Math.min(450, 140 + 310 * Math.sqrt(Math.min(1, rel)));
+  const dur = 450 + 550 * Math.sqrt(Math.min(1, rel));
   const t0 = performance.now();
   const step = (now) => {
     const k = Math.min(1, (now - t0) / dur);

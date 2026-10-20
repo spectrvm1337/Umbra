@@ -124,7 +124,7 @@ async function unpinFromDock(path) {
   if (result) result.pinned = false;
   setPinnedButtons(path, false);
   updateSelectableItems();
-  showToast("Unpinned");
+  showToast(window.i18n.t("unpinned"));
 }
 
 function ensureDock() {

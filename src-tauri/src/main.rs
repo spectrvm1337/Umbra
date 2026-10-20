@@ -84,6 +84,7 @@ fn main() {
             if let Some((x, y)) = config::pinned_position() {
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
             }
+            let _ = color_pick::create_loupe_window(app);
             crate::keyboard_hook::init(app.handle().clone());
             let hook_ok = crate::keyboard_hook::is_installed();
             if first_run || !hook_ok {
@@ -177,6 +178,8 @@ fn main() {
             commands::install_update,
             color_pick::start_color_pick,
             color_pick::cancel_color_pick,
+            color_pick::set_pick_exclusion,
+            commands::dock_window_for_pick,
             preview::get_preview,
         ])
         .run(tauri::generate_context!())

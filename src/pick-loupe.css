@@ -1,0 +1,34 @@
+/* The window that follows the cursor while the eyedropper runs (pick-loupe.html):
+   a magnified patch of the pixels under it, 15 cells across, with the centre cell marked. */
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+body.pick-loupe-page {
+  padding: 6px;
+}
+#loupe {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #222;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 3px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+#px {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+/* One cell is 8px (120 / 15); the middle one is the pixel a click takes. */
+#mark {
+  position: absolute;
+  left: 56px;
+  top: 56px;
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0, 0, 0, 0.55);
+}

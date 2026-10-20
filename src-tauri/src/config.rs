@@ -138,12 +138,18 @@ pub struct ThemeConfig {
     pub text: String,
     pub glow: bool,
     pub glow_strength: u32,
+    /// `#rrggbb` or `#rrggbbaa`; empty means the accent colour.
+    #[serde(default)]
+    pub glow_color: String,
     #[serde(default = "default_border_on")]
     pub border_on: bool,
     #[serde(default = "default_border_w")]
     pub border_w: f64,
     #[serde(default = "default_border_pos")]
     pub border_pos: String,
+    /// `#rrggbb` or `#rrggbbaa`; empty means the theme's own border colour.
+    #[serde(default)]
+    pub border_color: String,
     /// Where pinned apps live: `list` (under the empty search box) or a dock
     /// column on the `left` / `right` of the window.
     #[serde(default = "default_pins_style")]
@@ -193,6 +199,8 @@ impl Default for ThemeConfig {
             border_on: default_border_on(),
             border_w: default_border_w(),
             border_pos: default_border_pos(),
+            glow_color: String::new(),
+            border_color: String::new(),
             pins_style: default_pins_style(),
             light_mode: false,
             follow_system: false,
@@ -217,6 +225,8 @@ impl ThemeConfig {
             _ => self.density = default_density(),
         }
         self.glow_strength = self.glow_strength.clamp(0, 40);
+        self.glow_color = sanitize_optional_color(&self.glow_color);
+        self.border_color = sanitize_optional_color(&self.border_color);
         if !self.border_w.is_finite() {
             self.border_w = 1.0;
         }
@@ -232,6 +242,12 @@ impl ThemeConfig {
         }
         self
     }
+}
+/// Empty (use the default), `#rrggbb` or `#rrggbbaa`; anything else is dropped.
+fn sanitize_optional_color(val: &str) -> String {
+    let v = val.trim();
+    let ok = v.starts_with('#') && (v.len() == 7 || v.len() == 9) && v[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if ok { v.to_lowercase() } else { String::new() }
 }
 fn sanitize_hex(val: &str, fallback: &str) -> String {
     let v = val.trim();
@@ -538,6 +554,14 @@ mod tests {
         assert_eq!(ThemeConfig { radius: 2, ..Default::default() }.sanitized().radius, 2);
         // Still bounded above, so a hand-edited config cannot make it silly.
         assert_eq!(ThemeConfig { radius: 99, ..Default::default() }.sanitized().radius, 24);
+    }
+    #[test]
+    fn glow_and_border_colours_are_optional_hex_with_alpha() {
+        let t = ThemeConfig { glow_color: "#FF00AA80".into(), border_color: "red".into(), ..Default::default() }.sanitized();
+        assert_eq!(t.glow_color, "#ff00aa80");
+        assert_eq!(t.border_color, "");
+        let old: Config = serde_json::from_str(r#"{"theme": {"radius": 12}}"#).unwrap();
+        assert_eq!(old.theme.glow_color, "");
     }
     #[test]
     fn row_spacing_is_clamped_and_survives_an_old_config() {

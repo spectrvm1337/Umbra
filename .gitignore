@@ -23,3 +23,6 @@ Thumbs.db
 tmp*
 clickLanguage
 archive/
+
+# Working notes for myself, not part of the project
+WORK-NOTES.md

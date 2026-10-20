@@ -145,6 +145,11 @@ fn hicon_to_png(path: &str) -> Option<Vec<u8>> {
     if hbm.is_null() || pixels_ptr.is_null() {
         unsafe { DeleteDC(hdc) };
         unsafe { DestroyIcon(hicon) };
+        // The bitmap existed, so it has to go as well or it leaks a GDI object
+        // for the rest of the session.
+        if !hbm.is_null() {
+            unsafe { DeleteObject(hbm.into()) };
+        }
         return None;
     }
     let pixel_count = (ICON_SIZE * ICON_SIZE) as usize;
@@ -190,6 +195,12 @@ fn hicon_to_png(path: &str) -> Option<Vec<u8>> {
         if let Ok(mut writer) = encoder.write_header() {
             let _ = writer.write_image_data(&rgba);
         }
+    }
+    // An encoder that failed leaves nothing behind, and an empty file was then
+    // cached and handed to the frontend as a broken image for the rest of the
+    // session.
+    if png_data.is_empty() {
+        return None;
     }
     Some(png_data)
 }

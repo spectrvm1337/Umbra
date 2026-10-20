@@ -47,7 +47,17 @@ fn is_excluded(path: &str, skip: &HashSet<String>) -> bool {
     path.split('\\').skip(1).any(|part| !part.is_empty() && indexer::is_skipped_name(part, skip))
 }
 fn on_disabled_drive(path: &str, disabled: &[String]) -> bool {
-    disabled.iter().any(|d| path.len() >= d.len() && path[..d.len()].eq_ignore_ascii_case(d))
+    // Compared as bytes, never as a string slice. `path[..d.len()]` panics when
+    // the cut lands inside a multi-byte character, which a drive letter
+    // followed by a Cyrillic folder name reaches at once -- and this runs under
+    // the index's write lock, so the panic would poison it and take the search
+    // down with it.
+    disabled.iter().any(|d| {
+        let d = d.trim_end_matches('\\');
+        !d.is_empty()
+            && path.len() >= d.len()
+            && path.as_bytes()[..d.len()].eq_ignore_ascii_case(d.as_bytes())
+    })
 }
 fn entry_for(path: &str, is_dir: bool) -> SearchEntry {
     let file_name = Path::new(path).file_name().unwrap_or_default().to_string_lossy();
@@ -96,25 +106,28 @@ pub(crate) fn apply_changes(
     }
     let added_paths: HashSet<&str> = added.iter().map(|e| e.path.as_str()).collect();
     if !removed.is_empty() || !added_paths.is_empty() {
+        // This runs under the index's write lock, so its cost is everyone's wait:
+        // one hash lookup per entry, nothing more. Only a folder can have
+        // anything below it, so the removed folders are noted in this pass and
+        // matched by prefix in a second one that is skipped when there are none.
+        // (Walking every entry's chain of parent folders here took seconds on a
+        // large index, for a batch of a dozen changes.)
+        let mut removed_dirs: Vec<String> = Vec::new();
         entries.retain(|e| {
             if added_paths.contains(e.path.as_str()) {
                 return false; // replaced by the fresh entry below
             }
-            if removed.is_empty() {
-                return true;
-            }
-            // The entry itself or any folder above it was removed.
-            let mut p = e.path.as_str();
-            loop {
-                if removed.contains(p) {
-                    return false;
+            if removed.contains(e.path.as_str()) {
+                if e.kind == indexer::KIND_FOLDER {
+                    removed_dirs.push(format!("{}\\", e.path.trim_end_matches('\\')));
                 }
-                match p.rfind('\\') {
-                    Some(i) if i > 0 => p = &p[..i],
-                    _ => return true,
-                }
+                return false;
             }
+            true
         });
+        if !removed_dirs.is_empty() {
+            entries.retain(|e| !removed_dirs.iter().any(|d| e.path.starts_with(d.as_str())));
+        }
     }
     entries.extend(added);
 }

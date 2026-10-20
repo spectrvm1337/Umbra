@@ -77,8 +77,20 @@ pub(crate) fn file_result(path: &str) -> Option<SearchResult> {
     }))
 }
 /// Read-only access to the live index for the query layer.
+///
+/// A poisoned lock means a panic happened while the index was being written.
+/// The data is still perfectly good, so it is recovered rather than thrown
+/// away -- otherwise `.ok()` would quietly turn one panic into "the search
+/// finds nothing, forever", with nothing written anywhere about it.
 pub(crate) fn with_entries<R>(f: impl FnOnce(&[SearchEntry]) -> R) -> Option<R> {
-    INDEX.get().and_then(|rw| rw.read().ok()).map(|r| f(&r))
+    let rw = INDEX.get()?;
+    match rw.read() {
+        Ok(guard) => Some(f(&guard)),
+        Err(poisoned) => {
+            crate::preview::log_note("index lock was poisoned; recovered and continuing");
+            Some(f(&poisoned.into_inner()))
+        }
+    }
 }
 pub(crate) fn kind_from_file(file_name: &str, is_dir: bool) -> u8 {
     if is_dir {
@@ -518,7 +530,11 @@ fn find_exe_in_dir(dir: &str, app_name: &str) -> Option<String> {
         let mut exes = Vec::new();
         for entry in rd.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "exe") {
+            if path.is_file()
+                && path
+                    .extension()
+                    .map_or(false, |ext| ext.eq_ignore_ascii_case("exe"))
+            {
                 let file_name = path.file_name().unwrap().to_string_lossy().to_string();
                 let file_name_lower = file_name.to_lowercase();
                 if file_name_lower.contains(&app_name_lower)
@@ -820,7 +836,10 @@ pub fn get_available_drives() -> Vec<String> {
     use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDriveStringsW};
     let mut buffer = [0u16; 256];
     let len = unsafe { GetLogicalDriveStringsW(buffer.len() as u32, buffer.as_mut_ptr()) };
-    if len == 0 || len as usize > buffer.len() {
+    // The API returns the size it needs when the buffer is too small, and that
+    // size is in characters. `>` let a buffer that was exactly full through,
+    // and then the loop below found no drive at all.
+    if len == 0 || len as usize >= buffer.len() {
         return vec!["C:\\".to_string(), "D:\\".to_string()];
     }
     let mut drives = Vec::new();
@@ -854,8 +873,23 @@ pub fn get_available_drives() -> Vec<String> {
 pub fn get_available_drives() -> Vec<String> {
     vec!["/".to_string()]
 }
+static LAST_INDEXED_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Never waits for the index lock. The empty search box asks for this next to
+/// the pins, and the pins have nothing to do with the index, but a batch of
+/// file-system changes holds the write lock for a while and the pins sat behind
+/// it. While the lock is busy, the last count seen is returned.
 pub fn get_indexed_count() -> usize {
-    with_entries(|r| r.len()).unwrap_or(0)
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::sync::TryLockError;
+    let Some(rw) = INDEX.get() else { return 0 };
+    match rw.try_read() {
+        Ok(guard) => {
+            LAST_INDEXED_COUNT.store(guard.len(), Relaxed);
+            guard.len()
+        }
+        Err(TryLockError::WouldBlock) => LAST_INDEXED_COUNT.load(Relaxed),
+        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner().len(),
+    }
 }
 #[cfg(test)]
 mod tests {

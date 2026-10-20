@@ -42,6 +42,12 @@ pub struct Config {
 
     #[serde(default = "default_true")]
     pub autostart: bool,
+
+    /// How the preview panel presents itself: `overlay` takes over the results
+    /// area, `popup` is a small card by the cursor. A behaviour preference, not
+    /// a theme one, so it lives here rather than in `ThemeConfig`.
+    #[serde(default = "default_preview_style")]
+    pub preview_style: String,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -60,8 +66,12 @@ impl Default for Config {
             language: default_language(),
             anim_off: vec![],
             autostart: true,
+            preview_style: default_preview_style(),
         }
     }
+}
+fn default_preview_style() -> String {
+    "overlay".into()
 }
 fn default_language() -> String {
     "en".into()
@@ -248,6 +258,29 @@ fn normalise_hotkey(config: &mut Config) {
     if !crate::keyboard_hook::is_supported_hotkey(&config.hotkey) {
         config.hotkey = DEFAULT_HOTKEY.to_string();
     }
+    config.disabled_drives = normalise_drives(&config.disabled_drives);
+    config.disabled_kinds.retain(|k| *k <= 10);
+    if !config.zoom.is_finite() {
+        config.zoom = 1.0;
+    }
+}
+
+/// A drive is a letter and a colon. Anything else in the list is a hand-edited
+/// mistake, and the indexer matches these as path prefixes -- so a stray value
+/// with a multi-byte character in it was enough to panic the watcher.
+fn normalise_drives(drives: &[String]) -> Vec<String> {
+    drives
+        .iter()
+        .filter_map(|d| {
+            let t = d.trim().trim_end_matches('\\');
+            let bytes = t.as_bytes();
+            if bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+                Some(t.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 fn with_state<R>(f: impl FnOnce(&mut ConfigState) -> R) -> R {
     let mut guard = STATE.lock().unwrap();
@@ -342,6 +375,21 @@ pub fn get_autostart() -> bool {
 pub fn set_autostart(enable: bool) {
     update(|c| c.autostart = enable);
 }
+pub fn get_preview_style() -> String {
+    read(|c| match c.preview_style.as_str() {
+        "popup" => "popup".to_string(),
+        _ => default_preview_style(),
+    })
+}
+pub fn set_preview_style(style: &str) -> String {
+    let clean = if style == "popup" {
+        "popup".to_string()
+    } else {
+        default_preview_style()
+    };
+    update(|c| c.preview_style = clean.clone());
+    clean
+}
 pub fn get_hotkey() -> String {
     read(|c| c.hotkey.clone())
 }
@@ -349,10 +397,14 @@ pub fn set_hotkey(key: &str) {
     update(|c| c.hotkey = key.to_string());
 }
 pub fn get_zoom() -> f64 {
-    read(|c| if c.zoom > 0.0 { c.zoom } else { 1.0 })
+    read(|c| if c.zoom.is_finite() && c.zoom > 0.0 { c.zoom } else { 1.0 })
 }
 pub fn set_zoom(zoom: f64) {
-    update(|c| c.zoom = zoom.clamp(0.5, 2.0));
+    // `clamp` hands back NaN for NaN, and serde writes that as `null`, which
+    // then fails to parse as an f64 -- so one bad value took the whole config
+    // file down with it, theme, language, hotkey and all.
+    let z = if zoom.is_finite() { zoom.clamp(0.5, 2.0) } else { 1.0 };
+    update(|c| c.zoom = z);
 }
 pub fn get_index_excludes() -> Vec<String> {
     read(|c| c.index_excludes.clone())
@@ -375,7 +427,7 @@ pub fn set_kind_enabled(kind: u8, enabled: bool) -> Vec<u8> {
     })
 }
 pub fn get_disabled_drives() -> Vec<String> {
-    read(|c| c.disabled_drives.clone())
+    read(|c| normalise_drives(&c.disabled_drives))
 }
 
 /// The kinds of motion Settings > Animations can switch off. The names match

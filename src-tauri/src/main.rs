@@ -11,6 +11,7 @@ mod indexer;
 mod paths;
 mod picks;
 mod pins;
+mod preview;
 mod registry;
 mod search;
 mod storage;
@@ -62,6 +63,7 @@ pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
     }
 }
 fn main() {
+    preview::install_panic_hook();
     let _ = rayon::ThreadPoolBuilder::new().num_threads(3).build_global();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -142,6 +144,8 @@ fn main() {
             commands::set_zoom,
             commands::get_autostart,
             commands::set_autostart,
+            commands::get_preview_style,
+            commands::set_preview_style,
             commands::get_theme,
             commands::set_theme,
             commands::get_language,
@@ -173,6 +177,7 @@ fn main() {
             commands::install_update,
             color_pick::start_color_pick,
             color_pick::cancel_color_pick,
+            preview::get_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

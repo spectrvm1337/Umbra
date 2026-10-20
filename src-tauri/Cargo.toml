@@ -14,24 +14,37 @@ codegen-units = 16
 incremental = true
 strip = false
 
+# `npm run dev` builds this profile. Unoptimized, the indexer and search ran
+# tens of times slower than in a release build -- a pass over the index took
+# seconds, with the window frozen behind it -- so the code that scans the index
+# is optimized here too. Debug info and incremental rebuilds stay.
+[profile.dev]
+opt-level = 2
+
 [profile.release]
 opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
-panic = "abort"
+# Deliberately left as the default `unwind` rather than `abort`. A panic in a
+# Shell thumbnail handler or an image decoder is then catchable, so one bad
+# preview cannot take the launcher down with it. `abort` gave a slightly smaller
+# binary and in exchange made every such failure a silent process kill.
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
 rayon = "1"
 dirs = "6"
-open = "5"
+# `shellexecute-on-windows` makes `open` call ShellExecuteW directly instead of
+# going through `cmd /c start`, which expanded %VARIABLES% inside the path and
+# could open a different file than the one asked for.
+open = { version = "5", features = ["shellexecute-on-windows"] }
 png = "0.17"
 base64 = "0.22"
 windows-sys = { version = "0.61", features = [
@@ -64,3 +77,6 @@ windows = { version = "0.61", features = [
 tauri-plugin-single-instance = "2.4.4"
 jwalk = "0.9.0"
 sha2 = "0.10"
+# Text previews need to know which of the legacy code pages a file is in:
+# a Russian .txt or .csv saved without a BOM is windows-1251, not UTF-8.
+encoding_rs = "0.8"

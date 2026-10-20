@@ -73,6 +73,14 @@ pub fn set_autostart(enable: bool) -> bool {
     autostart::set_enabled(enable);
     autostart::is_enabled()
 }
+#[tauri::command]
+pub fn get_preview_style() -> String {
+    config::get_preview_style()
+}
+#[tauri::command]
+pub fn set_preview_style(style: String) -> String {
+    config::set_preview_style(&style)
+}
 #[derive(serde::Serialize)]
 pub struct Placement {
     pub align: String,

@@ -1552,9 +1552,7 @@ body > .result-item.pin-drag-copy {
   min-width: 0;
   max-width: 40%;
   font-size: 15px;
-  /* Stolzl has no Medium, so name (500) and a Regular path were the same face
-     apart from colour; Light for the path gives the row an actual hierarchy. */
-  font-weight: var(--weight-light);
+  font-weight: var(--weight-regular);
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;

@@ -131,15 +131,15 @@ function suStepHtml(name) {
     case "tour":
       return (
         '<div class="su-head">' + suIco("tour") + '<h2 class="su-title">' + escapeHtml(suT("setupTourTitle")) + "</h2></div>" +
-        '<div class="su-demo" aria-hidden="true">' +
-        '<div class="su-r"><i class="ic"></i><i class="ln" style="width:38%"></i></div>' +
-        '<div class="su-r su-r-big"><div class="su-r-top"><i class="ic"></i><i class="ln" style="width:30%"></i></div>' +
-        '<div class="su-r-body"><div class="su-pic"></div><div class="su-r-lines"><i class="ln" style="width:70%"></i><i class="ln" style="width:48%"></i><i class="ln" style="width:58%"></i></div></div></div>' +
-        '<div class="su-r"><i class="ic"></i><i class="ln" style="width:46%"></i></div>' +
-        '<div class="su-r"><i class="ic"></i><i class="ln" style="width:30%"></i></div>' +
+        '<div class="su-mock" aria-hidden="true">' +
+        '<div class="su-mock-bar">' + suGlyph("index", 16) + '<span class="su-mock-q"></span><i class="su-mock-caret"></i></div>' +
+        '<div class="su-mock-rows"></div>' +
         '<div class="su-cap"><kbd class="su-key">Shift</kbd><span class="su-plus">+</span><kbd class="su-key">Space</kbd></div>' +
         "</div>" +
-        '<p class="su-text">' + escapeHtml(suT("setupTourText")) + "</p>" +
+        '<p class="su-text su-scene-text"></p>' +
+        '<div class="su-chips">' +
+        SU_SCENES.map((s, i) => '<button class="su-chip" type="button" data-scene="' + i + '">' + escapeHtml(suT(s.label)) + "</button>").join("") +
+        "</div>" +
         '<div class="su-row" id="su-keep-row"><div class="su-row-text"><div class="su-row-title">' + escapeHtml(suT("setupTourKeep")) +
         '</div><div class="su-row-sub">' + escapeHtml(suT("setupTourKeepText")) +
         '</div></div><span class="toggle' + (theme && theme.sidePreview ? " on" : "") + '" id="su-keep"><span class="toggle-knob"></span></span></div>'
@@ -188,6 +188,7 @@ function suRender(dir) {
   suRenderButtons();
   suBind(name, fresh);
   clearInterval(suPoll);
+  if (name !== "tour") suTourStop();
   if (name === "index") {
     suPoll = setInterval(suPaintProgress, 250);
     suPaintProgress();
@@ -267,6 +268,8 @@ function suBind(name, root) {
       })
     );
   } else if (name === "tour") {
+    suTourPlay(root, 0);
+    root.querySelectorAll(".su-chip").forEach((c) => c.addEventListener("click", () => suTourPlay(root, Number(c.dataset.scene))));
     root.querySelector("#su-keep-row").addEventListener("click", () => {
       theme = { ...theme, sidePreview: !theme.sidePreview };
       saveTheme();
@@ -280,6 +283,88 @@ function suBind(name, root) {
       if (text) text.textContent = suT("setupDoneText", { hotkey: hk });
     }).catch(() => {});
   }
+}
+
+// The tour is a small copy of the real window that types a query and shows what comes back. Each
+// scene is one thing Umbra does; it plays through them in turn and a chip jumps to one.
+const SU_GLYPH = {
+  index: '<path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0m18 11l-6-6"/>',
+  app: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12h6"/>',
+  file: '<path d="M7 3h7l5 5v13H7zM14 3v5h5"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12v.01M12 12v.01M16 12v.01M8 16v.01M12 16v.01M16 16v.01"/>',
+  pipette: '<path d="m14 7 3 3M5 19l1-4 8.5-8.5a2 2 0 0 1 3 3L9 18zM15 5l1.5-1.5a2 2 0 0 1 3 3L18 8"/>',
+};
+const SU_SCENES = [
+  { label: "setupScFind", text: "setupScFindT", query: "rep",
+    rows: [["app", "Reaper", "Application"], ["file", "Report Q3.pdf", "Documents\\Work"], ["folder", "Reports", "Desktop"]] },
+  { label: "setupScOpen", text: "setupScOpenT", query: "notes", open: true,
+    rows: [["file", "notes.md", "Documents", ["# Launch checklist", "- ship 0.2.2", "- update the site", "- write the changelog"]],
+      ["folder", "Notes", "Desktop"], ["app", "Notepad", "Application"]] },
+  { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4",
+    rows: [["calc", "235", "Calculator"]] },
+  { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats",
+    rows: [["web", "Search YouTube", "lofi beats"]] },
+  { label: "setupScColor", text: "setupScColorT", query: "!color",
+    rows: [["swatch", "#E5533D", "rgb(229, 83, 61)"], ["pipette", "Pick from screen", "Esc to cancel"]] },
+];
+let suTourTimers = [];
+
+const suGlyph = (name, size) =>
+  '<svg class="su-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="' +
+  (size || 18) + '" height="' + (size || 18) + '">' + SU_GLYPH[name] + "</svg>";
+
+function suRowHtml([kind, name, sub, preview], i, sel) {
+  const ic = kind === "swatch" ? '<i class="su-swatch"></i>' : suGlyph(kind);
+  return (
+    '<div class="su-mr' + (sel ? " sel" : "") + '" style="--d:' + i * 70 + 'ms">' + '<span class="su-mr-ic">' + ic + "</span>" +
+    '<span class="su-mr-main"><b>' + escapeHtml(name) + "</b><em>" + escapeHtml(sub) + "</em></span>" +
+    (preview ? '<div class="su-mr-body"><pre>' + preview.map(escapeHtml).join("\n") + "</pre></div>" : "") +
+    "</div>"
+  );
+}
+
+function suTourStop() {
+  suTourTimers.forEach(clearTimeout);
+  suTourTimers = [];
+}
+
+function suTourPlay(root, index) {
+  suTourStop();
+  const later = (fn, ms) => suTourTimers.push(setTimeout(fn, ms));
+  const scene = SU_SCENES[index];
+  const mock = root.querySelector(".su-mock");
+  const q = root.querySelector(".su-mock-q");
+  const rows = root.querySelector(".su-mock-rows");
+  root.querySelectorAll(".su-chip").forEach((c, i) => c.classList.toggle("on", i === index));
+  const text = root.querySelector(".su-scene-text");
+  text.classList.remove("swap");
+  void text.offsetWidth;
+  text.textContent = suT(scene.text);
+  text.classList.add("swap");
+  mock.classList.remove("pressed", "typing");
+  rows.innerHTML = "";
+  q.textContent = "";
+  let n = 0;
+  const step = () => {
+    if (!root.isConnected) return;
+    if (n < scene.query.length) {
+      q.textContent = scene.query.slice(0, ++n);
+      later(step, 70);
+      return;
+    }
+    rows.innerHTML = scene.rows.map((r, i) => suRowHtml(r, i, i === 0)).join("");
+    if (scene.open) {
+      later(() => {
+        mock.classList.add("pressed");
+        rows.firstElementChild.classList.add("open");
+      }, 900);
+    }
+    later(() => suTourPlay(root, (index + 1) % SU_SCENES.length), scene.open ? 4800 : 3400);
+  };
+  mock.classList.add("typing");
+  later(step, 350);
 }
 
 function suCurrentLang() {
@@ -333,6 +418,7 @@ async function suFinish(applyDefaults) {
   if (!suActive) return;
   suActive = false;
   clearInterval(suPoll);
+  suTourStop();
   // Skipping the first run keeps what is recommended; closing a repeat run changes nothing more.
   const wantAutostart = applyDefaults && suFirst ? true : suState.autostart;
   if (suStep >= SU_STEPS.length - 1 || (applyDefaults && suFirst)) {

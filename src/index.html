@@ -70,6 +70,10 @@
               <span class="settings-label" data-i18n="lblAppearance">Appearance</span>
               <span class="exclude-chevron">›</span>
             </div>
+            <div class="settings-row interactive" id="setting-keys-row" data-i18n-tip="keybindsTip" data-tip="Every key Umbra answers to, in a panel beside the window">
+              <span class="settings-label" data-i18n="lblKeybinds">Keybinds</span>
+              <span class="exclude-chevron">›</span>
+            </div>
             <div class="settings-row">
               <span class="settings-label" data-i18n="lblLanguage">Language</span>
               <div class="seg-row" id="language-seg">
@@ -147,7 +151,8 @@
       <div id="custom-scrollbar" aria-hidden="true"><div id="custom-thumb"></div></div>
     </div>
   <div id="setup" tabindex="-1" role="dialog" aria-modal="true"></div>
-  <div id="theme-panel" aria-label="Appearance">
+  <div id="theme-panel" aria-label="Appearance" data-view="theme">
+    <div class="special-card settings-card" id="keys-card"></div>
     <div class="special-card settings-card" id="theme-card">
                 <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
                   <span class="settings-label" data-i18n="lblFollowSystem">Match Windows</span>
@@ -282,12 +287,12 @@
     <div class="ctx-item" data-action="preview">
       <span class="ctx-item-icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0-4 0"/><path d="M21 12q-3.6 6-9 6t-9-6q3.6-6 9-6t9 6"/></svg></span>
       <span class="ctx-item-label" data-i18n="ctxPreview">Preview</span>
-      <span class="ctx-item-shortcut">Alt+Enter</span>
+      <span class="ctx-item-shortcut">Shift+Enter</span>
     </div>
     <div class="ctx-item" data-action="copy">
       <span class="ctx-item-icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21"><path d="M7 9.667A2.667 2.667 0 0 1 9.667 7h8.666A2.667 2.667 0 0 1 21 9.667v8.666A2.667 2.667 0 0 1 18.333 21H9.667A2.667 2.667 0 0 1 7 18.333z"/><path d="M4.012 16.737A2 2 0 0 1 3 15V5c0-1.1.9-2 2-2h10c.75 0 1.158.385 1.5 1"/></svg></span>
       <span class="ctx-item-label" data-i18n="ctxCopy">Copy path</span>
-      <span class="ctx-item-shortcut">Shift+Enter</span>
+      <span class="ctx-item-shortcut"></span>
     </div>
     <div class="ctx-item" data-action="pin">
       <span class="ctx-item-icon"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21"><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z"/></svg></span>
@@ -304,6 +309,7 @@
   <script src="main.js?v=48"></script>
   <script src="dock.js?v=48"></script>
   <script src="themepanel.js?v=48"></script>
+  <script src="keybinds.js?v=48"></script>
   <script src="setup.js?v=48"></script>
   <script src="keynav.js?v=48"></script>
   <script src="caret.js?v=48"></script>

@@ -82,7 +82,7 @@ test("a key is handled by the preview once, not twice", () => {
   assert.match(listen, /e\.stopPropagation\(\)/, "and stops the event, so nobody else acts on it");
   // And main.js must not ask again.
   const main = MAIN.slice(MAIN.indexOf('searchInput.addEventListener("keydown"'));
-  const head = main.slice(0, main.indexOf("if (e.altKey"));
+  const head = main.slice(0, main.indexOf("if (kbMatches(e, \"historyPrev\")"));
   assert.ok(!/handleKey/.test(head), "the search box must not handle it a second time");
 });
 

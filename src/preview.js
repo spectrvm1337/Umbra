@@ -1,4 +1,4 @@
-// File preview: hold Shift+Space for the selected row to open up into a card, Alt+Enter (or Shift+click, or the
+// File preview: hold Shift+Space for the selected row to open up into a card, Shift+Enter (or Shift+click, or the
 // context menu) for the full one. Which shape it takes is a setting, `overlay` or
 // `popup`.
 //
@@ -417,7 +417,7 @@ function pvPaint(id, item, mode, p) {
 
   // Nothing came back that can be shown. Rather than leave an empty panel
   // sitting over the list, close it and say so -- a file with no preview is not
-  // something to press Alt+Enter on twice.
+  // something to press the full preview key on twice.
   if (!pvHasContent(p)) {
     const name = item.name || p.path;
     pvClose();
@@ -534,21 +534,21 @@ function pvRunAction(action) {
 // reaching past the panel.
 function pvHandleKey(e) {
   const sp = window.UmbraSidePreview;
-  if (sp && sp.held() && e.key === " ") {
-    // The hold is Shift+Space; a repeat of it, or a Space after Shift came up, is not typing.
+  if (sp && sp.held() && kbIsBase(e, "previewHold")) {
+    // A repeat of the hold's key, or that key after a modifier came up, is not typing.
     e.preventDefault();
     return true;
   }
   if (!pvOpen) {
-    // Hold Shift+Space and the selected row opens up into a large card (sidepreview.js).
-    if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === " ") {
+    // Hold the expand keys (Shift+Space) and the selected row opens up into a large card (sidepreview.js).
+    if (kbMatches(e, "previewHold")) {
       if (sp && sp.hold(true)) {
         e.preventDefault();
         return true;
       }
       return false;
     }
-    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === "Enter") {
+    if (kbMatches(e, "previewFull")) {
       if (!pvAllowed(pvSelected())) return false;
       pvToggleFull(null, null);
       e.preventDefault();
@@ -579,7 +579,7 @@ function pvHandleKey(e) {
     return false;
   }
 
-  if (e.altKey && !e.ctrlKey && e.key === "Enter") {
+  if (kbMatches(e, "previewFull")) {
     pvClose();
     e.preventDefault();
     return true;

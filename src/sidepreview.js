@@ -382,8 +382,8 @@ function spSetHeld(on) {
 }
 const spRelease = () => spSetHeld(false);
 document.addEventListener("keyup", (e) => {
-  // Shift goes up before Space when the chord is typed fastest; Space alone also ends the hold.
-  if (e.key === " " || !e.shiftKey) spRelease();
+  // A modifier goes up before the key when the chord is typed fastest; either one ends the hold.
+  if (kbReleases(e, "previewHold")) spRelease();
 });
 window.addEventListener("blur", spRelease);
 document.addEventListener("visibilitychange", spRelease);

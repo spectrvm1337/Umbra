@@ -422,7 +422,7 @@ function applyHotkey(combo) {
     });
 }
 document.addEventListener("keyup", (e) => {
-  if (hotkeyCapturing) paintHotkeyHeld(e);
+  if (hotkeyCapturing && ["Control", "Alt", "Shift", "Meta"].includes(e.key)) paintHotkeyHeld(e);
 }, true);
 function applyZoom(z, save) {
   z = Math.max(0.5, Math.min(2, Math.round(z * 100) / 100));
@@ -2011,7 +2011,7 @@ function createResultItem(item, index, query) {
     // The player's own controls are not a click on the row.
     if (e.target.closest(".sp-body video, .sp-body iframe")) return;
     if (e.target.closest(".result-pin")) { togglePin(e.target.closest(".result-pin")); return; }
-    // Shift+click previews instead of opening. Alt+Enter is the keyboard route;
+    // Shift+click previews instead of opening. The full preview key is the keyboard route;
     // this is the mouse one. Nothing else in the app uses Shift+click, and
     // user-select is off globally, so there is nothing to collide with.
     if (e.shiftKey && window.UmbraPreview) {
@@ -2902,8 +2902,19 @@ async function performSearch(query) {
     console.error("Search error:", err);
   }
 }
-// What Enter does on a row: launch it; Ctrl+Shift runs it as admin, Shift copies the
-// path, Ctrl shows it in Explorer. Help rows fill the box and copy rows copy instead.
+// Runs a row as administrator, or shows it in Explorer. The keys for both are in Keybinds; a
+// click with Ctrl (Ctrl+Shift for admin) does the same.
+function activateItemAs(item, how) {
+  if (how === "admin") {
+    hideWindow();
+    invoke("launch_admin", { path: item.path })
+      .catch(() => console.error("Admin launch failed"));
+  } else {
+    invoke("reveal_in_explorer", { path: item.path }).catch((err) => console.warn("reveal failed:", err));
+    hideWindow();
+  }
+}
+// What Enter does on a row: launch it. Help rows fill the box and copy rows copy instead.
 function activateItem(item, mods = {}) {
   if (item.kind !== "help") rememberQuery();
   if (item.kind === "help") {
@@ -2924,15 +2935,11 @@ function activateItem(item, mods = {}) {
     item.run();
     return;
   }
-  if (mods.ctrlKey && mods.shiftKey) {
-    hideWindow();
-    invoke("launch_admin", { path: item.path })
-      .catch(() => console.error("Admin launch failed"));
-  } else if (mods.ctrlKey && !/^https?:/i.test(item.path)) {
-    invoke("reveal_in_explorer", { path: item.path }).catch((err) => console.warn("reveal failed:", err));
-    hideWindow();
-  } else if (mods.shiftKey) {
-    copyPath(item.path);
+  // The keyboard routes (Keybinds) are caught before Enter gets here; this is the mouse.
+  if (mods.type === "click" && mods.ctrlKey && mods.shiftKey) {
+    activateItemAs(item, "admin");
+  } else if (mods.type === "click" && mods.ctrlKey && !/^https?:/i.test(item.path)) {
+    activateItemAs(item, "reveal");
   } else {
     launchItem(item.path);
   }
@@ -2968,18 +2975,16 @@ document.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => showRowShortcuts(false));
 searchInput.addEventListener("keydown", (e) => {
-  // Shift+Space peeks and Alt+Enter opens the full preview, but preview.js owns
-  // those keys itself: it listens on the document in the capture phase, which
-  // runs before this handler and stops the event when it claims it. Delegating
-  // here as well would mean every key was handled twice -- Alt+Enter would open
-  // the panel and close it again in the same tick.
-  if (e.altKey && !e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+  // Expanding a result and the full preview are preview.js's keys: it listens on the document in
+  // the capture phase, which runs before this handler and stops the event when it claims it.
+  // Delegating here as well would mean every key was handled twice -- the full preview would open
+  // and close again in the same tick.
+  if (kbMatches(e, "historyPrev") || kbMatches(e, "historyNext")) {
     e.preventDefault();
-    stepQueryHistory(e.key === "ArrowUp" ? 1 : -1);
+    stepQueryHistory(kbMatches(e, "historyPrev") ? 1 : -1);
     return;
   }
-  // Ctrl+1..9 runs row N; Ctrl+P pins or unpins the selected row (and keeps
-  // WebView2's print dialog away).
+  // Ctrl+1..9 runs row N.
   if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && settingsSection.classList.contains("hidden")) {
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (digit) {
@@ -2990,10 +2995,23 @@ searchInput.addEventListener("keydown", (e) => {
       if (onScreen && selectableItems[n]) activateItem(selectableItems[n]);
       return;
     }
-    if (e.code === "KeyP") {
+  }
+  // Keeps WebView2's print dialog away even if Ctrl+P is no longer the pin key.
+  if (e.ctrlKey && !e.altKey && e.code === "KeyP") e.preventDefault();
+  if (settingsSection.classList.contains("hidden")) {
+    const item = selectableItems[selectedIndex];
+    const real = item && item.path && !["help", "copy", "open", "font"].includes(item.kind);
+    if (kbMatches(e, "pin")) {
       e.preventDefault();
-      const item = selectableItems[selectedIndex];
-      if (item && item.path && !["help", "copy", "open", "font"].includes(item.kind)) setItemPinned(item, !isPinned(item.path));
+      if (real) setItemPinned(item, !isPinned(item.path));
+      return;
+    }
+    const how = kbMatches(e, "admin") ? "admin" : kbMatches(e, "reveal") ? "reveal" : "";
+    // A link has no folder to show, so it just opens.
+    if (how && real && !(how === "reveal" && /^https?:/i.test(item.path))) {
+      e.preventDefault();
+      rememberQuery();
+      activateItemAs(item, how);
       return;
     }
   }

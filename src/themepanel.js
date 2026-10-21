@@ -8,6 +8,9 @@ const TP_RESERVE = 496;
 
 const themePanel = document.getElementById("theme-panel");
 const themeRow = document.getElementById("setting-theme-row");
+const keysRow = document.getElementById("setting-keys-row");
+// The card holds one of two views, Appearance or Keybinds; the window's room and animation are shared.
+let tpView = "theme";
 let tpSide = null; // "left" | "right" while the window is wide enough for the panel
 let tpApplied = 0; // the room the window has been given for it, zoom included
 let tpWanted = false;
@@ -50,8 +53,22 @@ function applyThemePanel() {
   return tpChain;
 }
 
+function paintPanelRows() {
+  themeRow.classList.toggle("open", tpWanted && tpView === "theme");
+  keysRow.classList.toggle("open", tpWanted && tpView === "keys");
+}
+
+// A row opens its view; the same row again closes the panel, the other row swaps the view in place.
+function togglePanelView(view) {
+  if (tpWanted && tpView === view) return setThemePanel(false);
+  tpView = view;
+  themePanel.dataset.view = view;
+  themePanel.setAttribute("aria-label", view === "keys" ? "Keybinds" : "Appearance");
+  return setThemePanel(true);
+}
+
 async function runThemePanel() {
-  themeRow.classList.toggle("open", tpWanted);
+  paintPanelRows();
   const side = tpWanted ? (dockSide === "right" ? "left" : "right") : null;
   if (side === tpSide) return;
   if (tpSide) await closeThemePanel();
@@ -115,6 +132,7 @@ function resetThemePanelNow() {
   tpWanted = false;
   tpChain = tpChain.then(async () => {
     themeRow.classList.remove("open");
+    keysRow.classList.remove("open");
     if (!tpSide) return;
     const before = sidesLeftExtra();
     themePanel.classList.remove("show");
@@ -127,7 +145,8 @@ function resetThemePanelNow() {
   return tpChain;
 }
 
-themeRow.addEventListener("click", () => setThemePanel(!tpWanted));
+themeRow.addEventListener("click", () => togglePanelView("theme"));
+keysRow.addEventListener("click", () => togglePanelView("keys"));
 // Whichever way the settings close (the gear, Esc, typing a search, the window hiding), the panel goes too.
 new MutationObserver(() => {
   if (tpWanted && settingsSection.classList.contains("hidden")) setThemePanel(false);

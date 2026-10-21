@@ -35,8 +35,8 @@ function knRows() {
   const rows = [...settingsSection.querySelectorAll(".settings-row")].filter(usable);
   // The theme panel's rows come right after the row that opens it.
   if (document.documentElement.dataset.tp) {
-    const panel = [...document.querySelectorAll("#theme-card .settings-row")].filter(usable);
-    const at = rows.indexOf(document.getElementById("setting-theme-row"));
+    const panel = [...document.querySelectorAll("#theme-card .settings-row, #keys-card .settings-row")].filter(usable);
+    const at = rows.indexOf(document.getElementById(tpView === "keys" ? "setting-keys-row" : "setting-theme-row"));
     rows.splice(at < 0 ? rows.length : at + 1, 0, ...panel);
   }
   return rows;
@@ -47,7 +47,7 @@ function knControls(row) {
 }
 
 function knPaintSettings() {
-  knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
+  knClear("#settings-section .kbd-focus, #theme-card .kbd-focus, #keys-card .kbd-focus");
   const row = knRows()[knRow];
   if (!row) return;
   row.classList.add("kbd-focus");
@@ -212,11 +212,9 @@ function knDockKey(e) {
       return true;
     case "Enter": {
       const path = tiles[knDock].dataset.path;
-      if (e.ctrlKey && e.shiftKey) {
+      if (kbMatches(e, "admin")) {
         hideWindow();
         invoke("launch_admin", { path }).catch(() => console.error("Admin launch failed"));
-      } else if (e.shiftKey) {
-        copyPath(path);
       } else {
         launchItem(path);
       }
@@ -279,7 +277,7 @@ function knInit() {
   }).observe(contextMenu, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(() => {
     knRow = knCtrl = -1;
-    knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
+    knClear("#settings-section .kbd-focus, #theme-card .kbd-focus, #keys-card .kbd-focus");
   }).observe(settingsSection, { attributes: true, attributeFilter: ["class"] });
   searchInput.addEventListener("input", () => knLeaveDock(false));
   // The mouse takes over: drop the keyboard highlight it would compete with.
@@ -290,7 +288,7 @@ function knInit() {
   for (const area of [settingsSection, document.getElementById("theme-panel")]) {
     area.addEventListener("mousedown", () => {
       knRow = knCtrl = -1;
-      knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
+      knClear("#settings-section .kbd-focus, #theme-card .kbd-focus, #keys-card .kbd-focus");
     });
   }
   window.__TAURI__.event.listen("window-shown", knReset);

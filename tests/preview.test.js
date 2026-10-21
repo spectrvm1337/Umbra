@@ -117,6 +117,8 @@ function load(overrides = {}) {
   Object.assign(sandbox, overrides);
 
   const ctx = vm.createContext(sandbox);
+  // The keys are asked of the registry, so it is loaded the way the page loads it.
+  vm.runInContext(readFileSync(new URL("../src/keybinds.js", import.meta.url), "utf8"), ctx);
   vm.runInContext(readFileSync(new URL("../src/preview.js", import.meta.url), "utf8"), ctx);
   if (savedReady) savedReady();
 
@@ -132,9 +134,16 @@ function panelOf(sandbox) {
 const FILE = { path: "C:\\x\\report.docx", name: "report.docx", kind: "document" };
 const TEXTFILE = { path: "C:\\x\\notes.txt", name: "notes.txt", kind: "document" };
 
+// The registry matches by code, so the fake event carries the one the key has.
+function codeOf(key) {
+  if (key === " ") return "Space";
+  if (/^[a-z]$/i.test(key)) return "Key" + key.toUpperCase();
+  return key;
+}
 function ev(key, mods = {}) {
   return {
     key,
+    code: codeOf(key),
     shiftKey: false,
     ctrlKey: false,
     altKey: false,
@@ -182,13 +191,13 @@ test("Shift+Space does nothing when there is nothing to preview", () => {
   assert.equal(P.isOpen(), false);
 });
 
-test("Alt+Enter opens the full preview and Enter is then claimed by it", () => {
+test("Shift+Enter opens the full preview and Enter is then claimed by it", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
   sandbox.selectedIndex = 0;
 
-  const altEnter = ev("Enter", { altKey: true });
-  assert.equal(P.handleKey(altEnter), true);
+  const fullKey = ev("Enter", { shiftKey: true });
+  assert.equal(P.handleKey(fullKey), true);
   assert.equal(P.isOpen(), true);
 
   // A bare Enter would launch the file in main.js; with the panel up it must not
@@ -198,20 +207,20 @@ test("Alt+Enter opens the full preview and Enter is then claimed by it", () => {
   assert.equal(plainEnter.defaultPrevented, true);
 });
 
-test("Alt+Enter twice closes the full preview", () => {
+test("Shift+Enter twice closes the full preview", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
   sandbox.selectedIndex = 0;
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   assert.equal(P.isOpen(), true);
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   assert.equal(P.isOpen(), false);
 });
 
 test("Escape closes the full preview", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   const esc = ev("Escape");
   P.handleKey(esc);
   assert.equal(P.isOpen(), false);
@@ -222,7 +231,7 @@ test("arrows scroll the full preview only when it has somewhere to scroll", () =
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE, TEXTFILE];
   sandbox.selectedIndex = 0;
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   const down = ev("ArrowDown");
   // Nothing to scroll in the fake body, so the key must reach the list rather
   // than be swallowed by a panel that was not going to move.
@@ -234,7 +243,7 @@ test("arrows are claimed when the preview is taller than its box", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
   sandbox.selectedIndex = 0;
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   // Make the body taller than the frame, as a long document would be.
   const body = sandbox.document.getElementById("preview-panel").querySelector(".pv-body");
   body.scrollHeight = 900;
@@ -248,7 +257,7 @@ test("arrows are claimed when the preview is taller than its box", () => {
 test("typing while the full preview is open closes it and gets through", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   assert.equal(P.isOpen(), true);
   // Opening a preview must never trap the user in it.
   assert.equal(P.handleKey(ev("a")), false, "the character has to reach the search box");
@@ -258,7 +267,7 @@ test("typing while the full preview is open closes it and gets through", () => {
 test("modified keys are not mistaken for typing", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   // Ctrl+P pins; the panel must not close itself on the way past.
   assert.equal(P.handleKey(ev("p", { ctrlKey: true })), true);
   assert.equal(P.isOpen(), true);
@@ -267,7 +276,7 @@ test("modified keys are not mistaken for typing", () => {
 test("Ctrl+C and Ctrl+A reach the page, so the panel's text can be copied", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   assert.equal(P.isOpen(), true);
 
   // Not claimed: the document-level listener only calls preventDefault on keys
@@ -292,7 +301,7 @@ test("programs, folders and system entries are never previewable", () => {
     sandbox.selectableItems = [{ path: "C:\\x\\thing", name: "thing", kind }];
     sandbox.selectedIndex = 0;
     assert.equal(P.handleKey(ev(" ", { shiftKey: true })), false, `${kind} must not open a panel`);
-    assert.equal(P.handleKey(ev("Enter", { altKey: true })), false, `${kind} must not open a panel`);
+    assert.equal(P.handleKey(ev("Enter", { shiftKey: true })), false, `${kind} must not open a panel`);
     assert.equal(P.isOpen(), false, `${kind} left a panel open`);
   }
 });
@@ -311,7 +320,7 @@ test("settings and the context menu suppress previews", () => {
 test("the close button closes, like Escape", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   assert.equal(P.isOpen(), true);
   P.openFull(null, { x: 10, y: 10 });
   P.handleKey(ev("Escape"));
@@ -321,7 +330,7 @@ test("the close button closes, like Escape", () => {
 test("the panel is position:fixed above everything", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
   const block = css.slice(css.indexOf("#preview-panel {"), css.indexOf("#preview-panel.pv-hidden"));
   assert.match(block, /position:\s*fixed/, "must be fixed, or the animated container traps it");
@@ -333,7 +342,7 @@ test("the panel is position:fixed above everything", () => {
 test("the panel is appended to the body, not into the animated container", () => {
   const { P, sandbox, body } = load();
   sandbox.selectableItems = [FILE];
-  P.handleKey(ev("Enter", { altKey: true }));
+  P.handleKey(ev("Enter", { shiftKey: true }));
   // #app-container is transformed and filtered while the window animates, which
   // makes it the containing block for anything positioned inside -- that is how
   // the panel ended up behind the list with clicks going through to it.

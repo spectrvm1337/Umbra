@@ -150,6 +150,8 @@ fn main() {
             commands::get_autostart,
             commands::set_autostart,
             commands::finish_setup,
+            commands::get_keybinds,
+            commands::set_keybinds,
             commands::get_preview_style,
             commands::set_preview_style,
             commands::get_theme,

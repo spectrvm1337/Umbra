@@ -62,6 +62,11 @@ pub struct Config {
     /// a theme one, so it lives here rather than in `ThemeConfig`.
     #[serde(default = "default_preview_style")]
     pub preview_style: String,
+
+    /// Key combinations the user has changed in Settings > Keybinds, by action id. An action that
+    /// is not here keeps the default the frontend declares; the global hotkey has its own field.
+    #[serde(default)]
+    pub keybinds: std::collections::BTreeMap<String, String>,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -85,6 +90,7 @@ impl Default for Config {
             autostart: false,
             setup_done: false,
             preview_style: default_preview_style(),
+            keybinds: Default::default(),
         }
     }
 }
@@ -457,6 +463,29 @@ pub fn set_language(lang: String) -> String {
     update(|c| c.language = clean.clone());
     clean
 }
+pub fn get_keybinds() -> std::collections::BTreeMap<String, String> {
+    read(|c| c.keybinds.clone())
+}
+/// Stores the changed combinations. Ids and combinations are short plain strings; anything else
+/// (a hand-edited or oversized map) is dropped rather than kept.
+pub fn set_keybinds(map: std::collections::BTreeMap<String, String>) -> std::collections::BTreeMap<String, String> {
+    let clean = clean_keybinds(map);
+    update(|c| c.keybinds = clean.clone());
+    clean
+}
+fn clean_keybinds(map: std::collections::BTreeMap<String, String>) -> std::collections::BTreeMap<String, String> {
+    map.into_iter()
+        .filter(|(k, v)| {
+            !k.is_empty()
+                && k.len() <= 32
+                && !v.is_empty()
+                && v.len() <= 40
+                && k.chars().all(|c| c.is_ascii_alphanumeric())
+                && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '+')
+        })
+        .take(64)
+        .collect()
+}
 pub fn get_setup_done() -> bool {
     read(|c| c.setup_done)
 }
@@ -604,6 +633,22 @@ pub fn set_drive_enabled(drive: &str, enabled: bool) -> Vec<String> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn keybinds_keep_only_plain_ids_and_combinations() {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("previewFull".to_string(), "Ctrl+Shift+F".to_string());
+        m.insert("bad id".to_string(), "Ctrl+A".to_string());
+        m.insert("pin".to_string(), "Ctrl+<script>".to_string());
+        m.insert("reveal".to_string(), String::new());
+        let clean = super::clean_keybinds(m);
+        assert_eq!(clean.len(), 1);
+        assert_eq!(clean["previewFull"], "Ctrl+Shift+F");
+    }
+    #[test]
+    fn a_config_without_keybinds_has_none() {
+        let cfg: super::Config = serde_json::from_str("{}").unwrap();
+        assert!(cfg.keybinds.is_empty());
+    }
     use super::*;
     #[test]
     fn default_excludes_keep_ordinary_folder_names_searchable() {

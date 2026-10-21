@@ -1613,7 +1613,8 @@ html[data-tp] #theme-panel.show {
   transform: none;
   transition: opacity var(--t-fade, 0.2s) ease, transform var(--t-move, 0.32s) var(--ease-out-apple), visibility 0s;
 }
-#theme-card {
+#theme-card,
+#keys-card {
   flex: 0 1 auto;
   max-height: 100%;
   overflow-y: auto;
@@ -1621,14 +1622,63 @@ html[data-tp] #theme-panel.show {
   scrollbar-color: var(--card-hover) transparent;
 }
 /* The card scrolls when the window is not tall enough; its rows keep their height. */
-#theme-card > * {
+#theme-card > *,
+#keys-card > * {
   flex-shrink: 0;
 }
-#setting-theme-row .exclude-chevron {
+#theme-panel[data-view="keys"] #theme-card,
+#theme-panel:not([data-view="keys"]) #keys-card {
+  display: none;
+}
+#setting-theme-row .exclude-chevron,
+#setting-keys-row .exclude-chevron {
   margin-left: auto;
 }
-#setting-theme-row.open .exclude-chevron {
+#setting-theme-row.open .exclude-chevron,
+#setting-keys-row.open .exclude-chevron {
   transform: rotate(180deg);
+}
+/* Keybinds view (keybinds.js): a row per action, its keys as keycaps on the right. */
+#keys-card .settings-label {
+  flex: 1 1 auto;
+}
+.kb-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+}
+.kb-row .kb-reset {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background var(--t-color, 0.14s) ease, color var(--t-color, 0.14s) ease;
+}
+.kb-row.changed .kb-reset {
+  display: flex;
+}
+.kb-row .kb-reset:hover {
+  background: var(--card-hover);
+  color: var(--text);
+}
+.kb-fixed {
+  opacity: 0.7;
+}
+.kb-footer {
+  justify-content: flex-end;
+}
+.kb-row.capturing {
+  animation: hk-ring 1.5s ease-out infinite;
 }
 /* The card is wide enough for every row on one line; the font row, which grows with the fonts added
    with !font, puts its choices on a line of their own. The card's own padding comes from

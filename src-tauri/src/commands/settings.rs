@@ -84,6 +84,14 @@ pub fn set_autostart(enable: bool) -> bool {
     autostart::set_enabled(enable);
     autostart::is_enabled()
 }
+#[tauri::command]
+pub fn get_keybinds() -> std::collections::BTreeMap<String, String> {
+    config::get_keybinds()
+}
+#[tauri::command]
+pub fn set_keybinds(map: std::collections::BTreeMap<String, String>) -> std::collections::BTreeMap<String, String> {
+    config::set_keybinds(map)
+}
 /// The first-run setup was finished or skipped.
 #[tauri::command]
 pub fn finish_setup() {

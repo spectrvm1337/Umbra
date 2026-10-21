@@ -1674,9 +1674,6 @@ html[data-tp] #theme-panel.show {
 .kb-fixed {
   opacity: 0.7;
 }
-.kb-footer {
-  justify-content: flex-end;
-}
 .kb-row.capturing {
   animation: hk-ring 1.5s ease-out infinite;
 }

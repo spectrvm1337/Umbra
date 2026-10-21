@@ -105,7 +105,9 @@ async function closeThemePanel() {
   const side = tpSide;
   const animated = tpAnimated();
   themePanel.classList.remove("show");
-  if (animated) await tpSleep(160);
+  // The card fades and slides out whatever state the window is in (only the user's motion setting
+  // switches that off); the window shrinks once it is gone.
+  if (!motionOff()) await tpSleep(220);
   const before = sidesLeftExtra();
   if (side === "left" && animated) {
     // The window shrinks from the left, which moves the card; it is hidden meanwhile.

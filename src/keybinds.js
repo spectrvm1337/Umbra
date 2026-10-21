@@ -8,6 +8,8 @@
 // Super, then the key -- a letter, a digit, F1-F12, Space, Enter or an arrow. Keys are matched by
 // code, so a Russian layout reaches the same Ctrl+P as an English one.
 
+// The global hotkey, registered in Rust; the row for it offers a reset once it is anything else.
+const KB_DEFAULT_HOTKEY = "Alt+Space";
 const KB_ACTIONS = [
   { id: "previewHold", def: "Shift+Space", label: "kbPreviewHold" },
   { id: "previewFull", def: "Shift+Enter", label: "kbPreviewFull" },
@@ -124,13 +126,12 @@ function kbRowHtml(id, label, extra) {
 function kbBuild() {
   const reset = '<button class="kb-reset" type="button" tabindex="-1" data-tip="' + escapeHtml(kbT("kbReset")) + '"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg></button>';
   kbCard.innerHTML =
-    kbRowHtml("hotkey", kbT("kbGlobal"), "") +
+    kbRowHtml("hotkey", kbT("kbGlobal"), reset) +
     KB_ACTIONS.map((a) => kbRowHtml(a.id, kbT(a.label), reset)).join("") +
     KB_FIXED.map(([label, keys]) =>
       '<div class="settings-row kb-fixed"><span class="settings-label">' + escapeHtml(kbT(label)) + '</span><span class="settings-value kb-keys">' +
       kbKeysHtml(keys) + "</span></div>"
-    ).join("") +
-    '<div class="settings-row kb-footer"><button class="settings-text-btn" id="kb-reset-all" type="button">' + escapeHtml(kbT("kbResetAll")) + "</button></div>";
+    ).join("");
   kbPaint();
 }
 
@@ -150,6 +151,7 @@ function kbPaintGlobal() {
   const row = kbCard && kbCard.querySelector('[data-kb="hotkey"]');
   if (!row) return;
   row.classList.toggle("capturing", settingHotkeyRow.classList.contains("capturing"));
+  row.classList.toggle("changed", String(currentHotkey).toLowerCase() !== KB_DEFAULT_HOTKEY.toLowerCase());
   row.querySelector(".kb-keys").innerHTML = settingHotkeyValue.innerHTML;
 }
 // The right-click menu names the keys of what it offers.
@@ -224,17 +226,15 @@ async function kbInit() {
   kbCard.addEventListener("click", (e) => {
     const reset = e.target.closest(".kb-reset");
     const row = e.target.closest("[data-kb]");
-    if (e.target.closest("#kb-reset-all")) {
-      kbStop();
-      kbMap = {};
-      kbSave();
-      return;
-    }
     if (!row) return;
     const id = row.dataset.kb;
     if (reset) {
       e.stopPropagation();
       kbStop();
+      if (id === "hotkey") {
+        applyHotkey(KB_DEFAULT_HOTKEY);
+        return;
+      }
       delete kbMap[id];
       kbSave();
       return;

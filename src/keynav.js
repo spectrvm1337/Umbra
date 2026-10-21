@@ -31,7 +31,15 @@ function knReset() {
 // ---- settings ----
 
 function knRows() {
-  return [...settingsSection.querySelectorAll(".settings-row")].filter((r) => !r.closest("#content-menu") && knVisible(r));
+  const usable = (r) => !r.closest("#content-menu") && knVisible(r);
+  const rows = [...settingsSection.querySelectorAll(".settings-row")].filter(usable);
+  // The theme panel's rows come right after the row that opens it.
+  if (document.documentElement.dataset.tp) {
+    const panel = [...document.querySelectorAll("#theme-card .settings-row")].filter(usable);
+    const at = rows.indexOf(document.getElementById("setting-theme-row"));
+    rows.splice(at < 0 ? rows.length : at + 1, 0, ...panel);
+  }
+  return rows;
 }
 
 function knControls(row) {
@@ -39,7 +47,7 @@ function knControls(row) {
 }
 
 function knPaintSettings() {
-  knClear("#settings-section .kbd-focus");
+  knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
   const row = knRows()[knRow];
   if (!row) return;
   row.classList.add("kbd-focus");
@@ -271,7 +279,7 @@ function knInit() {
   }).observe(contextMenu, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(() => {
     knRow = knCtrl = -1;
-    knClear("#settings-section .kbd-focus");
+    knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
   }).observe(settingsSection, { attributes: true, attributeFilter: ["class"] });
   searchInput.addEventListener("input", () => knLeaveDock(false));
   // The mouse takes over: drop the keyboard highlight it would compete with.
@@ -279,10 +287,12 @@ function knInit() {
     knMenu = -1;
     knClear("#context-menu .kbd-focus");
   });
-  settingsSection.addEventListener("mousedown", () => {
-    knRow = knCtrl = -1;
-    knClear("#settings-section .kbd-focus");
-  });
+  for (const area of [settingsSection, document.getElementById("theme-panel")]) {
+    area.addEventListener("mousedown", () => {
+      knRow = knCtrl = -1;
+      knClear("#settings-section .kbd-focus, #theme-card .kbd-focus");
+    });
+  }
   window.__TAURI__.event.listen("window-shown", knReset);
 }
 

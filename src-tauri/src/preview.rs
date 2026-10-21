@@ -215,7 +215,13 @@ pub fn build_preview(path: &str, thumb_size: u32) -> Preview {
     }
 
     if wants_thumbnail(&pv.kind) {
-        if let Some((png, w, h)) = thumbnail(path, thumb_size) {
+        // A shortcut's own icon carries the arrow overlay; the program it opens has the real one.
+        let source = if ext == "lnk" {
+            crate::icons::resolve_lnk_target(path).unwrap_or_else(|| path.to_string())
+        } else {
+            path.to_string()
+        };
+        if let Some((png, w, h)) = thumbnail(&source, thumb_size) {
             use base64::Engine as _;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
             pv.thumb = Some(format!("data:image/png;base64,{b64}"));

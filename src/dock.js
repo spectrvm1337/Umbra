@@ -15,8 +15,15 @@ let dockEl = null;
 let dockDragging = false;
 let resultsDragSortable = null;
 
+// What the window is wider than the search panel: the dock, plus the theme panel while it is open
+// (themepanel.js).
 function dockExtraWidth() {
-  return dockSide ? DOCK_RESERVE : 0;
+  const panel = typeof tpExtraWidth === "function" ? tpExtraWidth() : 0;
+  return (dockSide ? DOCK_RESERVE : 0) + panel;
+}
+function sidesLeftExtra() {
+  const panel = typeof tpLeftExtra === "function" ? tpLeftExtra() : 0;
+  return (dockSide === "left" ? DOCK_RESERVE : 0) + panel;
 }
 
 function dockNameFromPath(path) {
@@ -239,11 +246,20 @@ function ensureDock() {
 // Grow or shrink the window by the dock's width, keeping the search panel where it is on screen.
 // Size and position go to Rust in one call (a dock on the left grows the window leftwards), so
 // there is no frame with the new width and the old position.
+function resizeWindowSides(leftBefore) {
+  const shiftX = leftBefore === undefined ? 0 : sidesLeftExtra() - leftBefore;
+  const panel = typeof tpExtraWidth === "function" ? tpExtraWidth() : 0;
+  return invoke("resize_main_window", {
+    width: mainLogicalW + dockExtraWidth(),
+    height: mainLogicalH,
+    shiftX,
+    panelWidth: panel,
+    panelLeft: typeof tpSide !== "undefined" && tpSide === "left",
+  }).catch(() => {});
+}
 function resizeForDock(before) {
-  const leftBefore = before === "left" ? DOCK_RESERVE : 0;
-  const leftNow = dockSide === "left" ? DOCK_RESERVE : 0;
-  const shiftX = before === undefined ? 0 : leftNow - leftBefore;
-  return invoke("resize_main_window", { width: mainLogicalW + dockExtraWidth(), height: mainLogicalH, shiftX }).catch(() => {});
+  const panelLeft = typeof tpLeftExtra === "function" ? tpLeftExtra() : 0;
+  return resizeWindowSides(before === undefined ? undefined : (before === "left" ? DOCK_RESERVE : 0) + panelLeft);
 }
 
 // Resolves once the webview has actually taken the new width (or after a moment): the layout
@@ -313,6 +329,8 @@ function applyDock() {
         if (myId !== dockApplyId) return;
         dockPending = false;
         commit();
+        // The panel sits on the side the dock is not on.
+        if (typeof applyThemePanel === "function") applyThemePanel();
         requestAnimationFrame(() => requestAnimationFrame(() => {
           appContainer.classList.remove("dock-switching");
           playPinsAppear(side);

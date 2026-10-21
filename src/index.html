@@ -66,6 +66,10 @@
         </div>
         <div id="settings-section" class="section hidden">
           <div class="special-card settings-card">
+            <div class="settings-row interactive" id="setting-theme-row" data-i18n-tip="appearanceTip" data-tip="Colours, shape, font and motion open in a panel beside the window">
+              <span class="settings-label" data-i18n="lblAppearance">Appearance</span>
+              <span class="exclude-chevron">›</span>
+            </div>
             <div class="settings-row">
               <span class="settings-label" data-i18n="lblLanguage">Language</span>
               <div class="seg-row" id="language-seg">
@@ -92,125 +96,11 @@
               <div class="seg-row" id="monitor-buttons"></div>
             </div>
             <div class="settings-row">
-              <span class="settings-label" data-i18n="lblZoom">Zoom</span>
-              <div class="zoom-stepper">
-                <button id="setting-zoom-minus" class="stepper-btn">−</button>
-                <span id="setting-zoom-val">1.00</span>
-                <button id="setting-zoom-plus" class="stepper-btn">+</button>
-              </div>
-            </div>
-            <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
-              <span class="settings-label" data-i18n="lblFollowSystem">Match Windows</span>
-              <span class="toggle" id="setting-system"><span class="toggle-knob"></span></span>
-            </div>
-            <div class="settings-row dep-row" id="row-presets">
-              <span class="settings-label" data-i18n="lblPresets">Theme Presets</span>
-              <div class="swatch-row" id="theme-presets"></div>
-            </div>
-            <div class="settings-row theme-dependent dep-row" id="row-accent">
-              <span class="settings-label" data-i18n="lblAccent">Accent Color</span>
-              <div class="swatch-row" id="accent-swatches"></div>
-              <button id="accent-custom" class="swatch-custom" data-i18n-tip="customAccentTip" data-tip="Custom accent"></button>
-            </div>
-            <div class="settings-row theme-dependent dep-row" id="row-bg">
-              <span class="settings-label" data-i18n="lblBg">Background Color</span>
-              <div class="swatch-row" id="bg-swatches"></div>
-              <button id="bg-custom" class="swatch-custom" data-i18n-tip="customBgTip" data-tip="Custom background"></button>
-            </div>
-            <div class="settings-row theme-dependent" id="row-opacity">
-              <span class="settings-label" data-i18n="lblOpacity">Opacity</span>
-              <div class="zoom-stepper">
-                <button id="setting-alpha-minus" class="stepper-btn">−</button>
-                <span id="setting-alpha-val">100%</span>
-                <button id="setting-alpha-plus" class="stepper-btn">+</button>
-              </div>
-            </div>
-            <div class="settings-row theme-dependent" id="row-radius">
-              <span class="settings-label" data-i18n="lblRadius">Corner Radius</span>
-              <div class="zoom-stepper">
-                <button id="setting-radius-minus" class="stepper-btn">−</button>
-                <span id="setting-radius-val">12</span>
-                <button id="setting-radius-plus" class="stepper-btn">+</button>
-              </div>
-            </div>
-            <div class="settings-row interactive" id="setting-border-row">
-              <span class="settings-label" data-i18n="lblBorder">Card Border</span>
-              <div class="row-extras dep-extras" id="border-extras">
-                <div class="zoom-stepper">
-                  <button id="setting-borderw-minus" class="stepper-btn">−</button>
-                  <span id="setting-borderw-val">1</span>
-                  <button id="setting-borderw-plus" class="stepper-btn">+</button>
-                </div>
-                <div class="seg-row" id="border-pos-seg">
-                  <button class="seg-btn" data-pos="inner" data-i18n-tip="borderInnerTip" data-i18n="borderInner">Inner</button>
-                  <button class="seg-btn" data-pos="outer" data-i18n-tip="borderOuterTip" data-i18n="borderOuter">Outer</button>
-                </div>
-                <button id="border-custom" class="swatch-custom" data-i18n-tip="customBorderTip" data-tip="Border colour"></button>
-              </div>
-              <span class="toggle" id="setting-border"><span class="toggle-knob"></span></span>
-            </div>
-            <div class="settings-row">
-              <span class="settings-label" data-i18n="lblGlow">Glow Effect</span>
-              <div class="row-extras dep-extras" id="glow-extras">
-                <div class="zoom-stepper">
-                  <button id="setting-glow-minus" class="stepper-btn">−</button>
-                  <span id="setting-glow-val">off</span>
-                  <button id="setting-glow-plus" class="stepper-btn">+</button>
-                </div>
-                <button id="glow-custom" class="swatch-custom" data-i18n-tip="customGlowTip" data-tip="Glow colour"></button>
-              </div>
-              <span class="toggle" id="setting-glow"><span class="toggle-knob"></span></span>
-            </div>
-            <div class="settings-row interactive" id="setting-anim-row" data-i18n-tip="animTip" data-tip="Pick what moves. Everything stays where it is; only the motion is dropped">
-              <span class="settings-label" data-i18n="lblAnim">Animations</span>
-              <span class="settings-value" id="setting-anim-count">…</span>
-              <span class="exclude-chevron">›</span>
-            </div>
-            <div id="anim-menu">
-              <div class="ms-head" id="anim-head">…</div>
-              <div id="anim-groups"></div>
-            </div>
-            <div class="settings-row">
-              <span class="settings-label" data-i18n="lblDensity">Density</span>
-              <div class="seg-row" id="density-seg">
-                <button class="seg-btn" data-density="full" data-i18n-tip="densityFullTip" data-i18n="densityFull">Full</button>
-                <button class="seg-btn" data-density="compact-results" data-i18n-tip="densityCompactResultsTip" data-i18n="densityCompactResults">Compact</button>
-                <button class="seg-btn" data-density="compact-full" data-i18n-tip="densityCompactFullTip" data-i18n="densityCompactFull">All</button>
-              </div>
-            </div>
-            <div class="settings-row">
-              <span class="settings-label" data-i18n="lblFont">Font</span>
-              <div class="seg-row" id="font-seg">
-                <button class="seg-btn" data-font="wix" data-tip="Wix Madefor Display">Wix</button>
-                <button class="seg-btn" data-font="sn-pro">SN Pro</button>
-                <button class="seg-btn" data-font="montserrat" data-tip="Montserrat Alternates">Montserrat</button>
-              </div>
-            </div>
-            <div class="settings-row theme-dependent" id="row-gap">
-              <span class="settings-label" data-i18n="lblGap">Row Spacing</span>
-              <div class="zoom-stepper">
-                <button id="setting-gap-minus" class="stepper-btn">&minus;</button>
-                <span id="setting-gap-val">12</span>
-                <button id="setting-gap-plus" class="stepper-btn">+</button>
-              </div>
-            </div>
-            <div class="settings-row">
               <span class="settings-label" data-i18n="lblPinsStyle">Favorites</span>
               <div class="seg-row" id="pins-style-seg">
                 <button class="seg-btn" data-pins="list" data-i18n-tip="pinsListTip" data-i18n="pinsList">List</button>
                 <button class="seg-btn" data-pins="left" data-i18n-tip="pinsLeftTip" data-i18n="pinsLeft">Left</button>
                 <button class="seg-btn" data-pins="right" data-i18n-tip="pinsRightTip" data-i18n="pinsRight">Right</button>
-              </div>
-            </div>
-            <div class="settings-row interactive" id="setting-tall-row" data-i18n-tip="tallResultsTip" data-tip="The list runs down to the bottom of the screen instead of stopping at the window's height">
-              <span class="settings-label" data-i18n="lblTallResults">Results to screen bottom (experimental)</span>
-              <span class="toggle" id="setting-tall"><span class="toggle-knob"></span></span>
-            </div>
-            <div class="settings-row" id="row-preview">
-              <span class="settings-label" data-i18n="lblPreview">Preview</span>
-              <div class="seg-row" id="preview-style-seg">
-                <button class="seg-btn" data-preview="overlay" data-i18n-tip="previewOverlayTip" data-tip="Shift+Space for a quick card at the pointer. This setting is for Alt+Enter: Overlay sits over the results area" data-i18n="previewOverlay">Overlay</button>
-                <button class="seg-btn" data-preview="popup" data-i18n-tip="previewPopupTip" data-tip="Shift+Space for a quick card at the pointer. This setting is for Alt+Enter: Popup sits at the pointer" data-i18n="previewPopup">Popup</button>
               </div>
             </div>
             <div class="settings-row interactive" id="setting-exclude-row">
@@ -252,6 +142,121 @@
       </div>
       <div id="custom-scrollbar" aria-hidden="true"><div id="custom-thumb"></div></div>
     </div>
+  <div id="theme-panel" aria-label="Appearance">
+    <div class="special-card settings-card" id="theme-card">
+                <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
+                  <span class="settings-label" data-i18n="lblFollowSystem">Match Windows</span>
+                  <span class="toggle" id="setting-system"><span class="toggle-knob"></span></span>
+                </div>
+                <div class="settings-row dep-row" id="row-presets">
+                  <span class="settings-label" data-i18n="lblPresets">Theme Presets</span>
+                  <div class="swatch-row" id="theme-presets"></div>
+                </div>
+                <div class="settings-row theme-dependent dep-row" id="row-accent">
+                  <span class="settings-label" data-i18n="lblAccent">Accent Color</span>
+                  <div class="swatch-row" id="accent-swatches"></div>
+                  <button id="accent-custom" class="swatch-custom" data-i18n-tip="customAccentTip" data-tip="Custom accent"></button>
+                </div>
+                <div class="settings-row theme-dependent dep-row" id="row-bg">
+                  <span class="settings-label" data-i18n="lblBg">Background Color</span>
+                  <div class="swatch-row" id="bg-swatches"></div>
+                  <button id="bg-custom" class="swatch-custom" data-i18n-tip="customBgTip" data-tip="Custom background"></button>
+                </div>
+                <div class="settings-row theme-dependent" id="row-opacity">
+                  <span class="settings-label" data-i18n="lblOpacity">Opacity</span>
+                  <div class="zoom-stepper">
+                    <button id="setting-alpha-minus" class="stepper-btn">−</button>
+                    <span id="setting-alpha-val">100%</span>
+                    <button id="setting-alpha-plus" class="stepper-btn">+</button>
+                  </div>
+                </div>
+                <div class="settings-row theme-dependent" id="row-radius">
+                  <span class="settings-label" data-i18n="lblRadius">Corner Radius</span>
+                  <div class="zoom-stepper">
+                    <button id="setting-radius-minus" class="stepper-btn">−</button>
+                    <span id="setting-radius-val">12</span>
+                    <button id="setting-radius-plus" class="stepper-btn">+</button>
+                  </div>
+                </div>
+                <div class="settings-row interactive" id="setting-border-row">
+                  <span class="settings-label" data-i18n="lblBorder">Card Border</span>
+                  <div class="row-extras dep-extras" id="border-extras">
+                    <div class="zoom-stepper">
+                      <button id="setting-borderw-minus" class="stepper-btn">−</button>
+                      <span id="setting-borderw-val">1</span>
+                      <button id="setting-borderw-plus" class="stepper-btn">+</button>
+                    </div>
+                    <div class="seg-row" id="border-pos-seg">
+                      <button class="seg-btn" data-pos="inner" data-i18n-tip="borderInnerTip" data-i18n="borderInner">Inner</button>
+                      <button class="seg-btn" data-pos="outer" data-i18n-tip="borderOuterTip" data-i18n="borderOuter">Outer</button>
+                    </div>
+                    <button id="border-custom" class="swatch-custom" data-i18n-tip="customBorderTip" data-tip="Border colour"></button>
+                  </div>
+                  <span class="toggle" id="setting-border"><span class="toggle-knob"></span></span>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-label" data-i18n="lblGlow">Glow Effect</span>
+                  <div class="row-extras dep-extras" id="glow-extras">
+                    <div class="zoom-stepper">
+                      <button id="setting-glow-minus" class="stepper-btn">−</button>
+                      <span id="setting-glow-val">off</span>
+                      <button id="setting-glow-plus" class="stepper-btn">+</button>
+                    </div>
+                    <button id="glow-custom" class="swatch-custom" data-i18n-tip="customGlowTip" data-tip="Glow colour"></button>
+                  </div>
+                  <span class="toggle" id="setting-glow"><span class="toggle-knob"></span></span>
+                </div>
+                <div class="settings-row interactive" id="setting-anim-row" data-i18n-tip="animTip" data-tip="Pick what moves. Everything stays where it is; only the motion is dropped">
+                  <span class="settings-label" data-i18n="lblAnim">Animations</span>
+                  <span class="settings-value" id="setting-anim-count">…</span>
+                  <span class="exclude-chevron">›</span>
+                </div>
+                <div id="anim-menu">
+                  <div class="ms-head" id="anim-head">…</div>
+                  <div id="anim-groups"></div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-label" data-i18n="lblDensity">Density</span>
+                  <div class="seg-row" id="density-seg">
+                    <button class="seg-btn" data-density="full" data-i18n-tip="densityFullTip" data-i18n="densityFull">Full</button>
+                    <button class="seg-btn" data-density="compact-results" data-i18n-tip="densityCompactResultsTip" data-i18n="densityCompactResults">Compact</button>
+                    <button class="seg-btn" data-density="compact-full" data-i18n-tip="densityCompactFullTip" data-i18n="densityCompactFull">All</button>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-label" data-i18n="lblFont">Font</span>
+                  <div class="seg-row" id="font-seg">
+                    <button class="seg-btn" data-font="wix" data-tip="Wix Madefor Display">Wix</button>
+                    <button class="seg-btn" data-font="sn-pro">SN Pro</button>
+                    <button class="seg-btn" data-font="montserrat" data-tip="Montserrat Alternates">Montserrat</button>
+                  </div>
+                </div>
+                <div class="settings-row theme-dependent" id="row-gap">
+                  <span class="settings-label" data-i18n="lblGap">Row Spacing</span>
+                  <div class="zoom-stepper">
+                    <button id="setting-gap-minus" class="stepper-btn">&minus;</button>
+                    <span id="setting-gap-val">12</span>
+                    <button id="setting-gap-plus" class="stepper-btn">+</button>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-label" data-i18n="lblZoom">Zoom</span>
+                  <div class="zoom-stepper">
+                    <button id="setting-zoom-minus" class="stepper-btn">−</button>
+                    <span id="setting-zoom-val">1.00</span>
+                    <button id="setting-zoom-plus" class="stepper-btn">+</button>
+                  </div>
+                </div>
+                <div class="settings-row interactive" id="setting-tall-row" data-i18n-tip="tallResultsTip" data-tip="The list runs down to the bottom of the screen instead of stopping at the window's height">
+                  <span class="settings-label" data-i18n="lblTallResults">Results to screen bottom (experimental)</span>
+                  <span class="toggle" id="setting-tall"><span class="toggle-knob"></span></span>
+                </div>
+                <div class="settings-row interactive" id="setting-sidepreview-row" data-i18n-tip="sidePreviewTip" data-tip="The selected result opens up into a large card with a preview of the file. Shift+Space does it for one look without this">
+                  <span class="settings-label" data-i18n="lblSidePreview">Expand selected result</span>
+                  <span class="toggle" id="setting-sidepreview"><span class="toggle-knob"></span></span>
+                </div>
+    </div>
+  </div>
   </div>
   <div id="context-menu">
     <div class="ctx-item" data-action="open">
@@ -293,8 +298,10 @@
   <script src="sortable.min.js"></script>
   <script src="main.js?v=48"></script>
   <script src="dock.js?v=48"></script>
+  <script src="themepanel.js?v=48"></script>
   <script src="keynav.js?v=48"></script>
   <script src="caret.js?v=48"></script>
   <script src="preview.js?v=48"></script>
+  <script src="sidepreview.js?v=48"></script>
 </body>
 </html>

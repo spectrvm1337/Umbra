@@ -155,23 +155,6 @@ test("every small surface changes colour smoothly", () => {
   }
 });
 
-test("previews cross-fade instead of cutting", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  assert.match(src, /function pvSwapStill/, "the swap helper exists");
-  // It has to wait for the incoming picture to decode, or the fade plays over an
-  // empty box.
-  assert.match(src, /next\.addEventListener\("load"/, "waits for the new image");
-  // And it only applies to the held peek, where the selection is being arrowed
-  // through; a full preview is opened deliberately and can cut.
-  const paint = src.slice(src.indexOf("else if (p.thumb) {"), src.indexOf("pvSwapStill"));
-  assert.match(paint, /mode === "peek"/, "only while peeking");
-
-  const still = rule(".pv-still {");
-  assert.match(still, /position:\s*absolute/, "the outgoing one is layered, not torn out");
-  const fade = CSS.slice(CSS.indexOf("@keyframes pv-still-in"));
-  assert.match(fade, /from\s*\{\s*opacity:\s*0/, "fades up from nothing");
-});
-
 test("the pinned-apps dock leaves room for the tile shadow", () => {
   const dock = rule("#pin-dock {");
   // A scroll container clips its children at the padding box, and the tiles sit

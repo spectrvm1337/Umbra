@@ -1,4 +1,4 @@
-// File preview: hold Shift+Space for a quick look, Alt+Enter (or Shift+click, or the
+// File preview: hold Shift+Space for the selected row to open up into a card, Alt+Enter (or Shift+click, or the
 // context menu) for the full one. Which shape it takes is a setting, `overlay` or
 // `popup`.
 //
@@ -9,7 +9,6 @@
 // async step checks a generation counter before touching the DOM -- the same
 // guard currency.js uses for its rate table.
 
-const PV_THUMB_SIZE = 320; // peek
 const PV_THUMB_SIZE_FULL = 560; // full preview
 const PV_TIMEOUT_MS = 1200; // the UI stops waiting; the Rust thread may linger
 const PV_CACHE_MAX = 60;
@@ -84,7 +83,6 @@ let pvActions = null;
 let pvTrack = null;
 let pvThumb = null;
 let pvTrackFade = null;
-let pvLastPointer = null;
 let pvSeg = null;
 let pvPaintSeg = null;
 
@@ -94,7 +92,7 @@ function pvRefreshSettings() {
   if (pvPaintSeg) pvPaintSeg(pvStyle);
 }
 let pvOpen = false;
-let pvMode = null; // "peek" | "full"
+let pvMode = null; // "full"
 let pvItem = null;
 let pvAnchor = null; // {x, y} for popup mode
 let pvRenderId = 0;
@@ -219,11 +217,6 @@ function pvIcon(kind) {
 
 // ---- opening and closing ----
 
-// A peek is a glance: a small card, sized to its content, riding along with the
-// pointer. It never takes over the list, because the list is what you are using
-// while you hold the key -- arrowing through results while watching the card.
-const PV_PEEK_MAX_W = 260;
-const PV_PEEK_MAX_H = 260;
 const PV_POPUP_W = 360;
 // The ceiling for the full preview. Still content-sized, just with more room to
 // breathe: never wider or taller than the results area it sits over.
@@ -238,16 +231,11 @@ function pvOpenFor(mode, item, anchor) {
   pvItem = target;
   pvAnchor = anchor || null;
   pvPanel.dataset.mode = mode;
-  pvPanel.dataset.size = mode === "peek" ? "compact" : "full";
+  pvPanel.dataset.size = "full";
   pvPanel.dataset.kind = target.kind || "file";
   pvPanel.classList.remove("pv-hidden");
   pvPanel.classList.add("pv-open");
   pvOpen = true;
-  if (mode === "peek" && !pvAnchor) {
-    // Place at the pointer even before it moves again.
-    const here = pvLastPointer;
-    pvAnchor = here ? { x: here.x, y: here.y } : null;
-  }
   pvRender(target, mode);
   pvPlace();
   // Re-placed once the content has a size; a card is positioned from it.
@@ -301,11 +289,7 @@ function pvListBox() {
 
 function pvPlace() {
   if (!pvOpen || !pvPanel) return;
-  const peek = pvPanel.dataset.size === "compact";
-  // A peek rides along with the pointer whatever the setting says -- it is
-  // glanced at, not worked in. Both sizes hug their content; the setting only
-  // decides where the full preview sits.
-  if (peek || pvStyle === "popup") {
+  if (pvStyle === "popup") {
     pvPlaceCursor();
   } else {
     pvPlaceOverlay();
@@ -349,12 +333,11 @@ function pvPlaceCursor() {
     pvPlaceOverlay();
     return;
   }
-  const isPeek = pvPanel.dataset.size === "compact";
   const z = pvZoom();
   const vw = window.innerWidth * z;
   const vh = window.innerHeight * z;
-  const maxW = Math.min(isPeek ? PV_PEEK_MAX_W : PV_POPUP_W, vw - 16);
-  const maxH = Math.min(isPeek ? PV_PEEK_MAX_H : PV_FULL_MAX, vh - 16);
+  const maxW = Math.min(PV_POPUP_W, vw - 16);
+  const maxH = Math.min(PV_FULL_MAX, vh - 16);
 
   pvPanel.style.left = "0px";
   pvPanel.style.top = "0px";
@@ -365,18 +348,6 @@ function pvPlaceCursor() {
   if (y + size.h > vh - 8) y = Math.max(8, anchor.y - size.h - PV_CURSOR_GAP);
   pvPanel.style.left = x / z + "px";
   pvPanel.style.top = y / z + "px";
-}
-
-// Re-placing reads offsetWidth after writing styles, so a pointer trail is
-// collapsed into one measurement per frame rather than one per event.
-let pvFollowRaf = 0;
-function pvFollowCursor(x, y) {
-  pvAnchor = { x, y };
-  if (pvFollowRaf) return;
-  pvFollowRaf = requestAnimationFrame(() => {
-    pvFollowRaf = 0;
-    if (pvOpen && pvPanel.dataset.size === "compact") pvPlaceCursor();
-  });
 }
 
 // With no pointer of its own -- opened from the keyboard, say -- the card
@@ -395,7 +366,7 @@ function pvAnchorForItem() {
 function pvRender(item, mode) {
   const id = ++pvRenderId;
   const path = item.path;
-  const size = mode === "full" ? PV_THUMB_SIZE_FULL : PV_THUMB_SIZE;
+  const size = PV_THUMB_SIZE_FULL;
   const key = path + "|" + size;
 
   pvTitle.textContent = item.name || path;
@@ -462,21 +433,6 @@ function pvPaint(id, item, mode, p) {
     pvBody.innerHTML = '<pre class="pv-text"></pre>' + (p.truncated ? '<div class="pv-more">…</div>' : "");
     pvBody.querySelector(".pv-text").textContent = p.text;
   } else if (p.thumb) {
-    // Arrowing through results with the peek held swaps one picture for another,
-    // and a hard cut reads as a glitch. The outgoing one fades out under the
-    // incoming one instead of being torn out.
-    const outgoing = pvBody.querySelector(".pv-thumb, .pv-media");
-    if (mode === "peek" && outgoing) {
-      const next = new Image();
-      next.alt = item.name || "";
-      next.className = "pv-thumb";
-      // Only swap once the incoming picture has decoded, so the fade never
-      // plays over an empty box.
-      next.addEventListener("load", () => pvSwapStill(outgoing, "<img>"), { once: true });
-      next.src = p.thumb;
-      pvMeta.textContent = "";
-      return;
-    }
     pvBody.innerHTML = '<img class="pv-thumb" alt="">';
     const img = pvBody.querySelector(".pv-thumb");
     img.src = p.thumb;
@@ -577,12 +533,20 @@ function pvRunAction(action) {
 // Closed, this is just the two triggers; open, it keeps the list's keys from
 // reaching past the panel.
 function pvHandleKey(e) {
+  const sp = window.UmbraSidePreview;
+  if (sp && sp.held() && e.key === " ") {
+    // The hold is Shift+Space; a repeat of it, or a Space after Shift came up, is not typing.
+    e.preventDefault();
+    return true;
+  }
   if (!pvOpen) {
+    // Hold Shift+Space and the selected row opens up into a large card (sidepreview.js).
     if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === " ") {
-      if (!pvAllowed(pvSelected())) return false;
-      pvOpenFor("peek", null, null);
-      e.preventDefault();
-      return true;
+      if (sp && sp.hold(true)) {
+        e.preventDefault();
+        return true;
+      }
+      return false;
     }
     if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === "Enter") {
       if (!pvAllowed(pvSelected())) return false;
@@ -598,17 +562,6 @@ function pvHandleKey(e) {
     e.preventDefault();
     return true;
   }
-  // Peek is held, not toggled: a Space while it is up must not become a typed
-  // space when Shift comes up first and Space goes down second.
-  if (pvMode === "peek") {
-    if (e.key === " ") {
-      e.preventDefault();
-      return true;
-    }
-    // Arrow keys move the selection underneath, which the peek follows.
-    return false;
-  }
-
   // Copying what is selected is the reason the panel's text is selectable. A
   // modified key is not typing, so without this it fell through to the catch-all
   // below and was swallowed with preventDefault, which cancels the copy. Matched
@@ -683,55 +636,6 @@ function pvToggleFull(item, anchor) {
   pvOpenFor("full", item || null, anchor || null);
 }
 
-// Peek follows the keyboard when it moves, which is the whole point of holding
-// a key and then arrowing through the list.
-// While the peek is held the selection moves under the arrow keys, and swapping
-// one picture for another with a hard cut reads as a glitch. The outgoing image
-// stays where it is and fades out underneath the incoming one, so the two are
-// briefly both on screen instead of one jumping into the other's place.
-function pvSwapStill(oldEl, nextHtml) {
-  const host = pvBody;
-  if (!host || !oldEl) {
-    host.innerHTML = nextHtml;
-    return;
-  }
-  const layer = document.createElement("div");
-  layer.className = "pv-still";
-  layer.innerHTML = nextHtml;
-  const incoming = layer.firstElementChild;
-  host.appendChild(layer);
-  if (incoming) {
-    incoming.classList.add("pv-still-in");
-    // Commit the swap once the fade is under way, so nothing jumps back.
-    setTimeout(() => {
-      if (oldEl.parentNode === host) oldEl.remove();
-      layer.classList.remove("pv-still-in");
-    }, 140);
-  }
-}
-
-function pvFollowSelection() {
-  if (!pvOpen || pvMode !== "peek") return;
-  const item = pvSelected();
-  if (!item || (pvItem && item.path === pvItem.path)) return;
-  pvItem = item;
-  pvRender(item, "peek");
-}
-
-document.addEventListener("keyup", (e) => {
-  // Release on either half: Shift goes up before Space when the chord is typed
-  // fastest, and Space alone always means the hold is over.
-  if (e.key === " " || !e.shiftKey) pvPeekUp();
-});
-// Losing the window or focus mid-hold must not strand the panel.
-window.addEventListener("blur", pvPeekUp);
-document.addEventListener("visibilitychange", pvPeekUp);
-
-function pvPeekUp() {
-  if (!pvOpen || pvMode !== "peek") return;
-  pvClose();
-}
-
 // ---- media ----
 // Windows only decodes a subset of what it can play, and .webm and .mkv are
 // outside it, so for those the Shell has no thumbnail to offer and the panel
@@ -764,12 +668,6 @@ function pvIsMedia(kind) {
   return kind === "video" || kind === "audio";
 }
 
-// Frame 0 is usually black, a logo or a still that has nothing to do with the
-// content, so a tenth of the way in is the representative moment.
-function pvFrameFor(duration) {
-  if (!isFinite(duration) || duration <= 0) return 0;
-  return Math.min(Math.max(0.5, duration * 0.1), Math.max(0, duration - 0.2));
-}
 
 // The video element is the picture. Seeking it to a representative frame and
 // leaving it paused shows real content for anything Chromium can open -- webm
@@ -784,8 +682,7 @@ function pvPaintMedia(item, mode, p) {
   }
   const isAudio = p.kind === "audio";
   const tag = isAudio ? "audio" : "video";
-  const controls = mode === "full" ? " controls" : "";
-  pvBody.innerHTML = "<" + tag + ' class="pv-media" preload="auto" muted playsinline' + controls + "></" + tag + ">";
+  pvBody.innerHTML = "<" + tag + ' class="pv-media" preload="auto" muted playsinline controls></' + tag + ">";
   const el = pvBody.querySelector("." + tag);
   el.src = url;
 
@@ -804,22 +701,6 @@ function pvPaintMedia(item, mode, p) {
     const d = pvDuration(el.duration);
     if (d) bits.push(d);
     pvMeta.textContent = [pvBytes(p.size_bytes), bits.join("  ·  ")].filter(Boolean).join("  ·  ");
-
-    if (mode === "full" || isAudio) return;
-    // A held glance does not need a player, only the frame.
-    const seekTo = () => {
-      if (!pvOpen || el.readyState < 2) return;
-      el.currentTime = pvFrameFor(el.duration);
-    };
-    el.addEventListener("loadeddata", seekTo, { once: true });
-    // Seating needs data past the target; if the first attempt lands short, the
-    // second one usually does not.
-    el.addEventListener("seeked", () => {
-      if (el.currentTime < 0.05 && el.duration > 2) {
-        el.currentTime = pvFrameFor(el.duration);
-      }
-    }, { once: true });
-    el.load();
   });
 }
 // The app hides native scrollbars and draws its own, so the preview gets one
@@ -918,18 +799,6 @@ function pvBindSettings(seg) {
 document.addEventListener("DOMContentLoaded", () => {
   pvEnsure();
   pvBindSettings(document.getElementById("preview-style-seg"));
-  // A held peek rides along with the pointer, and remembers where the pointer
-  // was when it opened, so it can be placed before any move event arrives.
-  document.addEventListener(
-    "pointermove",
-    (e) => {
-      pvLastPointer = { x: e.clientX, y: e.clientY };
-      if (!pvOpen) return;
-      if (pvPanel.dataset.size !== "compact") return;
-      pvFollowCursor(e.clientX, e.clientY);
-    },
-    true
-  );
   document.addEventListener("pointerdown", (e) => {
     if (!pvOpen || !pvPanel) return;
     // This runs in the capture phase, before the panel's own handler that stops
@@ -951,7 +820,6 @@ window.UmbraPreview = {
   loadStyle: pvLoadStyle,
   bindSettings: pvBindSettings,
   refreshSettings: pvRefreshSettings,
-  followSelection: pvFollowSelection,
   selected: pvSelected,
   hasContent: pvHasContent,
   cacheSize: () => pvCache.size,

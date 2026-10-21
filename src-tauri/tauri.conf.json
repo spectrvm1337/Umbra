@@ -32,7 +32,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; img-src 'self' data: file:; font-src 'self' https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost https://cdn.jsdelivr.net https://*.currency-api.pages.dev; media-src 'self' data: blob: http://asset.localhost",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; img-src 'self' data: file: http://asset.localhost; font-src 'self' https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost https://cdn.jsdelivr.net https://*.currency-api.pages.dev; media-src 'self' data: blob: http://asset.localhost; frame-src http://asset.localhost",
       "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": {
         "enable": true,
@@ -40,7 +40,7 @@
           "**/*.mp4", "**/*.m4v", "**/*.webm", "**/*.mkv", "**/*.avi",
           "**/*.mov", "**/*.wmv", "**/*.flv", "**/*.3gp", "**/*.ts", "**/*.mpeg",
           "**/*.mpg", "**/*.ogv", "**/*.mp3", "**/*.m4a", "**/*.aac", "**/*.wav",
-          "**/*.ogg", "**/*.oga", "**/*.opus", "**/*.flac", "**/*.wma", "**/*.mid"
+          "**/*.ogg", "**/*.oga", "**/*.opus", "**/*.flac", "**/*.wma", "**/*.mid", "**/*.gif", "**/*.webp", "**/*.apng", "**/*.pdf"
         ]
       }
     }

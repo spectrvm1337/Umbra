@@ -756,12 +756,14 @@ body {
   background: var(--card-bg);
   border: var(--card-border-w) solid var(--card-border);
   position: relative;
+  /* Room above the first row and below the last, and the same at both sides of every row. */
+  padding: 8px 0;
 }
 .settings-row {
   display: flex;
   align-items: center;
   min-height: var(--card-h);
-  padding: 8px 16px 8px 20px;
+  padding: 8px 20px;
   gap: 12px;
 }
 .settings-row.interactive {
@@ -1380,11 +1382,9 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   transform: none;
   transition: opacity var(--t-fade, 0.28s) ease 0.08s, transform var(--t-move, 0.4s) var(--ease-out-apple) 0.08s, visibility 0s;
 }
-html[data-pins="left"] #cc-pill {
-  left: var(--dock-reserve);
-}
-html[data-pins="right"] #cc-pill {
-  right: var(--dock-reserve);
+#cc-pill {
+  left: var(--room-l);
+  right: var(--room-r);
 }
 .ccp-swatch {
   flex-shrink: 0;
@@ -1528,18 +1528,31 @@ html[data-pins="left"],
 html[data-pins="right"] {
   --dock-reserve: 168px;
 }
-html[data-pins="left"] #app-container {
-  padding-left: var(--dock-reserve);
+:root {
+  /* The theme panel's card, and the room it takes beside the window (TP_RESERVE in themepanel.js). */
+  --tp-w: 484px;
+  --tp-reserve: 496px;
+  --dock-l: 0px;
+  --dock-r: 0px;
+  --tp-l: 0px;
+  --tp-r: 0px;
+  --room-l: calc(var(--dock-l) + var(--tp-l));
+  --room-r: calc(var(--dock-r) + var(--tp-r));
 }
-html[data-pins="right"] #app-container {
-  padding-right: var(--dock-reserve);
+html[data-pins="left"] { --dock-l: var(--dock-reserve); }
+html[data-pins="right"] { --dock-r: var(--dock-reserve); }
+html[data-tp="left"] { --tp-l: var(--tp-reserve); }
+html[data-tp="right"] { --tp-r: var(--tp-reserve); }
+#app-container {
+  padding-left: var(--room-l);
+  padding-right: var(--room-r);
 }
 html[data-pins="left"] #pins-section,
 html[data-pins="right"] #pins-section {
   display: none;
 }
-html[data-pins="right"] .side-pill {
-  right: var(--dock-reserve);
+.side-pill {
+  right: var(--room-r);
 }
 #pin-dock {
   position: absolute;
@@ -1571,6 +1584,67 @@ html[data-pins="right"] .side-pill {
 #pin-dock[hidden] {
   display: none;
 }
+/* Theme panel (themepanel.js): a card of the appearance settings beside the window, level with the
+   search bar, on the side away from the dock. It appears once the window has grown. */
+#theme-panel {
+  position: absolute;
+  top: calc(3 * var(--pad-y) + 16px);
+  bottom: 12px;
+  width: var(--tp-w);
+  display: none;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t-fade, 0.2s) ease, transform var(--t-move, 0.32s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.2s);
+}
+html[data-tp="right"] #theme-panel {
+  display: flex;
+  right: var(--pad-x);
+  transform: translateX(-14px);
+}
+html[data-tp="left"] #theme-panel {
+  display: flex;
+  left: var(--pad-x);
+  transform: translateX(14px);
+}
+html[data-tp] #theme-panel.show {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity var(--t-fade, 0.2s) ease, transform var(--t-move, 0.32s) var(--ease-out-apple), visibility 0s;
+}
+#theme-card {
+  flex: 0 1 auto;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--card-hover) transparent;
+}
+/* The card scrolls when the window is not tall enough; its rows keep their height. */
+#theme-card > * {
+  flex-shrink: 0;
+}
+#setting-theme-row .exclude-chevron {
+  margin-left: auto;
+}
+#setting-theme-row.open .exclude-chevron {
+  transform: rotate(180deg);
+}
+/* The card is wide enough for every row on one line; the font row, which grows with the fonts added
+   with !font, puts its choices on a line of their own. The card's own padding comes from
+   .settings-card. */
+#theme-card .settings-label {
+  flex: 1 1 auto;
+}
+#theme-card .settings-row:has(> #font-seg) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+#theme-card #font-seg {
+  flex: 1 1 100%;
+  margin-left: 0;
+}
+
 html[data-pins="left"] #pin-dock {
   left: 0;
   /* The room for the tile shadow, on the edge that faces the list. */
@@ -1816,7 +1890,7 @@ body > .result-item.sortable-fallback {
   border-radius: var(--card-radius);
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
-  transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out;
+  transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out, margin-right var(--t-size, 0.26s) var(--ease-out-apple);
   flex-shrink: 0;
   animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
 }
@@ -1838,6 +1912,16 @@ body > .result-item.sortable-fallback {
   box-shadow: var(--card-shadow);
 }#pins-list .result-item {
   user-select: none;
+}
+/* A row being removed from the list (collapseRow in main.js). */
+.result-item.row-collapsing {
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.96);
+  border-color: transparent;
+  box-shadow: none;
+  transition: height var(--t-size, 0.28s) var(--ease-out-apple), margin-bottom var(--t-size, 0.28s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.2s) ease, transform var(--t-move, 0.28s) var(--ease-out-apple), box-shadow var(--t-glow, 0.2s) ease;
 }
 .result-item.sortable-ghost {
   opacity: 0.4;
@@ -2777,7 +2861,7 @@ body > .result-item.pin-drag-copy {
 .ctx-item.kbd-focus {
   background: var(--card-hover);
 }
-#settings-section .kbd-focus:not(.settings-row) {
+:is(#settings-section, #theme-card) .kbd-focus:not(.settings-row) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -2983,30 +3067,8 @@ html[data-anim-move="off"] #app-container.window-hidden {
   object-fit: contain;
   border-radius: max(0px, calc(var(--card-radius) - 6px));
 }
-/* Cross-fade between two previews of the same shape. The outgoing picture stays
-   where it is and the incoming one comes up on top of it, so for a moment both
-   are visible -- which is what makes it read as a change rather than a jump. */
 .pv-body {
   position: relative;
-}
-.pv-still {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.pv-still-in {
-  animation: pv-still-in 140ms ease-out both;
-}
-@keyframes pv-still-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 .pv-text {
   display: block;
@@ -3052,11 +3114,6 @@ html[data-anim-move="off"] #app-container.window-hidden {
   min-height: 0;
   object-fit: contain;
   background: #000;
-}
-/* A peek is a paused frame, so it takes the whole card and shows no chrome. */
-#preview-panel[data-size="compact"] .pv-media {
-  background: #000;
-  border-radius: max(0px, calc(var(--card-radius) - 6px));
 }
 audio.pv-media {
   height: auto;
@@ -3162,74 +3219,6 @@ html[data-preview="popup"] #preview-panel {
   max-width: min(360px, calc(100vw - 24px));
   max-height: min(460px, calc(100vh - 24px));
 }
-/* Hug contents: the card takes the size of what it is showing. A picture keeps
-   its own shape, a few lines of text stay short, and a bare filename does not
-   become a wide empty box. Only the caps come from JS, which then measures the
-   result and places it. */
-#preview-panel[data-size="compact"] {
-  width: auto;
-  height: auto;
-  max-width: min(260px, calc(100vw - 16px));
-  max-height: min(260px, calc(100vh - 16px));
-  padding: 8px 10px;
-  gap: 6px;
-}
-#preview-panel[data-size="compact"] .pv-head {
-  min-width: 0;
-}
-#preview-panel[data-size="compact"] .pv-title {
-  font-size: 12px;
-  line-height: 15px;
-}
-#preview-panel[data-size="compact"] .pv-close {
-  /* A peek is held, not opened: it closes the moment the key comes up, so a
-     close button on it would be a second way to do what releasing already does.
-     The full preview stays, because that one you dismiss yourself. */
-  display: none;
-}
-#preview-panel[data-size="compact"] .pv-meta,
-#preview-panel[data-size="compact"] .pv-actions,
-#preview-panel[data-size="compact"] .pv-more {
-  display: none;
-}
-#preview-panel[data-size="compact"] .pv-wrap {
-  flex: 0 1 auto;
-  min-height: 0;
-}
-#preview-panel[data-size="compact"] .pv-body {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 208px;
-}
-#preview-panel[data-size="compact"] .pv-thumb {
-  width: auto;
-  max-width: 240px;
-  max-height: 208px;
-  object-fit: contain;
-}
-/* A paused frame, so it takes only the size the video actually is. */
-#preview-panel[data-size="compact"] .pv-media {
-  width: auto;
-  height: auto;
-  max-width: 240px;
-  max-height: 208px;
-  object-fit: contain;
-}
-#preview-panel[data-size="compact"] .pv-text {
-  max-width: 240px;
-  max-height: 200px;
-  overflow: auto;
-  font-size: 11px;
-  line-height: 15px;
-}
-#preview-panel[data-size="compact"] .pv-note,
-#preview-panel[data-size="compact"] .pv-kind {
-  padding: 12px 8px;
-  font-size: 12px;
-}
-#preview-panel[data-size="compact"] .pv-scrollbar {
-  display: none;
-}
 #preview-panel[data-size="full"] .pv-head {
   min-height: 24px;
 }
@@ -3271,4 +3260,169 @@ html[data-preview="popup"] #preview-panel {
   .pv-spinner {
     animation: none;
   }
+}
+
+/* Side preview (sidepreview.js): a card beside the first rows of the list. The rows give up their
+   path, which the card shows under the picture. Its width is 47% of the list's, the same number the
+   rows' right margin makes room for. */
+/* The selected row opened into a card (sidepreview.js). */
+:is(#pins-list, #results-list) > .result-item.sp-open {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  height: min(176px, calc(100vh - 170px));
+  padding: 12px;
+  cursor: pointer;
+}
+.result-item {
+  transition: background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out, height var(--t-size, 0.26s) var(--ease-out-apple);
+}
+:is(#pins-list, #results-list) > .result-item.sp-open > :not(.sp-body):not(.result-pin) {
+  display: none;
+}
+:is(#pins-list, #results-list) > .result-item.sp-open > .result-pin {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+body > .result-item .sp-body {
+  display: none;
+}
+.sp-body {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 18px;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.sp-body:not(.sp-wide) .sp-stage {
+  flex: 0 0 auto;
+  height: 100%;
+  aspect-ratio: 1;
+}
+.sp-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sp-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  animation: sp-in var(--t-fade, 0.22s) ease both;
+}
+.sp-content.sp-seed {
+  animation: none;
+}
+.sp-content.sp-leaving {
+  animation: sp-out var(--t-fade, 0.2s) ease both;
+  pointer-events: none;
+}
+@keyframes sp-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sp-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.sp-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.28));
+}
+.sp-photo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: calc(var(--card-radius) * 0.6);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
+}
+video.sp-photo {
+  width: 100%;
+  height: 100%;
+  object-position: left center;
+  cursor: pointer;
+}
+.sp-pdf {
+  width: calc(100% + 24px);
+  height: 100%;
+  max-width: none;
+  border: 0;
+  border-radius: calc(var(--card-radius) * 0.6);
+  background: #fff;
+}
+.sp-glyph {
+  width: 96px;
+  height: 96px;
+  color: var(--text-dim);
+}
+.sp-text {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
+}
+.sp-body.sp-wide .sp-stage {
+  flex: 0 0 46%;
+}
+.sp-info {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 28px;
+}
+.sp-name {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: var(--weight-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-path.result-path {
+  max-width: none;
+  justify-content: flex-start;
+  text-align: left;
+  font-size: 12px;
+  line-height: 16px;
+  margin: 2px 0 0;
+}
+/* The PDF viewer's own scrollbar sits in its last 24px, which the card's edge cuts off; the wheel
+   still scrolls the page. */
+.sp-content:has(> .sp-pdf) {
+  overflow: hidden;
+  border-radius: calc(var(--card-radius) * 0.6);
+}
+.sp-pdf {
+  flex: 0 0 auto;
 }

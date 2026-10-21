@@ -125,28 +125,40 @@ fn animate_window_to(window: tauri::WebviewWindow, target_x: i32, target_y: i32)
 }
 /// Logical width the pinned-apps dock adds to the window (DOCK_RESERVE in dock.js).
 const DOCK_RESERVE: f64 = 168.0;
-/// The dock's width in physical px and whether it sits on the left (0 without a dock).
-fn dock_extent(window: &tauri::WebviewWindow) -> (i32, bool) {
-    let side = config::get_theme().pins_style;
-    if side != "left" && side != "right" {
-        return (0, false);
-    }
+/// Width in logical px of the theme panel beside the window and whether it is on the left
+/// (0 while it is closed); set by the page with `resize_main_window`.
+static THEME_PANEL: std::sync::Mutex<(f64, bool)> = std::sync::Mutex::new((0.0, false));
+/// What the pinned-apps dock and the theme panel add to the window's left and right, in
+/// physical px (0 without them).
+fn side_extents(window: &tauri::WebviewWindow) -> (i32, i32) {
     let scale = window.scale_factor().unwrap_or(1.0);
-    ((DOCK_RESERVE * scale).round() as i32, side == "left")
+    let px = |logical: f64| (logical * scale).round() as i32;
+    let (mut left, mut right) = (0, 0);
+    match config::get_theme().pins_style.as_str() {
+        "left" => left += px(DOCK_RESERVE),
+        "right" => right += px(DOCK_RESERVE),
+        _ => {}
+    }
+    let (panel, panel_left) = *THEME_PANEL.lock().unwrap();
+    if panel_left {
+        left += px(panel);
+    } else {
+        right += px(panel);
+    }
+    (left, right)
 }
 /// Left edge for a window `w` wide on a monitor spanning `mx..mx+mw`, aligned (`l`, `r`
-/// or centre) by its search panel, i.e. the part that isn't the `dock`. The dock hangs
-/// off the panel's side, and the window is nudged back only if the dock would leave
-/// the monitor.
-fn window_left(ha: &str, mx: i32, mw: i32, w: i32, dock: i32, dock_left: bool) -> i32 {
-    let panel = w - dock;
+/// or centre) by its search panel, i.e. the part that isn't the `left` or `right` extra
+/// (dock, theme panel). Those hang off the panel's sides, and the window is nudged back
+/// only if they would leave the monitor.
+fn window_left(ha: &str, mx: i32, mw: i32, w: i32, left: i32, right: i32) -> i32 {
+    let panel = w - left - right;
     let panel_x = match ha {
         "l" => mx,
         "r" => mx + mw - panel,
         _ => mx + (mw - panel) / 2,
     };
-    let x = if dock_left { panel_x - dock } else { panel_x };
-    x.clamp(mx, (mx + mw - w).max(mx))
+    (panel_x - left).clamp(mx, (mx + mw - w).max(mx))
 }
 /// Where the window's top-left corner goes, plus the bottom edge of that
 /// monitor's work area.
@@ -164,8 +176,8 @@ fn placement_target(window: &tauri::WebviewWindow) -> Option<(i32, i32, i32)> {
     let (mw, mh) = (mon.size().width as i32, mon.size().height as i32);
     let (w, h) = base_size_physical(window);
     let (va, ha) = align.split_at(1);
-    let (dock, dock_left) = dock_extent(window);
-    let tx = window_left(ha, mx, mw, w, dock, dock_left);
+    let (left, right) = side_extents(window);
+    let tx = window_left(ha, mx, mw, w, left, right);
     let ty = match va {
         "t" => my,
         "b" => my + mh - h,
@@ -215,9 +227,9 @@ pub fn animate_recenter(app: &tauri::AppHandle) {
         let target = window.current_monitor().ok().flatten().map(|mon| {
             let (mon_pos, mon_size) = (mon.position(), mon.size());
             let (w, h) = base_size_physical(&window);
-            let (dock, dock_left) = dock_extent(&window);
+            let (left, right) = side_extents(&window);
             (
-                window_left("c", mon_pos.x, mon_size.width as i32, w, dock, dock_left),
+                window_left("c", mon_pos.x, mon_size.width as i32, w, left, right),
                 mon_pos.y + ((mon_size.height as i32) - h) / 2,
                 work_bottom(&mon),
             )
@@ -258,8 +270,19 @@ fn resize_and_shift(app: &tauri::AppHandle, shift: f64) {
     let _ = window.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
 }
 #[tauri::command]
-pub fn resize_main_window(app: tauri::AppHandle, width: f64, height: f64, shift_x: Option<f64>) {
-    let width = width.clamp(480.0, 920.0);
+pub fn resize_main_window(
+    app: tauri::AppHandle,
+    width: f64,
+    height: f64,
+    shift_x: Option<f64>,
+    panel_width: Option<f64>,
+    panel_left: Option<bool>,
+) {
+    // Callers that only resize (the grip) leave the panel as it was.
+    if let Some(w) = panel_width {
+        *THEME_PANEL.lock().unwrap() = (w.clamp(0.0, 1400.0), panel_left.unwrap_or(false));
+    }
+    let width = width.clamp(480.0, 1500.0);
     let height = height.clamp(400.0, 900.0);
     *BASE_SIZE.lock().unwrap() = (width, height);
     match shift_x {
@@ -288,22 +311,27 @@ pub fn get_window_pin() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{fitted_height, window_left};
-    // 1920px monitor at x=0, a 660px panel, a 168px dock.
+    // 1920px monitor at x=0, a 660px panel, a 168px dock or a 380px theme panel.
     #[test]
     fn centres_the_window_when_there_is_no_dock() {
-        assert_eq!(window_left("c", 0, 1920, 660, 0, false), 630);
+        assert_eq!(window_left("c", 0, 1920, 660, 0, 0), 630);
     }
     #[test]
     fn centres_the_search_panel_not_the_whole_window_with_a_dock() {
         // Panel 630..1290 either way; the dock hangs off the left or the right.
-        assert_eq!(window_left("c", 0, 1920, 828, 168, true), 462);
-        assert_eq!(window_left("c", 0, 1920, 828, 168, false), 630);
+        assert_eq!(window_left("c", 0, 1920, 828, 168, 0), 462);
+        assert_eq!(window_left("c", 0, 1920, 828, 0, 168), 630);
     }
     #[test]
     fn keeps_the_dock_on_screen_at_the_edges() {
-        assert_eq!(window_left("l", 0, 1920, 828, 168, true), 0);
-        assert_eq!(window_left("r", 0, 1920, 828, 168, false), 1092);
-        assert_eq!(window_left("r", 1920, 1920, 828, 168, true), 3012);
+        assert_eq!(window_left("l", 0, 1920, 828, 168, 0), 0);
+        assert_eq!(window_left("r", 0, 1920, 828, 0, 168), 1092);
+        assert_eq!(window_left("r", 1920, 1920, 828, 168, 0), 3012);
+    }
+    #[test]
+    fn keeps_the_search_panel_put_with_a_dock_and_a_theme_panel() {
+        // Dock 168 on the left, theme panel 380 on the right: panel 630..1290 as before.
+        assert_eq!(window_left("c", 0, 1920, 1208, 168, 380), 462);
     }
     #[test]
     fn keeps_the_normal_height_when_not_stretching() {

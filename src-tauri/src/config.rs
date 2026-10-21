@@ -163,6 +163,9 @@ pub struct ThemeConfig {
     /// Experimental: stretch the window down to the bottom of the screen's work area.
     #[serde(default)]
     pub tall_results: bool,
+    /// The selected result is always opened up into a large preview card.
+    #[serde(default)]
+    pub side_preview: bool,
     pub text: String,
     pub glow: bool,
     pub glow_strength: u32,
@@ -236,6 +239,7 @@ impl Default for ThemeConfig {
             system_fonts: Vec::new(),
             gap: default_gap(),
             tall_results: false,
+            side_preview: false,
             text: "#e3e3e3".into(),
             glow: false,
             glow_strength: 14,
@@ -712,6 +716,14 @@ mod tests {
         .sanitized();
         assert_eq!(many.system_fonts.len(), 6);
         assert_eq!(many.system_fonts[5], "Font 8");
+    }
+    #[test]
+    fn side_preview_defaults_off_and_uses_the_camel_case_key() {
+        let cfg: Config = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.theme.side_preview);
+        let on: ThemeConfig = serde_json::from_str(r#"{"sidePreview": true}"#).unwrap();
+        assert!(on.side_preview);
+        assert!(serde_json::to_string(&on).unwrap().contains(r#""sidePreview":true"#));
     }
     #[test]
     fn tall_results_defaults_off_and_uses_the_camel_case_key() {

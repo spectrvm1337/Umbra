@@ -314,7 +314,7 @@ function toggleSettings() {
     } else {
       // The rows the filter hid stay hidden otherwise, and the next time the
       // settings open they are simply not there.
-      settingsSection.querySelectorAll(".settings-row").forEach((r) => { r.style.display = ""; });
+      document.querySelectorAll("#settings-section .settings-row, #theme-card .settings-row").forEach((r) => { r.style.display = ""; });
       settingsSection.querySelectorAll(".settings-card").forEach((c) => c.classList.remove("filtered-out"));
       performSearch(searchInput.value);
     }
@@ -384,6 +384,7 @@ function applyZoom(z, save) {
   document.documentElement.style.zoom = z;
   document.body.style.zoom = z;
   setVal(settingZoomVal, z.toFixed(2));
+  if (typeof refreshThemePanelRoom === "function") refreshThemePanelRoom();
   if (save) {
     invoke("set_zoom", { zoom: z }).catch(err => console.warn("zoom save failed:", err));
   }
@@ -422,16 +423,21 @@ settingReindex.addEventListener("click", async (e) => {
     setSettingsStatus(String(err), true);
   }
 });
-// The two index switches sit in the content menu. They rebuild the index, which the Rust side
-// starts; this shows the progress.
+// The two index switches sit in the content menu with the categories and drives. They rebuild the
+// index, which the Rust side starts; this shows the progress.
 let indexOpts = { hidden: false, appdata: false };
+const INDEX_OPTION_NAMES = ["hidden", "appdata"];
+async function setIndexOption(name, on) {
+  if (!!indexOpts[name] === on) return;
+  indexingActive = true;
+  indexRan = true;
+  indexSpinner.classList.add("visible");
+  if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
+  indexOpts = await invoke("set_index_option", { name, on });
+}
 async function toggleIndexOption(name) {
   try {
-    indexingActive = true;
-    indexRan = true;
-    indexSpinner.classList.add("visible");
-    if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
-    indexOpts = await invoke("set_index_option", { name, on: !indexOpts[name] });
+    await setIndexOption(name, !indexOpts[name]);
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -501,8 +507,7 @@ function syncMenuItems(container, entries) {
     if (!el) {
       el = msItem(entry.label, entry.on, entry.onToggle);
       el.dataset.key = entry.key;
-      // The index switches stay in view when "Select All" folds the list away.
-      if (!entry.master && !entry.plain) el.classList.add("ms-fold");
+      if (!entry.master) el.classList.add("ms-fold");
     }
     if (entry.tip !== undefined) el.dataset.tip = entry.tip;
     have.delete(entry.key);
@@ -528,11 +533,15 @@ const groupOn = (g) => g.kinds.every((k) => !disabledKinds.includes(k));
 function renderExcludeCount() {
   const off = CONTENT_GROUPS.filter((g) => !groupOn(g)).map((g) => getGroupLabel(g).toLowerCase());
   const offDrives = disabledDrives.map((d) => d.replace(":\\", ""));
-  const totalOff = off.concat(offDrives);
-  const total = CONTENT_GROUPS.length + availableDrives.length;
+  const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
+  const offIndex = [
+    ["hidden", "lblHiddenFolders", "Hidden folders (.xxx)"],
+    ["appdata", "lblAppData", "AppData"],
+  ].filter(([name]) => !indexOpts[name]).map(([, key, fallback]) => tr(key, fallback).toLowerCase());
+  const totalOff = off.concat(offDrives, offIndex);
+  const total = CONTENT_GROUPS.length + availableDrives.length + INDEX_OPTION_NAMES.length;
   const on = total - totalOff.length;
   excludeCount.textContent = on + "/" + total;
-  const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
   excludeRow.dataset.tip = totalOff.length === 0
     ? tr("everythingShown", "everything is shown")
     : tr("hiddenKinds", "Hidden") + ": " + totalOff.join(", ");
@@ -542,16 +551,17 @@ let contentFolded = false;
 function renderContentGroups(instant) {
   const onKinds = CONTENT_GROUPS.length - CONTENT_GROUPS.filter((g) => !groupOn(g)).length;
   const onDrives = availableDrives.length - disabledDrives.length;
-  const totalOn = onKinds + onDrives;
-  const total = CONTENT_GROUPS.length + availableDrives.length;
+  const onIndex = INDEX_OPTION_NAMES.filter((n) => indexOpts[n]).length;
+  const totalOn = onKinds + onDrives + onIndex;
+  const total = CONTENT_GROUPS.length + availableDrives.length + INDEX_OPTION_NAMES.length;
   const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
   contentHead.textContent = tr("currentCount", "Current") + ": " + totalOn + "/" + total;
   syncMenuItems(contentGroups, [
     { key: "all", master: true, label: tr("selectAll", "Select All"), on: contentFolded, onToggle: toggleAll },
     ...CONTENT_GROUPS.map((g) => ({ key: "g:" + g.id, label: getGroupLabel(g), on: groupOn(g), onToggle: () => toggleGroup(g) })),
     ...availableDrives.map((d) => ({ key: "d:" + d, label: d, on: !disabledDrives.includes(d), onToggle: () => toggleDrive(d) })),
-    { key: "i:hidden", plain: true, label: tr("lblHiddenFolders", "Hidden folders (.xxx)"), tip: tr("indexHiddenTip", ""), on: !!indexOpts.hidden, onToggle: () => toggleIndexOption("hidden") },
-    { key: "i:appdata", plain: true, label: tr("lblAppData", "AppData"), tip: tr("indexAppDataTip", ""), on: !!indexOpts.appdata, onToggle: () => toggleIndexOption("appdata") },
+    { key: "i:hidden", label: tr("lblHiddenFolders", "Hidden folders (.xxx)"), tip: tr("indexHiddenTip", ""), on: !!indexOpts.hidden, onToggle: () => toggleIndexOption("hidden") },
+    { key: "i:appdata", label: tr("lblAppData", "AppData"), tip: tr("indexAppDataTip", ""), on: !!indexOpts.appdata, onToggle: () => toggleIndexOption("appdata") },
   ]);
   setMenuFolded(contentGroups, contentFolded, instant);
   renderExcludeCount();
@@ -592,10 +602,14 @@ async function toggleAll() {
       for (const d of (state.savedDrives || []).filter((x) => availableDrives.includes(x))) {
         disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: false });
       }
+      for (const name of INDEX_OPTION_NAMES) {
+        if (state.savedIndex && state.savedIndex[name] === false) await setIndexOption(name, false);
+      }
       contentFolded = false;
     } else {
       state.savedKinds = disabledKinds.slice();
       state.savedDrives = disabledDrives.slice();
+      state.savedIndex = { hidden: !!indexOpts.hidden, appdata: !!indexOpts.appdata };
       let kinds = disabledKinds;
       for (const k of disabledKinds.slice()) {
         kinds = await invoke("set_kind_enabled", { kind: k, enabled: true });
@@ -604,6 +618,7 @@ async function toggleAll() {
       for (const d of disabledDrives.slice()) {
         disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: true });
       }
+      for (const name of INDEX_OPTION_NAMES) await setIndexOption(name, true);
       contentFolded = true;
     }
     state.folded = contentFolded;
@@ -626,7 +641,8 @@ async function contentMenuLoad() {
   }
   // Folded only while it is true: with everything shown (and the menu not left
   // unfolded last time), there is nothing per item to pick yet.
-  const everythingOn = disabledKinds.length === 0 && disabledDrives.length === 0;
+  const everythingOn = disabledKinds.length === 0 && disabledDrives.length === 0
+    && INDEX_OPTION_NAMES.every((n) => indexOpts[n]);
   contentFolded = everythingOn && menuStateRead("content").folded !== false;
 }
 function positionContentMenu() {
@@ -1072,6 +1088,8 @@ function effectiveColors() {
 }
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refreshSystemTheme);
 const tallToggle = document.getElementById("setting-tall");
+const sidePreviewRow = document.getElementById("setting-sidepreview-row");
+const sidePreviewToggle = document.getElementById("setting-sidepreview");
 const glowToggle = document.getElementById("setting-glow");
 const glowVal = document.getElementById("setting-glow-val");
 const glowCustom = document.getElementById("glow-custom");
@@ -1191,6 +1209,9 @@ function applyTheme() {
   fontSeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.font === font));
   tallToggle.classList.toggle("on", !!theme.tallResults);
+  sidePreviewToggle.classList.toggle("on", !!theme.sidePreview);
+  root.dataset.sidePreview = theme.sidePreview ? "on" : "off";
+  if (window.UmbraSidePreview) window.UmbraSidePreview.refresh();
   accentCustom.style.background = theme.accent;
   glowCustom.style.background = theme.glowColor || "var(--accent)";
   borderCustom.style.background = theme.borderColor || "var(--card-border)";
@@ -1669,6 +1690,10 @@ systemRow.addEventListener("click", async () => {
   if (theme.followSystem) await refreshSystemTheme();
   saveTheme();
 });
+sidePreviewRow.addEventListener("click", () => {
+  theme = { ...theme, sidePreview: !theme.sidePreview };
+  saveTheme();
+});
 tallRow.addEventListener("click", () => {
   theme = { ...theme, tallResults: !theme.tallResults };
   saveTheme();
@@ -1819,7 +1844,9 @@ function hideWindow() {
   placeholderTimer = null;
 
   clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => {
+  hideTimer = setTimeout(async () => {
+    // The theme panel goes with the window, so it is not there for a moment on the next summon.
+    if (typeof resetThemePanelNow === "function") await resetThemePanelNow();
     invoke("hide_window");
     // Only now, with the window gone and its fade finished, take the list off
     // screen: the rows stay put while the app is still fading out, so nothing
@@ -1934,6 +1961,10 @@ function createResultItem(item, index, query) {
    `;
   div.addEventListener("click", (e) => {
     if (rowDragging) return;
+    // Letting go after selecting text in a card's preview is not a click on the row.
+    if (e.target.closest(".sp-text") && String(window.getSelection()).length) return;
+    // The player's own controls are not a click on the row.
+    if (e.target.closest(".sp-body video, .sp-body iframe")) return;
     if (e.target.closest(".result-pin")) { togglePin(e.target.closest(".result-pin")); return; }
     // Shift+click previews instead of opening. Alt+Enter is the keyboard route;
     // this is the mouse one. Nothing else in the app uses Shift+click, and
@@ -2014,7 +2045,8 @@ const pinsSortable = Sortable.create(pinsList, {
   fallbackOnBody: true,
   fallbackClass: "pin-drag-copy",
   fallbackTolerance: 4,
-  filter: ".result-pin",
+  // The pin button, and the text of an opened card (which is there to be selected, not dragged).
+  filter: ".result-pin, .sp-text",
   preventOnFilter: false,
   onStart: function () {
     rowDragging = true;
@@ -2130,8 +2162,6 @@ function applySelection(doScroll) {
       flatIndex++;
     });
   }
-  // A held peek follows the selection as it moves.
-  if (window.UmbraPreview) window.UmbraPreview.followSelection();
 }
 // Hovering a row only borrows the highlight: moving off the rows (onto the search box, or
 // out of the window) hands it back to the row the keyboard or the search had picked (none
@@ -2494,6 +2524,19 @@ function setPinnedButtons(path, pinned) {
       if (pinned) popPin(b);
     });
 }
+// A row leaving the list shrinks to nothing, closing the gap behind it, instead of vanishing.
+function collapseRow(card) {
+  const root = document.documentElement;
+  if (root.dataset.animMove === "off" || root.dataset.animSize === "off") return Promise.resolve();
+  card.style.height = card.offsetHeight + "px";
+  card.style.animation = "none";
+  card.style.pointerEvents = "none";
+  void card.offsetHeight;
+  card.classList.add("row-collapsing");
+  card.style.height = "0px";
+  card.style.marginBottom = "calc(var(--gap) * -1)";
+  return new Promise((resolve) => setTimeout(resolve, 300));
+}
 async function togglePin(btn) {
   const { path, name, kind } = btn.dataset;
   const isPinned = btn.classList.contains("pinned");
@@ -2505,8 +2548,11 @@ async function togglePin(btn) {
       if (modelIdx !== -1) allResults[modelIdx].pinned = false;
 
       const card = btn.closest(".result-item");
-      if (card && pinsList.contains(card)) card.remove();
       setPinnedButtons(path, false);
+      if (card && pinsList.contains(card)) {
+        await collapseRow(card);
+        card.remove();
+      }
     } else {
       await invoke("add_pin", { name, path, kind });
       const pin = { name, path, kind, pinned: true };
@@ -3050,7 +3096,8 @@ let pendingSize = null;
 function setMainSize(w, h) {
   // The pinned-apps dock (dock.js) widens the window on its side; w/h stay the panel's size.
   const dockW = typeof dockExtraWidth === "function" ? dockExtraWidth() : 0;
-  const cw = Math.max(MAIN_MIN_W, Math.min(MAIN_MAX_W - dockW, Math.round(w)));
+  const panelW = typeof tpExtraWidth === "function" ? tpExtraWidth() : 0;
+  const cw = Math.max(MAIN_MIN_W, Math.min(MAIN_MAX_W - (dockW - panelW), Math.round(w)));
   const ch = Math.max(MAIN_MIN_H, Math.min(MAIN_MAX_H, Math.round(h)));
   if (cw === mainLogicalW && ch === mainLogicalH) return;
   mainLogicalW = cw;
@@ -3097,7 +3144,7 @@ document.addEventListener("pointerdown", (e) => {
   }
   // #pin-dock covers the whole dock column, so grabbing a tile to drag it, or
   // missing a tile by a few pixels, doesn't count as a click outside the window.
-  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #preview-panel, #cc-pill";
+  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #theme-panel, #preview-panel, #cc-pill";
   const onCard = e.target instanceof Element && e.target.closest(CARD_SEL);
   if (!onCard && !pointOverCard(e.clientX, e.clientY, CARD_SEL)) {
     hideWindow();
@@ -3117,7 +3164,7 @@ function pointOverCard(x, y, selector) {
 }
 function filterSettings(query) {
   const q = query.toLowerCase().trim();
-  const rows = settingsSection.querySelectorAll(".settings-row");
+  const rows = document.querySelectorAll("#settings-section .settings-row, #theme-card .settings-row");
   rows.forEach(row => {
     const text = row.textContent.toLowerCase();
     if (!q || text.includes(q)) {
@@ -3126,7 +3173,7 @@ function filterSettings(query) {
       row.style.display = "none";
     }
   });
-  settingsSection.querySelectorAll(".settings-card").forEach((card) => {
+  document.querySelectorAll("#settings-section .settings-card, #theme-card").forEach((card) => {
     const any = [...card.querySelectorAll(".settings-row")].some((r) => r.style.display !== "none");
     card.classList.toggle("filtered-out", !any);
   });
@@ -3260,7 +3307,7 @@ window.__TAURI__.event.listen("window-hide-requested", () => {
   hideWindow();
 });
 window.addEventListener("language-changed", () => {
-  if (!theme.glow) setVal(glowVal, window.i18n.t("glowOff"));
+  if (theme && !theme.glow) setVal(glowVal, window.i18n.t("glowOff"));
   if (!checkUpdateBtn.disabled && updateState.phase !== "checking") checkUpdateBtn.textContent = window.i18n.t("updCheck");
   syncDragTip();
   renderAlignGrid();

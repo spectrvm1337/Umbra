@@ -147,10 +147,12 @@ function ev(key, mods = {}) {
   };
 }
 
-test("Shift+Space opens a peek, a bare Space does not", () => {
+test("Shift+Space opens the row card, a bare Space does not", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
   sandbox.selectedIndex = 0;
+  const calls = [];
+  sandbox.UmbraSidePreview = { hold: (on) => { calls.push(on); return true; }, held: () => false };
 
   const bare = ev(" ");
   assert.equal(P.handleKey(bare), false, "a bare Space must reach the search box");
@@ -159,7 +161,16 @@ test("Shift+Space opens a peek, a bare Space does not", () => {
   const shifted = ev(" ", { shiftKey: true });
   assert.equal(P.handleKey(shifted), true, "Shift+Space belongs to the preview");
   assert.equal(shifted.defaultPrevented, true);
-  assert.equal(P.isOpen(), true);
+  assert.deepEqual(calls, [true], "the hold goes to the row card");
+  assert.equal(P.isOpen(), false, "the floating panel is no longer used for it");
+});
+
+test("a Space while the row card is held is swallowed, not typed", () => {
+  const { P, sandbox } = load();
+  sandbox.UmbraSidePreview = { hold: () => true, held: () => true };
+  const e = ev(" ");
+  assert.equal(P.handleKey(e), true);
+  assert.equal(e.defaultPrevented, true);
 });
 
 test("Shift+Space does nothing when there is nothing to preview", () => {
@@ -232,24 +243,6 @@ test("arrows are claimed when the preview is taller than its box", () => {
   assert.equal(P.handleKey(down), true, "a scrollable preview must take the arrows");
   assert.equal(down.defaultPrevented, true);
   assert.ok(body.scrollTop > 0, "and must actually have moved");
-});
-
-test("a peek follows the selection but the full one does not", () => {
-  const { P, sandbox } = load();
-  sandbox.selectableItems = [FILE, TEXTFILE];
-  sandbox.selectedIndex = 0;
-  P.handleKey(ev(" ", { shiftKey: true }));
-  assert.equal(P.isOpen(), true);
-
-  sandbox.selectedIndex = 1;
-  P.followSelection();
-  assert.equal(P.isOpen(), true, "the peek stays up while the selection moves");
-
-  P.close();
-  P.handleKey(ev("Enter", { altKey: true }));
-  sandbox.selectedIndex = 0;
-  P.followSelection();
-  assert.equal(P.isOpen(), true);
 });
 
 test("typing while the full preview is open closes it and gets through", () => {
@@ -325,36 +318,6 @@ test("the close button closes, like Escape", () => {
   assert.equal(P.isOpen(), false);
 });
 
-test("closing removes pv-open, not just adds pv-hidden", () => {
-  const { P, sandbox, keyup } = load();
-  sandbox.selectableItems = [FILE];
-  P.handleKey(ev(" ", { shiftKey: true }));
-  const panel = panelOf(sandbox);
-  assert.equal(panel.classList.contains("pv-open"), true);
-  assert.equal(panel.classList.contains("pv-hidden"), false);
-  // keydown while the chord is held is auto-repeat and must not close; the
-  // release is keyup. That release has to take the panel away rather than merely
-  // shrink it: the .pv-open rule comes later in the stylesheet, so leaving it on
-  // kept visibility and opacity and the panel stuck at scale(0.96).
-  P.handleKey(ev(" ", { shiftKey: true }));
-  assert.equal(P.isOpen(), true, "repeat must not close the peek");
-  keyup()(ev(" "));
-  assert.equal(P.isOpen(), false);
-  assert.equal(panel.classList.contains("pv-open"), false, "pv-open survived the close");
-  assert.equal(panel.classList.contains("pv-hidden"), true);
-});
-
-test("releasing either half of the chord closes the peek", () => {
-  const { P, sandbox, keyup } = load();
-  sandbox.selectableItems = [FILE, TEXTFILE];
-  // Shift released first, then Space: the common case when the chord is typed
-  // fast, and the panel must not sit there waiting for a key that never comes.
-  P.handleKey(ev(" ", { shiftKey: true }));
-  assert.equal(P.isOpen(), true);
-  keyup()(ev(" ", { shiftKey: false }));
-  assert.equal(P.isOpen(), false);
-});
-
 test("the panel is position:fixed above everything", () => {
   const { P, sandbox } = load();
   sandbox.selectableItems = [FILE];
@@ -390,7 +353,7 @@ test("media gets a player even without a Shell thumbnail", () => {
   assert.equal(P.hasContent({ kind: "other", thumb: null, text: null }), false);
 });
 
-test("the asset protocol is scoped to media, not to the whole disk", () => {
+test("the asset protocol is scoped to media and animated images, not to the whole disk", () => {
   const conf = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
   const ap = conf.app.security.assetProtocol;
   assert.equal(ap.enable, true, "media playback needs it on");
@@ -398,7 +361,7 @@ test("the asset protocol is scoped to media, not to the whole disk", () => {
   assert.ok(Array.isArray(scope), "a scope list is required");
   assert.ok(scope.every((s) => typeof s === "string"), "no bare paths, globs only");
   assert.ok(
-    scope.every((s) => /\.(mp4|m4v|webm|mkv|avi|mov|wmv|flv|3gp|ts|mpeg|mpg|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|wma|mid)$/.test(s)),
+    scope.every((s) => /\.(mp4|m4v|webm|mkv|avi|mov|wmv|flv|3gp|ts|mpeg|mpg|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|wma|mid|gif|webp|apng|pdf)$/.test(s)),
     "only media extensions may be reachable"
   );
   assert.ok(!scope.includes("**") && !scope.includes("**/*"), "no catch-all glob");
@@ -406,15 +369,6 @@ test("the asset protocol is scoped to media, not to the whole disk", () => {
   const csp = conf.app.security.csp;
   assert.match(csp, /media-src[^;]*http:\/\/asset\.localhost/, "media-src must allow the asset URL");
   assert.match(csp, /media-src[^;]*blob:/, "and blob URLs");
-});
-
-test("peek shows a paused frame and only the full preview has controls", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
-  // Both states use the same element; the peek just omits the controls and seeks
-  // to a frame, so there is no separate poster path that could carry an icon.
-  assert.match(src, /const controls = mode === "full" \? " controls" : ""/, "controls only when full");
-  assert.match(src, /preload="auto"/, "the frame has to be decodable without playing");
-  assert.match(src, /if \(mode === "full" \|\| isAudio\) return;/, "the seek is for the peek path");
 });
 
 test("media never shows the file icon as if it were a preview", () => {
@@ -435,66 +389,6 @@ test("media never shows the file icon as if it were a preview", () => {
   assert.ok(!block.includes('"audio"'), "audio must not ask the Shell");
 });
 
-test("a video peek seeks to a frame rather than sitting on the first one", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
-  assert.match(src, /currentTime\s*=\s*pvFrameFor\(/, "the frame has to be sought to");
-  // Frame zero of most clips is black or a logo.
-  assert.match(src, /function pvFrameFor[\s\S]{0,200}Math\.max\(0\.5/, "not frame zero");
-  assert.match(src, /duration \* 0\.1/, "a tenth of the way in");
-});
-
-test("the peek is a small content-sized card, not a panel over the list", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
-  // The peek used to be a fixed card centred in the list; it is now a small
-  // cursor-anchored card whatever the Overlay/Popup setting says.
-  const place = src.slice(src.indexOf("function pvPlace()"), src.indexOf("function pvPlaceOverlay"));
-  assert.match(place, /const peek = pvPanel\.dataset\.size === "compact";/);
-  assert.match(place, /if \(peek \|\| pvStyle === "popup"\)/,
-    "a peek must take the cursor path in both styles");
-  assert.ok(!/PV_CARD_MAX/.test(src), "the old fixed 420px peek card is gone");
-
-  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-  const compact = css.slice(css.indexOf('#preview-panel[data-size="compact"] {'));
-  const block = compact.slice(0, compact.indexOf("\n}\n") + 2);
-  assert.match(block, /width:\s*auto/, "hug contents: width comes from the content");
-  assert.match(block, /height:\s*auto/, "hug contents: height comes from the content");
-  assert.match(block, /max-width:\s*min\(260px/, "and is still capped");
-  assert.match(block, /max-height:\s*min\(260px/);
-});
-
-test("the peek follows the pointer", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
-  assert.match(src, /pvFollowCursor\(e\.clientX, e\.clientY\)/, "pointermove must drive the position");
-  // Reading offsetWidth after writing styles is a forced layout; a mouse trail
-  // is hundreds of events a second, so it has to be coalesced to one per frame.
-  assert.match(src, /if \(pvFollowRaf\) return;/, "must not re-measure per event");
-  assert.match(src, /requestAnimationFrame/, "coalesced into a frame");
-});
-
-test("the overlay setting no longer changes the peek, and both sizes hug", () => {
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
-  const place = src.slice(src.indexOf("function pvPlace()"), src.indexOf("function pvFitToContent"));
-  assert.match(place, /const peek = pvPanel\.dataset\.size === "compact";/);
-  assert.match(place, /if \(peek \|\| pvStyle === "popup"\)/, "peek must bypass the style setting");
-
-  // Both placements now drop the panel's own size first, so the content decides.
-  const fit = src.slice(src.indexOf("function pvFitToContent"), src.indexOf("function pvPlaceOverlay"));
-  assert.match(fit, /pvPanel\.style\.width = "auto"/);
-  assert.match(fit, /pvPanel\.style\.height = "auto"/);
-  assert.match(fit, /offsetWidth/, "and is then measured");
-
-  // The overlay no longer stamps the panel onto the whole list box.
-  const over = src.slice(src.indexOf("function pvPlaceOverlay"), src.indexOf("function pvPlaceCursor"));
-  assert.ok(!/box\.width, box\.height\)/.test(over), "must not fill the list box any more");
-  assert.match(over, /\(box\.width - size\.w\) \/ 2/, "centred over the list instead");
-
-  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-  const full = css.slice(css.indexOf('#preview-panel[data-size="full"] {'));
-  const fullBlock = full.slice(0, full.indexOf("\n}\n") + 2);
-  assert.match(fullBlock, /width:\s*auto/, "the full preview hugs too");
-  assert.match(fullBlock, /height:\s*auto/);
-});
-
 test("the style switch always shows the mode in effect", () => {
   const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8");
   // applyStyle used to return nothing, so the promise resolved to undefined and
@@ -506,16 +400,6 @@ test("the style switch always shows the mode in effect", () => {
   assert.match(src, /function pvRefreshSettings\(\)/, "the row repaints when settings open");
   const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
   assert.match(main, /UmbraPreview\.refreshSettings\(\)/, "and something has to call it");
-});
-
-test("the peek has no close button, the full preview keeps it", () => {
-  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-  const compact = css.slice(css.indexOf('#preview-panel[data-size="compact"] .pv-close {'));
-  const rule = compact.slice(0, compact.indexOf("}\n") + 1);
-  assert.match(rule, /display:\s*none/, "a held peek closes itself on release");
-  // The full one is dismissed by hand, so the button has to stay reachable.
-  const base = css.slice(css.indexOf(".pv-close {"), css.indexOf(".pv-close:focus-visible"));
-  assert.ok(!/display:\s*none/.test(base), "the close button must stay for the full preview");
 });
 
 test("the key cache is bounded so a long session does not grow without limit", () => {

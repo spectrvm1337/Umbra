@@ -40,11 +40,6 @@ const LANGS = ["en", "ru", "de", "ja"];
 
 const PREVIEW_KEYS = [
   "ctxPreview",
-  "lblPreview",
-  "previewOverlay",
-  "previewPopup",
-  "previewOverlayTip",
-  "previewPopupTip",
   "pvTitle",
   "pvOpen",
   "pvReveal",

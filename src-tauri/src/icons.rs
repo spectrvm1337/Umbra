@@ -63,7 +63,7 @@ pub fn get_icon_png_data(path: &str) -> Option<Vec<u8>> {
 }
 /// Target of a .lnk shortcut, so the icon comes from the program it opens.
 #[cfg(target_os = "windows")]
-fn resolve_lnk_target(path: &str) -> Option<String> {
+pub fn resolve_lnk_target(path: &str) -> Option<String> {
     use windows::core::{Interface, HSTRING};
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
@@ -209,7 +209,7 @@ fn hicon_to_png(_path: &str) -> Option<Vec<u8>> {
     None
 }
 #[cfg(not(target_os = "windows"))]
-fn resolve_lnk_target(_path: &str) -> Option<String> {
+pub fn resolve_lnk_target(_path: &str) -> Option<String> {
     None
 }
 #[cfg(all(test, target_os = "windows"))]

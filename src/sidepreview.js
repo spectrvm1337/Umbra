@@ -381,6 +381,15 @@ function spSetHeld(on) {
   return spHeld;
 }
 const spRelease = () => spSetHeld(false);
+// Capture phase, so the chord is taken before the search box can type the space.
+document.addEventListener("keydown", (e) => {
+  if (e.defaultPrevented || hotkeyCapturing) return;
+  // A repeat of the hold's key, or that key after a modifier came up, is not typing.
+  const used = spHeld && kbIsBase(e, "previewHold") ? true : kbMatches(e, "previewHold") && spSetHeld(true);
+  if (!used) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 document.addEventListener("keyup", (e) => {
   // A modifier goes up before the key when the chord is typed fastest; either one ends the hold.
   if (kbReleases(e, "previewHold")) spRelease();

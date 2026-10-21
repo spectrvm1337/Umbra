@@ -336,8 +336,6 @@ function toggleSettings() {
             // The filter from last time is still hiding rows, and some of them
             // may be the only way to reach a setting.
             filterSettings(searchInput.value);
-            // A switch with nothing lit reads as broken, so the panel repaints it.
-            if (window.UmbraPreview) window.UmbraPreview.refreshSettings();
             searchInput.blur();
     } else {
       // The rows the filter hid stay hidden otherwise, and the next time the
@@ -1876,9 +1874,6 @@ function hideWindow() {
   // An open colour picker must not still be there when the window comes back.
   closePicker();
   contextMenu.classList.remove("visible");
-  // The window is going away, so the panel must not ride along into the next
-  // summon just because the selection happens to still match.
-  if (window.UmbraPreview) window.UmbraPreview.close();
   appContainer.classList.remove("window-showing");
   appContainer.classList.add("window-hidden");
   // The timer is cleared but the variable was left pointing at a dead id, so
@@ -2011,14 +2006,6 @@ function createResultItem(item, index, query) {
     // The player's own controls are not a click on the row.
     if (e.target.closest(".sp-body video, .sp-body iframe")) return;
     if (e.target.closest(".result-pin")) { togglePin(e.target.closest(".result-pin")); return; }
-    // Shift+click previews instead of opening. The full preview key is the keyboard route;
-    // this is the mouse one. Nothing else in the app uses Shift+click, and
-    // user-select is off globally, so there is nothing to collide with.
-    if (e.shiftKey && window.UmbraPreview) {
-      e.preventDefault();
-      window.UmbraPreview.openFull(item, { x: e.clientX, y: e.clientY });
-      return;
-    }
     launchItem(item.path);
   });
   div.addEventListener("mouseenter", () => {
@@ -2750,14 +2737,6 @@ contextMenu.addEventListener("click", (e) => {
     case "copy":
       copyPath(path);
       break;
-    case "preview":
-      // This row, not whatever the keyboard happened to have selected, and
-      // anchored where the menu item was clicked.
-      contextMenu.classList.remove("visible");
-      if (window.UmbraPreview) {
-        window.UmbraPreview.openFull(contextTargetItem, { x: e.clientX, y: e.clientY });
-      }
-      return;
     case "pin":
       setItemPinned(contextTargetItem, !isPinned(path));
       break;
@@ -2975,10 +2954,8 @@ document.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => showRowShortcuts(false));
 searchInput.addEventListener("keydown", (e) => {
-  // Expanding a result and the full preview are preview.js's keys: it listens on the document in
-  // the capture phase, which runs before this handler and stops the event when it claims it.
-  // Delegating here as well would mean every key was handled twice -- the full preview would open
-  // and close again in the same tick.
+  // Holding the expand keys is sidepreview.js's: it listens on the document in the capture phase,
+  // which runs before this handler and stops the event when it claims it.
   if (kbMatches(e, "historyPrev") || kbMatches(e, "historyNext")) {
     e.preventDefault();
     stepQueryHistory(kbMatches(e, "historyPrev") ? 1 : -1);
@@ -3207,7 +3184,7 @@ document.addEventListener("pointerdown", (e) => {
   }
   // #pin-dock covers the whole dock column, so grabbing a tile to drag it, or
   // missing a tile by a few pixels, doesn't count as a click outside the window.
-  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #theme-panel, #preview-panel, #cc-pill";
+  const CARD_SEL = "#search-box, .result-item, .special-card, .settings-card, #context-menu, #content-menu, #anim-menu, #color-picker, .drag-bar, .side-pill, #pin-dock, #theme-panel, #cc-pill";
   const onCard = e.target instanceof Element && e.target.closest(CARD_SEL);
   if (!onCard && !pointOverCard(e.clientX, e.clientY, CARD_SEL)) {
     hideWindow();

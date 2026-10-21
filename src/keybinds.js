@@ -12,7 +12,6 @@
 const KB_DEFAULT_HOTKEY = "Alt+Space";
 const KB_ACTIONS = [
   { id: "previewHold", def: "Shift+Space", label: "kbPreviewHold" },
-  { id: "previewFull", def: "Shift+Enter", label: "kbPreviewFull" },
   { id: "reveal", def: "Ctrl+Enter", label: "kbReveal" },
   { id: "admin", def: "Ctrl+Shift+Enter", label: "kbAdmin" },
   { id: "pin", def: "Ctrl+P", label: "kbPin" },
@@ -162,7 +161,6 @@ function kbPaintContext() {
   };
   set("admin", kbCombo("admin"));
   set("directory", kbCombo("reveal"));
-  set("preview", kbCombo("previewFull"));
   set("pin", kbCombo("pin"));
 }
 

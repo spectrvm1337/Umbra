@@ -71,19 +71,16 @@ test("the drag pill has no loading bar", () => {
 });
 
 
-test("a key is handled by the preview once, not twice", () => {
-  // preview.js listens on the document in the capture phase and main.js used
-  // to delegate to it as well, so every key was handled twice: Alt+Enter opened
-  // the panel and closed it again in the same tick, Enter launched the file
-  // twice, and Escape closed the window on top of closing the panel.
-  const src = readFileSync(new URL("../src/preview.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  const listen = src.slice(src.indexOf('document.addEventListener(\n  "keydown"'));
-  assert.match(listen, /pvHandleKey\(e\)/, "the capture handler decides");
+test("the hold key is handled by the side preview once, not twice", () => {
+  // sidepreview.js listens on the document in the capture phase; main.js must not take the key
+  // again, or the card would open and close again in the same tick.
+  const src = readFileSync(new URL("../src/sidepreview.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const listen = src.slice(src.indexOf('document.addEventListener("keydown"'));
+  assert.match(listen, /kbMatches\(e, "previewHold"\)/, "the capture handler decides");
   assert.match(listen, /e\.stopPropagation\(\)/, "and stops the event, so nobody else acts on it");
-  // And main.js must not ask again.
   const main = MAIN.slice(MAIN.indexOf('searchInput.addEventListener("keydown"'));
   const head = main.slice(0, main.indexOf("if (kbMatches(e, \"historyPrev\")"));
-  assert.ok(!/handleKey/.test(head), "the search box must not handle it a second time");
+  assert.ok(!/previewHold|handleKey/.test(head), "the search box must not handle it a second time");
 });
 
 test("pinning renumbers the rows", () => {

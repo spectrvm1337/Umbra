@@ -38,30 +38,9 @@ function loadTranslations() {
 const T = loadTranslations();
 const LANGS = ["en", "ru", "de", "ja"];
 
-const PREVIEW_KEYS = [
-  "ctxPreview",
-  "pvTitle",
-  "pvOpen",
-  "pvReveal",
-  "pvAdmin",
-  "pvClose",
-  "pvNone",
-  "pvFailed",
-  "pvTimeout",
-  "pvMediaUnavailable",
-  "pvMediaUnplayable",
-];
-
 test("all four languages are present", () => {
   for (const lang of LANGS) {
     assert.ok(T[lang], `${lang} is missing from the translation table`);
-  }
-});
-
-test("every language carries the preview strings", () => {
-  for (const lang of LANGS) {
-    const missing = PREVIEW_KEYS.filter((k) => typeof T[lang][k] !== "string" || !T[lang][k]);
-    assert.deepEqual(missing, [], `${lang} is missing: ${missing.join(", ")}`);
   }
 });
 

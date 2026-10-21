@@ -184,6 +184,31 @@ impl Response {
         }
         Ok(out)
     }
+    /// Like `read_to_vec`, but stops after `max` bytes: for pages that are only skimmed.
+    pub fn read_limited(&self, max: usize) -> Result<Vec<u8>, String> {
+        let mut out = Vec::new();
+        let mut buf = vec![0u8; CHUNK];
+        while out.len() < max {
+            let mut read = 0u32;
+            let ok = unsafe {
+                WinHttpReadData(
+                    self.request.0,
+                    buf.as_mut_ptr() as *mut c_void,
+                    CHUNK as u32,
+                    &mut read,
+                )
+            };
+            if ok == 0 {
+                return Err(last_error());
+            }
+            if read == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..read as usize]);
+        }
+        out.truncate(max);
+        Ok(out)
+    }
     /// Streams the body into `dest`, reporting (downloaded, total) as it goes.
     /// `total` is only a hint — pass 0 when the size is unknown.
     pub fn write_to_file<F>(&self, dest: &Path, total: u64, mut progress: F) -> Result<u64, String>

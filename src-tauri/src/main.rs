@@ -3,6 +3,7 @@ mod autostart;
 mod color_pick;
 mod commands;
 mod config;
+mod favicon;
 mod frecency;
 mod icons;
 mod index_cache;
@@ -128,6 +129,7 @@ fn main() {
             commands::launch_admin,
             commands::reveal_in_explorer,
             commands::record_pick,
+            favicon::fetch_favicon,
             commands::kill_process,
             commands::find_process,
             commands::exec_power_command,
@@ -163,6 +165,8 @@ fn main() {
             commands::set_placement,
             commands::list_monitors,
             commands::reindex,
+            commands::get_index_options,
+            commands::set_index_option,
             commands::get_disabled_kinds,
             commands::set_kind_enabled,
             commands::get_available_drives,

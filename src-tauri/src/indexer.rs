@@ -189,8 +189,7 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         );
         index_registry_apps(&mut entries);
         index_system_tools(&mut entries, &system_tool_dirs());
-        let skip_dirs: std::collections::HashSet<String> =
-            crate::config::get_index_excludes().into_iter().collect();
+        let skip_dirs = crate::config::index_skip_set();
         index_program_exes(
             &mut entries,
             &program_dirs(),
@@ -686,9 +685,11 @@ const SCAN_TO: f64 = 92.0;
 const SCAN_SMOOTH: f64 = 40_000.0;
 const EMIT_EVERY_MS: u128 = 150;
 const EMIT_EVERY_FILES: usize = 1500;
+/// A name the walk leaves out: one in the skip set, or any dot name while the set carries the
+/// `.*` marker (Settings > Hidden folders switches it off).
 pub(crate) fn is_skipped_name(name: &str, skip_dirs: &std::collections::HashSet<String>) -> bool {
     let name = name.to_lowercase();
-    name.starts_with('.') || skip_dirs.contains(name.as_str())
+    (name.starts_with('.') && skip_dirs.contains(crate::config::SKIP_DOT_NAMES)) || skip_dirs.contains(name.as_str())
 }
 /// Disk walks get their own threads. On rayon's global pool they competed with
 /// the parallel search (both slowed down while indexing), and jwalk gives up on
@@ -803,8 +804,7 @@ fn index_drives_with_progress(
     if drives.is_empty() {
         return;
     }
-    let config_excludes = crate::config::get_index_excludes();
-    let skip_dirs: std::collections::HashSet<String> = config_excludes.into_iter().collect();
+    let skip_dirs = crate::config::index_skip_set();
     let n = drives.len() as f64;
     for (i, drive) in drives.iter().enumerate() {
         if INDEX_RUN.load(std::sync::atomic::Ordering::SeqCst) != run {
@@ -934,7 +934,7 @@ mod tests {
         touch(root.join("Build").join("out").join("app.exe"));
         touch(root.join(".git").join("config"));
         touch(root.join("$Recycle.Bin").join("S-1-5").join("deleted.docx"));
-        let skip: HashSet<String> = ["node_modules", "build", "$recycle.bin"]
+        let skip: HashSet<String> = ["node_modules", "build", "$recycle.bin", ".*"]
             .iter()
             .map(|s| s.to_string())
             .collect();

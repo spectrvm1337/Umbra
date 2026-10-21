@@ -218,7 +218,7 @@ function fxRememberPair(pair) {
 
 let fxRenderId = 0;
 
-const FX_ARROW_SVG = `<svg class="fx-arrow" width="17" height="14.7279" viewBox="0 0 17 14.7279" fill="none" aria-hidden="true"><path d="M1 6.36396C0.447715 6.36396 0 6.81168 0 7.36396C0 7.91625 0.447715 8.36396 1 8.36396V7.36396V6.36396ZM16.7071 8.07107C17.0976 7.68054 17.0976 7.04738 16.7071 6.65685L10.3431 0.292893C9.95262 -0.097631 9.31946 -0.097631 8.92893 0.292893C8.53841 0.683418 8.53841 1.31658 8.92893 1.70711L14.5858 7.36396L8.92893 13.0208C8.53841 13.4113 8.53841 14.0445 8.92893 14.435C9.31946 14.8256 9.95262 14.8256 10.3431 14.435L16.7071 8.07107ZM1 7.36396V8.36396H16V7.36396V6.36396H1V7.36396Z" fill="currentColor"/></svg>`;
+const FX_ARROW_SVG = `<svg class="ico fx-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21" aria-hidden="true"><path d="M5 12h14m-6 6l6-6m-6-6l6 6"/></svg>`;
 
 function fxTrendSvg(dir, x, y) {
   const flip = dir === "up" ? ` transform="rotate(180 4 4.375)"` : "";

@@ -268,7 +268,13 @@ fn match_score(
     let path_len = (e.path.chars().count() as u32).min(9999);
     Some(ScoreKey { pick_inv, tier, primary, frec_inv, len, path_len })
 }
-const MAX_RESULTS: usize = 30;
+/// Always this many results when there are that many matches...
+const MIN_RESULTS: usize = 30;
+/// ...and past that, more while they are real matches (the name contains the query), up to this
+/// many. Typo matches never extend the list.
+const MAX_RESULTS: usize = 120;
+/// `ScoreKey::primary` of a typo match; everything below it contains or starts with the query.
+const PRIMARY_FUZZY: u32 = 5;
 const FUZZY_BUDGET_MS: u64 = 250;
 pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
     let q = query.to_lowercase();
@@ -309,6 +315,9 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
                     }
                 }
 
+                if deduplicated.len() >= MIN_RESULTS && score.primary >= PRIMARY_FUZZY {
+                    continue;
+                }
                 let mut r = crate::indexer::entry_to_result(e);
                 r.score = score;
                 deduplicated.push(r);

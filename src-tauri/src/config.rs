@@ -26,6 +26,14 @@ pub struct Config {
     #[serde(default = "default_index_excludes")]
     pub index_excludes: Vec<String>,
 
+    /// Index folders whose name starts with a dot (`.rustup`, `.config`, ...). Off by default.
+    #[serde(default)]
+    pub index_hidden: bool,
+
+    /// Index the user's `AppData` folder. Off by default.
+    #[serde(default)]
+    pub index_appdata: bool,
+
     #[serde(default)]
     pub disabled_kinds: Vec<u8>,
 
@@ -61,6 +69,8 @@ impl Default for Config {
             align: default_align(),
             monitor: 0,
             index_excludes: default_index_excludes(),
+            index_hidden: false,
+            index_appdata: false,
             disabled_kinds: vec![],
             disabled_drives: vec![],
             language: default_language(),
@@ -86,6 +96,9 @@ fn default_zoom() -> f64 {
 fn default_true() -> bool {
     true
 }
+/// Folders that are noise by name wherever they appear. `AppData` and the dot folders are not here:
+/// they are the two switches in Settings (`index_appdata`, `index_hidden`). Names as ordinary as
+/// `build`, `dist`, `target` or `vendor` are not here either -- they are real folders of real people.
 pub(crate) const DEFAULT_INDEX_EXCLUDES: &[&str] = &[
     "windows",
     "program files",
@@ -98,17 +111,25 @@ pub(crate) const DEFAULT_INDEX_EXCLUDES: &[&str] = &[
     "efi",
     "msocache",
     "programdata",
-    "appdata",
     "node_modules",
     ".git",
-    ".github",
-    "target",
-    "build",
-    "dist",
-    ".vscode",
-    ".idea",
-    "vendor",
 ];
+/// The list that was the default up to 0.2.0. A config that still holds exactly this was never
+/// edited by hand, so it moves to the current default instead of keeping the old, wider one.
+const OLD_DEFAULT_INDEX_EXCLUDES: &[&str] = &[
+    "windows", "program files", "program files (x86)", "$recycle.bin", "system volume information",
+    "recovery", "perflogs", "boot", "efi", "msocache", "programdata", "appdata", "node_modules",
+    ".git", ".github", "target", "build", "dist", ".vscode", ".idea", "vendor",
+];
+fn migrate_index_excludes(config: &mut Config) {
+    let mut have: Vec<String> = config.index_excludes.iter().map(|s| s.to_lowercase()).collect();
+    have.sort();
+    let mut old: Vec<String> = OLD_DEFAULT_INDEX_EXCLUDES.iter().map(|s| s.to_string()).collect();
+    old.sort();
+    if have == old {
+        config.index_excludes = default_index_excludes();
+    }
+}
 fn default_index_excludes() -> Vec<String> {
     DEFAULT_INDEX_EXCLUDES
         .iter()
@@ -127,6 +148,13 @@ pub struct ThemeConfig {
     pub radius: u32,
     #[serde(default = "default_density")]
     pub density: String,
+    /// The interface font: `wix`, `sn-pro` or `montserrat`, or `sys:<name>` for a font picked with `!font`.
+    #[serde(default = "default_font")]
+    pub font: String,
+    /// Fonts installed on the PC that the user picked with `!font <name>`; each is a choice in
+    /// Settings, and `font` is `sys:<name>` while one of them is in use.
+    #[serde(default)]
+    pub system_fonts: Vec<String>,
     /// Space between result rows and between sections. The density presets set
     /// this too, but the slider writes it inline afterwards, so a chosen value
     /// wins over the density it came from.
@@ -180,6 +208,19 @@ fn default_pins_style() -> String {
 fn default_density() -> String {
     "full".into()
 }
+fn default_font() -> String {
+    "wix".into()
+}
+/// How many fonts picked with `!font` are kept as choices.
+const MAX_SYSTEM_FONTS: usize = 6;
+/// A family name that is safe to put inside a CSS `font-family: '…'`: letters, digits, spaces
+/// and a few joiners, so it can never close the quote or add a rule.
+fn valid_font_family(name: &str) -> bool {
+    let n = name.trim();
+    !n.is_empty()
+        && n.chars().count() <= 64
+        && n.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '+'))
+}
 fn default_gap() -> u32 {
     12
 }
@@ -191,6 +232,8 @@ impl Default for ThemeConfig {
             card_alpha: 1.0,
             radius: 12,
             density: default_density(),
+            font: default_font(),
+            system_fonts: Vec::new(),
             gap: default_gap(),
             tall_results: false,
             text: "#e3e3e3".into(),
@@ -223,6 +266,22 @@ impl ThemeConfig {
         match self.density.as_str() {
             "compact-results" | "compact-full" => {}
             _ => self.density = default_density(),
+        }
+        let mut kept: Vec<String> = Vec::new();
+        for name in self.system_fonts.drain(..) {
+            let name = name.trim().to_string();
+            if valid_font_family(&name) && !kept.iter().any(|k| k.eq_ignore_ascii_case(&name)) {
+                kept.push(name);
+            }
+        }
+        let skip = kept.len().saturating_sub(MAX_SYSTEM_FONTS);
+        self.system_fonts = kept.split_off(skip);
+        let chosen_system = self
+            .font
+            .strip_prefix("sys:")
+            .is_some_and(|n| self.system_fonts.iter().any(|k| k == n));
+        if !chosen_system && !matches!(self.font.as_str(), "wix" | "sn-pro" | "montserrat") {
+            self.font = default_font();
         }
         self.glow_strength = self.glow_strength.clamp(0, 40);
         self.glow_color = sanitize_optional_color(&self.glow_color);
@@ -304,6 +363,7 @@ fn with_state<R>(f: impl FnOnce(&mut ConfigState) -> R) -> R {
         let path = config_path();
         let mut config: Config = crate::storage::load_json(&path);
         normalise_hotkey(&mut config);
+        migrate_index_excludes(&mut config);
         ConfigState { path, config }
     });
     f(state)
@@ -425,6 +485,42 @@ pub fn set_zoom(zoom: f64) {
 pub fn get_index_excludes() -> Vec<String> {
     read(|c| c.index_excludes.clone())
 }
+/// Marker in the skip set meaning "skip every name that starts with a dot".
+pub(crate) const SKIP_DOT_NAMES: &str = ".*";
+/// What the indexer leaves out by name: the exclude list, plus `AppData` and the dot folders
+/// unless Settings turned them on.
+pub fn index_skip_set() -> std::collections::HashSet<String> {
+    read(|c| skip_set_for(&c.index_excludes, c.index_hidden, c.index_appdata))
+}
+fn skip_set_for(excludes: &[String], hidden: bool, appdata: bool) -> std::collections::HashSet<String> {
+    let mut set: std::collections::HashSet<String> = excludes.iter().map(|s| s.to_lowercase()).collect();
+    if appdata {
+        set.remove("appdata");
+    } else {
+        set.insert("appdata".into());
+    }
+    if !hidden {
+        set.insert(SKIP_DOT_NAMES.into());
+    }
+    set
+}
+#[derive(Serialize)]
+pub struct IndexOptions {
+    pub hidden: bool,
+    pub appdata: bool,
+}
+pub fn get_index_options() -> IndexOptions {
+    read(|c| IndexOptions { hidden: c.index_hidden, appdata: c.index_appdata })
+}
+/// Turns one of the two index switches (`hidden`, `appdata`) on or off.
+pub fn set_index_option(name: &str, on: bool) -> IndexOptions {
+    update(|c| match name {
+        "hidden" => c.index_hidden = on,
+        "appdata" => c.index_appdata = on,
+        _ => {}
+    });
+    get_index_options()
+}
 pub fn get_disabled_kinds() -> Vec<u8> {
     read(|c| c.disabled_kinds.clone())
 }
@@ -492,6 +588,35 @@ pub fn set_drive_enabled(drive: &str, enabled: bool) -> Vec<String> {
 mod tests {
     use super::*;
     #[test]
+    fn default_excludes_keep_ordinary_folder_names_searchable() {
+        for name in ["build", "dist", "target", "vendor", ".github", ".vscode", ".idea", "appdata"] {
+            assert!(!DEFAULT_INDEX_EXCLUDES.contains(&name), "{name} should not be excluded by default");
+        }
+        for name in ["node_modules", ".git", "windows", "program files", "$recycle.bin"] {
+            assert!(DEFAULT_INDEX_EXCLUDES.contains(&name), "{name} should stay excluded");
+        }
+    }
+    #[test]
+    fn an_untouched_old_default_list_moves_to_the_new_one() {
+        let mut old = Config { index_excludes: OLD_DEFAULT_INDEX_EXCLUDES.iter().map(|s| s.to_string()).collect(), ..Default::default() };
+        migrate_index_excludes(&mut old);
+        assert_eq!(old.index_excludes, default_index_excludes());
+        let mut mine = Config { index_excludes: vec!["windows".into(), "my stuff".into()], ..Default::default() };
+        migrate_index_excludes(&mut mine);
+        assert_eq!(mine.index_excludes, vec!["windows".to_string(), "my stuff".to_string()]);
+    }
+    #[test]
+    fn appdata_and_dot_folders_follow_their_switches() {
+        let list = default_index_excludes();
+        let off = skip_set_for(&list, false, false);
+        assert!(off.contains("appdata") && off.contains(SKIP_DOT_NAMES));
+        let on = skip_set_for(&list, true, true);
+        assert!(!on.contains("appdata") && !on.contains(SKIP_DOT_NAMES));
+        assert!(on.contains(".git") && on.contains("node_modules"), "the plain list still applies");
+        let old_config = skip_set_for(&["appdata".to_string()], false, true);
+        assert!(!old_config.contains("appdata"), "the switch wins over an old list entry");
+    }
+    #[test]
     fn align_validation_rejects_bad_values_without_panicking() {
         for ok in ["tl", "cc", "br", "tc"] {
             assert!(is_valid_align(ok), "{ok}");
@@ -539,6 +664,54 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(bogus.sanitized().density, "full");
+    }
+    #[test]
+    fn font_keeps_known_choices_and_falls_back_to_the_default() {
+        for font in ["wix", "sn-pro", "montserrat"] {
+            let theme = ThemeConfig {
+                font: font.into(),
+                ..Default::default()
+            };
+            assert_eq!(theme.sanitized().font, font);
+        }
+        let bogus = ThemeConfig {
+            font: "comic-sans".into(),
+            ..Default::default()
+        };
+        assert_eq!(bogus.sanitized().font, "wix");
+        // Stolzl was bundled before; a config that still names it moves to the default.
+        let legacy = ThemeConfig {
+            font: "stolzl".into(),
+            ..Default::default()
+        };
+        assert_eq!(legacy.sanitized().font, "wix");
+        let old: ThemeConfig = serde_json::from_str(r#"{"density": "full"}"#).unwrap();
+        assert_eq!(old.font, "wix");
+    }
+    #[test]
+    fn system_fonts_are_checked_and_capped() {
+        let theme = ThemeConfig {
+            font: "sys:Segoe UI".into(),
+            system_fonts: vec!["Segoe UI".into(), "segoe ui".into(), "Bad'; } body{".into(), "Consolas".into()],
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(theme.system_fonts, vec!["Segoe UI", "Consolas"]);
+        assert_eq!(theme.font, "sys:Segoe UI");
+        let gone = ThemeConfig {
+            font: "sys:Arial".into(),
+            system_fonts: vec!["Consolas".into()],
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(gone.font, "wix");
+        let many = ThemeConfig {
+            system_fonts: (0..9).map(|i| format!("Font {i}")).collect(),
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(many.system_fonts.len(), 6);
+        assert_eq!(many.system_fonts[5], "Font 8");
     }
     #[test]
     fn tall_results_defaults_off_and_uses_the_camel_case_key() {

@@ -1,3 +1,28 @@
+let faviconTimer = 0;
+// Slides the site's own icon in between the card's arrow and its label once it has been fetched, Waits for a pause in
+// pushing the label aside. Waits for a pause in typing, and drops the answer if the card has moved on
+// to another address meanwhile.
+function loadFavicon(url) {
+  clearTimeout(faviconTimer);
+  if (!/^https?:\/\//i.test(url)) return;
+  faviconTimer = setTimeout(async () => {
+    let src = null;
+    try { src = await invoke("fetch_favicon", { url }); } catch { return; }
+    const action = specialContent.querySelector(".special-action");
+    if (!src || !action || action.dataset.url !== url) return;
+    const img = document.createElement("img");
+    img.className = "special-favicon";
+    img.alt = "";
+    img.onload = () => {
+      const svg = action.querySelector("svg");
+      if (!svg || !action.isConnected || action.querySelector(".special-favicon")) return;
+      svg.after(img);
+      // Two frames: the box has to be laid out at 0 wide before it can grow.
+      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add("show")));
+    };
+    img.src = src;
+  }, 400);
+}
 function showOpenCard(url, label) {
   specialSection.classList.remove("hidden");
   resultsSection.classList.add("hidden");
@@ -5,7 +30,7 @@ function showOpenCard(url, label) {
   specialContent.innerHTML = `
     <div class="special-card">
       <div class="special-action" data-url="${escapeHtml(url)}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1l9-9m-5 0h5v5"/></svg>
         <span>${escapeHtml(label)}</span>
       </div>
     </div>
@@ -19,6 +44,7 @@ function showOpenCard(url, label) {
   // Enter launches selectableItems[selectedIndex]; without this it opened the previous search's top result.
   selectableItems = [{ name: "", path: url, kind: "open", icon_data: null, pinned: false }];
   selectedIndex = 0;
+  loadFavicon(url);
 }
 const OPEN_TLDS = new Set(["com", "org", "net", "io", "dev", "me", "gg", "tv", "co", "uk", "de", "info", "xyz", "ru", "su", "ua", "by", "kz", "рф"]);
 // A URL or an absolute path typed into the search box, normalized for launch_item; null for ordinary searches.
@@ -35,8 +61,67 @@ function parseOpenTarget(q) {
   if (host && (/^www\./i.test(s) || host[4] || OPEN_TLDS.has(host[2].toLowerCase()))) return `https://${s}`;
   return null;
 }
+const BUNDLED_FONTS = {
+  wix: "wix", "wix madefor display": "wix", "wix madefor": "wix",
+  "sn pro": "sn-pro", snpro: "sn-pro",
+  montserrat: "montserrat", "montserrat alternates": "montserrat",
+};
+// Whether the web view can draw with a font of that name: it is installed if text in it measures
+// differently from the plain fallback fonts it would otherwise land on.
+function fontInstalled(name) {
+  const ctx = document.createElement("canvas").getContext("2d");
+  const sample = "mmmmmmmmmmlli Ж 0123456789";
+  return ["monospace", "serif", "sans-serif"].some((fallback) => {
+    ctx.font = `40px ${fallback}`;
+    const base = ctx.measureText(sample).width;
+    ctx.font = `40px '${name}', ${fallback}`;
+    return ctx.measureText(sample).width !== base;
+  });
+}
+// `!font <name>`: picks a font installed on this PC and adds it to the choices in Settings.
+function handleFontCommand(q) {
+  const m = q.match(/^!font(?:\s+(.*))?$/i);
+  if (!m) return false;
+  const name = (m[1] || "").trim().replace(/^["']|["']$/g, "").trim();
+  selectableItems = [];
+  selectedIndex = -1;
+  specialSection.classList.remove("hidden");
+  resultsSection.classList.add("hidden");
+  pinsSection.classList.add("hidden");
+  const bundled = BUNDLED_FONTS[name.toLowerCase()];
+  const valid = /^[\p{L}\p{N} ._+-]{1,64}$/u.test(name);
+  const found = !!name && (bundled || (valid && fontInstalled(name)));
+  const label = !name ? t("fontHint") : found ? `${t("fontUse")}: ${name}` : `${name} — ${t("fontMissing")}`;
+  specialContent.innerHTML = `
+    <div class="special-card">
+      <div class="special-action${found ? "" : " is-disabled"}">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M4 20l3 0m4 0l3 0m-9 0l5.5 -16l5.5 16m-3 0l3 0m-12 -6l9 0"/></svg>
+        <span></span>
+      </div>
+    </div>
+  `;
+  const action = specialContent.querySelector(".special-action");
+  const span = action.querySelector("span");
+  span.textContent = label;
+  // Shows the label in the font it names.
+  if (found && !bundled) span.style.fontFamily = `'${name}', var(--font-main)`;
+  if (!found) return true;
+  const apply = () => {
+    const pick = bundled || `sys:${name}`;
+    const fonts = bundled ? (theme.systemFonts || []) : [...(theme.systemFonts || []).filter((f) => f.toLowerCase() !== name.toLowerCase()), name];
+    theme = { ...theme, font: pick, systemFonts: fonts };
+    saveTheme();
+    showToast(t("fontSet", { name }));
+    hideWindow();
+  };
+  action.addEventListener("click", apply);
+  selectableItems = [{ name: "", path: "", kind: "font", icon_data: null, pinned: false, run: apply }];
+  selectedIndex = 0;
+  return true;
+}
 function handleSpecialCommand(query) {
   const q = query.trim();
+  if (handleFontCommand(q)) return true;
   if (handleColorCommand(q)) return true;
   const killMatch = q.match(/^kill\s+(.+)/i);
   if (killMatch) {
@@ -52,9 +137,7 @@ function handleSpecialCommand(query) {
     specialContent.innerHTML = `
       <div class="special-card">
         <div class="special-action${invalid ? " is-disabled" : ""}" data-kill="${escapeHtml(procName)}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
-            <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0m7-2l4 4m0-4l-4 4"/></svg>
           <span>kill process: ${escapeHtml(procName)}</span>
           <span class="special-hint">${invalid ? "wildcards and paths are not allowed" : ""}</span>
         </div>
@@ -104,9 +187,7 @@ function handleSpecialCommand(query) {
     specialContent.innerHTML = `
       <div class="special-card">
         <div class="special-action" data-power="${cmd}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>
-          </svg>
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M7 6a7.75 7.75 0 1 0 10 0m-5-2v8"/></svg>
           <span>confirm ${cmd}?</span>
         </div>
       </div>
@@ -138,6 +219,7 @@ function handleSpecialCommand(query) {
       { name: "!red <query>", desc: t("helpRed"), fill: "!red " },
       { name: "!so <query>", desc: t("helpSo"), fill: "!so " },
       { name: "!translate <text>", desc: t("helpTranslate"), fill: "!translate " },
+      { name: "!font <name>", desc: t("helpFont"), fill: "!font " },
       { name: "100 usd to rub", desc: t("helpCurr"), fill: "100 usd to " },
       { name: "(2+3)*4 · 200+10%", desc: t("helpCalc"), fill: "" },
       { name: "kill <proc>", desc: t("helpKill"), fill: "kill " },

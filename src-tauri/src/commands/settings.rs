@@ -9,6 +9,17 @@ pub fn reindex(app: tauri::AppHandle) {
     indexer::init_index_with_progress(app);
 }
 #[tauri::command]
+pub fn get_index_options() -> config::IndexOptions {
+    config::get_index_options()
+}
+/// Turns `hidden` or `appdata` indexing on or off and rebuilds the index so it takes effect.
+#[tauri::command]
+pub fn set_index_option(app: tauri::AppHandle, name: String, on: bool) -> config::IndexOptions {
+    let options = config::set_index_option(&name, on);
+    indexer::init_index_with_progress(app);
+    options
+}
+#[tauri::command]
 pub fn add_pin(name: String, path: String, kind: String) -> bool {
     pins::add_pin(&search::SearchResult {
         name,

@@ -110,7 +110,7 @@ let colorRememberTimer = null;
 
 const COLOR_PIN_SVG = `<svg class="cc-pin" width="34" height="43" viewBox="0 0 34 43" aria-hidden="true"><path d="M17 0C7.6 0 0 7.4 0 16.6 0 28.6 17 43 17 43s17-14.4 17-26.4C34 7.4 26.4 0 17 0Z" fill="#fff"/><circle class="cc-pin-dot" cx="17" cy="16.5" r="8"/></svg>`;
 
-const COLOR_DROPPER_SVG = `<svg width="17" height="18" viewBox="0 0 17 18" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.40525 13.7128C5.07988 14.2677 2.78716 15.8468 2.38647 15.4225C2.12682 15.1475 2.66162 14.0314 3.21288 12.8979H7.17495C7.00391 13.079 6.74734 13.3507 6.40525 13.7128Z" fill="currentColor"/><path d="M13.4328 4.99912C13.7647 4.64765 14.303 4.64765 14.6349 4.99912C14.9668 5.35059 14.9668 5.92044 14.6349 6.27191L7.00629 14.3492C6.92408 14.4363 6.82588 14.5046 6.71776 14.5499C6.38088 14.6908 6.03818 14.8685 5.22789 15.3105C4.82739 15.529 4.65054 15.6244 4.43417 15.7372C2.94828 16.5124 2.38983 16.6988 1.78543 16.0589C1.18217 15.4201 1.35767 14.8281 2.08449 13.2644C2.19218 13.0326 2.28338 12.8432 2.49221 12.4139C2.90957 11.5559 3.07743 11.193 3.21062 10.8364C3.25337 10.7219 3.31784 10.6179 3.40004 10.5309L11.0287 2.45354C11.3606 2.10207 11.8988 2.10207 12.2307 2.45354C12.5627 2.805 12.5627 3.37486 12.2307 3.72632L4.7234 11.6753C4.57529 12.0486 4.38902 12.4457 4.0035 13.2381C3.79954 13.6574 3.7113 13.8407 3.60979 14.0592C3.58865 14.1046 3.56827 14.1489 3.54867 14.1919C3.59205 14.1697 3.63676 14.1466 3.68284 14.1225C3.88696 14.0161 4.05814 13.9237 4.44945 13.7103C5.1979 13.3021 5.57289 13.1049 5.92548 12.948L13.4328 4.99912Z" fill="currentColor"/><path d="M12.2307 3.72635C11.8988 4.07783 11.3606 4.07783 11.0287 3.72635C10.6967 3.37488 10.6967 2.80503 11.0287 2.45356C12.0244 1.39915 13.639 1.39915 14.6349 2.45356C15.6307 3.50797 15.6307 5.21752 14.6349 6.27194C14.3029 6.62341 13.7647 6.62341 13.4328 6.27194C13.1009 5.92047 13.1009 5.35062 13.4328 4.99915C13.7647 4.64767 13.7647 4.07783 13.4328 3.72635C13.1009 3.37488 12.5627 3.37488 12.2307 3.72635Z" fill="currentColor"/><path d="M8.0217 4.36087C7.68976 4.0094 7.68976 3.43955 8.0217 3.08808C8.35366 2.7366 8.89185 2.7366 9.22377 3.08808L14.0321 8.17925C14.3641 8.53072 14.3641 9.10053 14.0321 9.45207C13.7001 9.80352 13.162 9.80352 12.8301 9.45207L8.0217 4.36087Z" fill="currentColor"/></svg>`;
+const COLOR_DROPPER_SVG = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21" aria-hidden="true"><path d="m11 7l6 6M4 16L15.7 4.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4L8 20H4z"/></svg>`;
 
 // Text comes from the language chosen in settings (i18n.js); the English strings are the fallback.
 function colorT(key, fallback, params) {
@@ -319,8 +319,8 @@ function colorClearShot(card) {
 // full card back. The bar's own buttons must stay clickable although the picker swallows
 // every other click, so its screen rectangle is handed to the Rust hook.
 
-const COLOR_X_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.8 1.8l8.4 8.4M10.2 1.8l-8.4 8.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-const COLOR_CHEVRON_SVG = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 5l4.5 4.5L11.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const COLOR_X_SVG = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
+const COLOR_CHEVRON_SVG = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="21" height="21" aria-hidden="true"><path d="m6 9l6 6l6-6"/></svg>`;
 
 function colorEnsurePill() {
   let pill = document.getElementById("cc-pill");

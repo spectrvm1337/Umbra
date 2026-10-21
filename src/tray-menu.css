@@ -50,8 +50,8 @@ body.tray-menu-page {
   color: var(--accent);
 }
 .tm-check svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
 .tm-divider {
   height: 1px;

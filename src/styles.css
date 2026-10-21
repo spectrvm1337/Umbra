@@ -37,22 +37,69 @@
   inherits: true;
   initial-value: 12px;
 }
+/* The bundled fonts (Settings > Font), tuned to match one another: the file standing for each weight,
+   the size and the vertical metrics. */
 @font-face {
-  font-family: 'Stolzl';
-  src: url('./stolzl_thin.otf') format('opentype');
-  font-weight: 100;
-  font-display: block;
-}
-@font-face {
-  font-family: 'Stolzl';
-  src: url('./stolzl_light.otf') format('opentype');
+  font-family: 'Wix Madefor Display';
+  src: url('./fonts/wix-madefor-display-500.ttf') format('truetype');
   font-weight: 300;
+  size-adjust: 106%;
   font-display: block;
 }
 @font-face {
-  font-family: 'Stolzl';
-  src: url('./stolzl_regular.otf') format('opentype');
+  font-family: 'Wix Madefor Display';
+  src: url('./fonts/wix-madefor-display-700.ttf') format('truetype');
   font-weight: 400 500;
+  size-adjust: 106%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Wix Madefor Display';
+  src: url('./fonts/wix-madefor-display-800.ttf') format('truetype');
+  font-weight: 600 700;
+  size-adjust: 106%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SN Pro';
+  src: url('./fonts/sn-pro-400.ttf') format('truetype');
+  font-weight: 300;
+  size-adjust: 107%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SN Pro';
+  src: url('./fonts/sn-pro-600.ttf') format('truetype');
+  font-weight: 400 500;
+  size-adjust: 107%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SN Pro';
+  src: url('./fonts/sn-pro-700.ttf') format('truetype');
+  font-weight: 600 700;
+  size-adjust: 107%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Montserrat Alternates';
+  src: url('./fonts/montserrat-alternates-300.ttf') format('truetype');
+  font-weight: 300;
+  size-adjust: 102%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Montserrat Alternates';
+  src: url('./fonts/montserrat-alternates-600.ttf') format('truetype');
+  font-weight: 400 500;
+  size-adjust: 102%;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Montserrat Alternates';
+  src: url('./fonts/montserrat-alternates-700.ttf') format('truetype');
+  font-weight: 600 700;
+  size-adjust: 102%;
   font-display: block;
 }
 @font-face {
@@ -68,7 +115,7 @@
   font-display: block;
 }
 :root {
-  --font-main: 'Stolzl', 'Noto Sans JP', 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-main: 'Wix Madefor Display', 'Noto Sans JP', 'Segoe UI', system-ui, sans-serif;
   --weight-light: 300;
   --weight-regular: 400;
   --weight-medium: 500;
@@ -118,6 +165,26 @@ transition:
       --gap var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1),
       --pad-y var(--t-size, .24s) cubic-bezier(0.32, 0.72, 0, 1)
   }
+/* The interface font (Settings > Font). Wix Madefor Display is the default and needs no rule. */
+html[data-font="sn-pro"] {
+  --font-main: 'SN Pro', 'Noto Sans JP', 'Segoe UI', system-ui, sans-serif;
+}
+html[data-font="montserrat"] {
+  --font-main: 'Montserrat Alternates', 'Noto Sans JP', 'Segoe UI', system-ui, sans-serif;
+}
+/* Four to a line; fonts picked with !font wrap onto the lines below. */
+#font-seg {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(var(--font-cols, 3), minmax(0, 1fr));
+}
+#font-seg .seg-btn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#font-seg .seg-btn[data-font="wix"] { font-family: 'Wix Madefor Display', sans-serif; }
+#font-seg .seg-btn[data-font="sn-pro"] { font-family: 'SN Pro', sans-serif; }
+#font-seg .seg-btn[data-font="montserrat"] { font-family: 'Montserrat Alternates', sans-serif; }
 /* Density modes. `full` is the roomy default and needs no rule here.
    Both compact modes shrink the rows and tighten the gap; only
    `compact-full` also shrinks the search bar. Kept as attribute selectors so
@@ -463,6 +530,58 @@ body {
   letter-spacing: 0;
   position: relative;
   z-index: 1;
+  /* caret.js draws its own caret and selection, which move smoothly. */
+  caret-color: transparent;
+}
+#search-input::selection {
+  background: transparent;
+}
+#caret {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1.5px;
+  height: 21px;
+  border-radius: 1px;
+  background: var(--text);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transform: translate(0, -50%);
+  transition: transform calc(var(--t-move, 0.2s) * 0.5) var(--ease-out-apple), opacity 0.12s ease;
+}
+#caret.on {
+  opacity: 1;
+  animation: caret-blink 1.2s ease-in-out infinite;
+}
+#caret.on.moving {
+  animation: none;
+}
+@keyframes caret-blink {
+  0%, 40% { opacity: 1; }
+  60%, 80% { opacity: 0; }
+  100% { opacity: 1; }
+}
+/* The selection sits behind the text, which the input still paints in its own colour. */
+#sel {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 24px;
+  width: 0;
+  border-radius: 5px;
+  /* The system selection colour, i.e. whatever the user has set in Windows. */
+  background: color-mix(in srgb, Highlight 45%, transparent);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transform: translate(0, -50%);
+  transition: transform calc(var(--t-move, 0.2s) * 0.55) var(--ease-out-apple),
+    width calc(var(--t-move, 0.2s) * 0.55) var(--ease-out-apple),
+    opacity calc(var(--t-fade, 0.15s) * 0.6) ease;
+}
+#sel.on {
+  opacity: 1;
 }
 /* The animated example queries are the placeholder. Without this the input's
    -webkit-text-fill-color paints them exactly like typed text. */
@@ -611,9 +730,15 @@ body {
   transition:  color var(--t-color, 0.15s) ease, transform var(--t-move, 0.3s) ease, background var(--t-color, 0.12s) ease
 }
 #settings-btn svg {
-  width: calc(var(--btn) * 0.58);
-  height: calc(var(--btn) * 0.58);
+  /* Follows the search icon through the density modes (21px at its full 36px). */
+  width: calc(var(--search-icon) * 0.583);
+  height: calc(var(--search-icon) * 0.583);
+  /* The line scales with the icon like the search icon does: 2px at 21px, in drawing units. */
+  stroke-width: 2.29px;
   display: block;
+}
+#settings-btn svg :is(path, circle) {
+  vector-effect: none;
 }
 #settings-btn:hover {
   color: var(--text);
@@ -1179,7 +1304,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   position: absolute;
   right: 9px;
   bottom: 7px;
-  width: 17px;
+  width: 18px;
   height: 18px;
   padding: 0;
   border: none;
@@ -1341,6 +1466,19 @@ html[data-pins="right"] #cc-pill {
   transition: max-width var(--t-size, 0.26s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) ease,
     visibility 0s linear var(--t-size, 0.26s);
 }
+/* Every icon is drawn at one stroke weight in screen pixels, whatever size it is shown at, so a
+   menu icon and a 32 px placeholder carry the same 2 px line as the search icon. The drawing
+   fills 18 of the 24 units of its box, so a 21 px box puts a 16 px glyph on screen, the size
+   of the search icon's. */
+:root {
+  --ico-size: 21px;
+}
+.ico {
+  stroke-width: var(--ico-stroke, 2px);
+}
+.ico :is(path, circle, rect, line, polyline, polygon, ellipse) {
+  vector-effect: non-scaling-stroke;
+}
 /* Staggered entrance for the settings rows. */
 #settings-section:not(.hidden) .settings-row {
   animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
@@ -1375,6 +1513,10 @@ html[data-pins="right"] #cc-pill {
 .swatch-custom:active,
 #settings-btn:active {
   transform: scale(0.88);
+}
+/* Pressed while open, the gear keeps its quarter turn: it only turns back on release, like it turns on release when opening. */
+#settings-btn.open:active {
+  transform: rotate(90deg) scale(0.88);
 }
 .swatch {
   transition:  transform var(--t-move, 0.12s) ease, box-shadow var(--t-glow, 0.12s) ease
@@ -1690,7 +1832,6 @@ body > .result-item.sortable-fallback {
 }
 .result-item:hover {
   background: var(--card-hover);
-  transform: translateY(-1px);
 }
 .result-item.selected {
   background: var(--card-selected);
@@ -1827,6 +1968,8 @@ body > .result-item.pin-drag-copy {
   text-align: right;
   line-height: 20px;
   margin-left: 8px;
+  /* Keeps closed-pin text off the card edge; the pin margins below cancel it when the pin opens. */
+  margin-right: 6px;
 }
 .rp-head {
   min-width: 0;
@@ -1877,8 +2020,8 @@ body > .result-item.pin-drag-copy {
   color: var(--text-dim);
   opacity: 0;
   pointer-events: none;
-  transition: width var(--t-size, 0.2s) var(--ease-out-apple),
-    margin var(--t-size, 0.2s) var(--ease-out-apple),
+  transition: width var(--t-move, 0.2s) var(--ease-out-apple),
+    margin var(--t-move, 0.2s) var(--ease-out-apple),
     opacity var(--t-fade, 0.18s) ease
 }
 .show-shortcuts .result-item[data-shortcut] .result-num {
@@ -1923,10 +2066,11 @@ body > .result-item.pin-drag-copy {
 /* The pin is there when the row is under the pointer or selected, not on every row at once. */
 .result-item:hover .result-pin,
 .result-item.selected .result-pin,
+.result-pin.pinned,
 .result-pin:focus-visible,
 .result-pin.pin-pop {
   width: 28px;
-  margin-left: 0;
+  margin-left: -6px;
   opacity: 0.75;
 }
 .result-pin:hover {
@@ -1936,9 +2080,11 @@ body > .result-item.pin-drag-copy {
 .result-pin:active {
   transform: scale(0.85);
 }
+/* A pinned item keeps its pin showing on every row, not only under the pointer. */
 .result-item:hover .result-pin.pinned,
-.result-item.selected .result-pin.pinned {
-  opacity: 1;
+.result-item.selected .result-pin.pinned,
+.result-pin.pinned {
+  opacity: 0.85;
 }
 /* The bounce answers a click on the pin button (main.js adds this class), not
    the pinned state: tied to the state it replayed on every pin, in every row,
@@ -1958,9 +2104,13 @@ body > .result-item.pin-drag-copy {
   }
 }
 .result-pin.pinned svg {
-  color: var(--tile-folder);
+  /* Pinned is marked, not shouted: the solid silhouette in the dim text colour. */
+  color: var(--text-dim);
 }
 /* The solid silhouette of the pin, laid under the outline; shown once pinned. */
+.result-pin svg path {
+  vector-effect: none;
+}
 .result-pin .pin-fill {
   opacity: 0;
   transition: opacity var(--t-color, 0.2s)
@@ -1969,8 +2119,12 @@ body > .result-item.pin-drag-copy {
   opacity: 1;
 }
 .result-pin svg {
-  width: 16px;
-  height: 16px;
+  /* The pin body spans most of its box, so it is drawn smaller than the other icons to match them;
+     it follows the row icon through the density modes (16px at 28px). */
+  width: calc(var(--result-icon) * 0.57);
+  height: calc(var(--result-icon) * 0.57);
+  /* 2px at 16px, in drawing units, so the line scales with the icon. */
+  stroke-width: 3px;
   color: var(--icon);
   transition:  color var(--t-color, 0.2s)
 }
@@ -2017,8 +2171,8 @@ body > .result-item.pin-drag-copy {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: var(--ico-size);
+  height: var(--ico-size);
   flex-shrink: 0;
   color: var(--icon);
 }
@@ -2091,7 +2245,25 @@ body > .result-item.pin-drag-copy {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.special-action .special-hint {
+.special-action .special-favicon {
+  /* Closed: 0 wide with a -12px margin that cancels the row's gap, so the label has not moved. */
+  width: 0;
+  height: 22px;
+  margin-right: -12px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  object-fit: contain;
+  opacity: 0;
+  transition: width var(--t-move, 0.24s) var(--ease-out-apple),
+    margin var(--t-move, 0.24s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.2s) ease;
+}
+.special-action .special-favicon.show {
+  width: 22px;
+  margin-right: 0;
+  opacity: 1;
+}
+.special-hint {
   flex-shrink: 0;
   margin-left: auto;
   color: var(--text-dim);

@@ -270,6 +270,8 @@ async function refreshSettingsValues() {
       : indexingStr;
     disabledKinds = kinds || [];
     renderExcludeCount();
+    indexOpts = await invoke("get_index_options");
+    renderContentGroups();
   } catch (e) {
     console.warn("settings load failed:", e);
   }
@@ -420,6 +422,21 @@ settingReindex.addEventListener("click", async (e) => {
     setSettingsStatus(String(err), true);
   }
 });
+// The two index switches sit in the content menu. They rebuild the index, which the Rust side
+// starts; this shows the progress.
+let indexOpts = { hidden: false, appdata: false };
+async function toggleIndexOption(name) {
+  try {
+    indexingActive = true;
+    indexRan = true;
+    indexSpinner.classList.add("visible");
+    if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
+    indexOpts = await invoke("set_index_option", { name, on: !indexOpts[name] });
+  } catch (err) {
+    setSettingsStatus(String(err), true);
+  }
+  renderContentGroups();
+}
 const excludeRow = document.getElementById("setting-exclude-row");
 const contentMenu = document.getElementById("content-menu");
 const contentGroups = document.getElementById("content-groups");
@@ -444,7 +461,7 @@ function getGroupLabel(g) {
   if (g.id === "system") return window.i18n.t("groupSystem");
   return g.label;
 }
-const MS_TICK_SVG = '<svg viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MS_TICK_SVG = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12l5 5L20 7"/></svg>';
 function msItem(labelText, on, onToggle) {
   const item = document.createElement("div");
   item.className = "ms-item" + (on ? " checked" : "");
@@ -484,8 +501,10 @@ function syncMenuItems(container, entries) {
     if (!el) {
       el = msItem(entry.label, entry.on, entry.onToggle);
       el.dataset.key = entry.key;
-      if (!entry.master) el.classList.add("ms-fold");
+      // The index switches stay in view when "Select All" folds the list away.
+      if (!entry.master && !entry.plain) el.classList.add("ms-fold");
     }
+    if (entry.tip !== undefined) el.dataset.tip = entry.tip;
     have.delete(entry.key);
     el.classList.toggle("checked", entry.on);
     const label = el.querySelector(".ms-label");
@@ -531,6 +550,8 @@ function renderContentGroups(instant) {
     { key: "all", master: true, label: tr("selectAll", "Select All"), on: contentFolded, onToggle: toggleAll },
     ...CONTENT_GROUPS.map((g) => ({ key: "g:" + g.id, label: getGroupLabel(g), on: groupOn(g), onToggle: () => toggleGroup(g) })),
     ...availableDrives.map((d) => ({ key: "d:" + d, label: d, on: !disabledDrives.includes(d), onToggle: () => toggleDrive(d) })),
+    { key: "i:hidden", plain: true, label: tr("lblHiddenFolders", "Hidden folders (.xxx)"), tip: tr("indexHiddenTip", ""), on: !!indexOpts.hidden, onToggle: () => toggleIndexOption("hidden") },
+    { key: "i:appdata", plain: true, label: tr("lblAppData", "AppData"), tip: tr("indexAppDataTip", ""), on: !!indexOpts.appdata, onToggle: () => toggleIndexOption("appdata") },
   ]);
   setMenuFolded(contentGroups, contentFolded, instant);
   renderExcludeCount();
@@ -599,6 +620,7 @@ async function contentMenuLoad() {
     disabledKinds = await invoke("get_disabled_kinds");
     availableDrives = await invoke("get_available_drives");
     disabledDrives = await invoke("get_disabled_drives");
+    indexOpts = await invoke("get_index_options");
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -1025,6 +1047,7 @@ const borderToggle = document.getElementById("setting-border");
 const borderWVal = document.getElementById("setting-borderw-val");
 const borderPosSeg = document.getElementById("border-pos-seg");
 const densitySeg = document.getElementById("density-seg");
+const fontSeg = document.getElementById("font-seg");
 const tallRow = document.getElementById("setting-tall-row");
 const systemRow = document.getElementById("setting-system-row");
 const systemToggle = document.getElementById("setting-system");
@@ -1132,10 +1155,17 @@ function applyTheme() {
   // width or style to pick.
   for (const id of ["row-presets", "row-accent", "row-bg"]) setDepHidden(id, !!theme.followSystem);
   setDepHidden("border-extras", !theme.borderOn);
+  setDepHidden("glow-extras", !theme.glow);
   root.style.setProperty("--card-radius", theme.radius + "px");
   // Row/search/gap sizing comes from the [data-density] rules in the
   // stylesheet, so it stays overridable by custom themes.
   root.dataset.density = theme.density || "full";
+  const font = theme.font || "wix";
+  root.dataset.font = font.startsWith("sys:") ? "system" : font;
+  // A font picked with !font: the name is validated on the Rust side, so it cannot leave the quotes.
+  if (font.startsWith("sys:")) root.style.setProperty("--font-main", `'${font.slice(4)}', 'Noto Sans JP', 'Segoe UI', system-ui, sans-serif`);
+  else root.style.removeProperty("--font-main");
+  renderSystemFonts();
   // Inline, so a chosen spacing wins over the density preset it came from.
   root.style.setProperty("--gap", (theme.gap ?? 12) + "px");
   root.style.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
@@ -1158,6 +1188,8 @@ function applyTheme() {
     b.classList.toggle("active", b.dataset.pos === theme.borderPos));
   densitySeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.density === theme.density));
+  fontSeg.querySelectorAll(".seg-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.font === font));
   tallToggle.classList.toggle("on", !!theme.tallResults);
   accentCustom.style.background = theme.accent;
   glowCustom.style.background = theme.glowColor || "var(--accent)";
@@ -1588,6 +1620,49 @@ densitySeg.addEventListener("click", (e) => {
   theme = { ...theme, density: btn.dataset.density };
   saveTheme();
 });
+// The fonts picked with !font sit before the built-in choices; right-click one to drop it.
+function renderSystemFonts() {
+  const names = theme.systemFonts || [];
+  const have = [...fontSeg.querySelectorAll(".seg-btn[data-sys]")].map((b) => b.dataset.font.slice(4));
+  if (names.length !== have.length || !names.every((n, i) => n === have[i])) {
+    fontSeg.querySelectorAll(".seg-btn[data-sys]").forEach((b) => b.remove());
+    addSystemFonts(names);
+  }
+  // Four to a line at most, and no empty cell while there are fewer.
+  fontSeg.style.setProperty("--font-cols", Math.min(4, fontSeg.children.length));
+}
+function addSystemFonts(names) {
+  const firstBuiltIn = fontSeg.querySelector(".seg-btn:not([data-sys])");
+  for (const name of names) {
+    const b = document.createElement("button");
+    b.className = "seg-btn";
+    b.dataset.font = "sys:" + name;
+    b.dataset.sys = "1";
+    b.dataset.tip = name + " · " + window.i18n.t("fontRemoveTip");
+    b.style.fontFamily = `'${name}', var(--font-main)`;
+    b.textContent = name;
+    fontSeg.insertBefore(b, firstBuiltIn);
+  }
+}
+fontSeg.addEventListener("contextmenu", (e) => {
+  const btn = e.target.closest(".seg-btn[data-sys]");
+  if (!btn) return;
+  e.preventDefault();
+  const name = btn.dataset.font.slice(4);
+  theme = {
+    ...theme,
+    systemFonts: (theme.systemFonts || []).filter((n) => n !== name),
+    font: theme.font === btn.dataset.font ? "wix" : theme.font,
+  };
+  saveTheme();
+});
+fontSeg.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg-btn");
+  if (!btn) return;
+  e.stopPropagation();
+  theme = { ...theme, font: btn.dataset.font };
+  saveTheme();
+});
 // The window itself is resized on the Rust side (set_theme refits it).
 systemRow.addEventListener("click", async () => {
   theme = { ...theme, followSystem: !theme.followSystem };
@@ -1766,10 +1841,10 @@ function updateSelectableItems() {
     selectableItems = [...currentPins, ...allResults];
   }
 }
-const EXE_GLYPH = `<span class="glyph-text">&lt;&gt;</span>`;
-const FOLDER_GLYPH = `<svg class="tile-glyph" viewBox="7.896 5.212 35 35" fill="none"><path d="M16.8961 19.3485C16.8961 18.2506 16.8961 17.7017 17.1098 17.2824C17.2977 16.9135 17.5976 16.6136 17.9665 16.4257C18.3858 16.212 18.9348 16.212 20.0327 16.212H23.4382C23.9177 16.212 24.1575 16.212 24.3831 16.2662C24.583 16.3142 24.7743 16.3934 24.9497 16.5009C25.1475 16.6221 25.3171 16.7916 25.6561 17.1307L25.779 17.2537C26.1181 17.5927 26.2876 17.7622 26.4854 17.8835C26.6609 17.9909 26.8521 18.0701 27.0521 18.1182C27.2777 18.1723 27.5174 18.1723 27.9969 18.1723H31.4025C32.5004 18.1723 33.0494 18.1723 33.4687 18.386C33.8375 18.5739 34.1374 18.8738 34.3253 19.2427C34.539 19.662 34.539 20.211 34.539 21.3088V26.7977C34.539 27.8956 34.539 28.4446 34.3253 28.8639C34.1374 29.2327 33.8375 29.5327 33.4687 29.7206C33.0494 29.9342 32.5004 29.9342 31.4025 29.9342H20.0327C18.9348 29.9342 18.3858 29.9342 17.9665 29.7206C17.5976 29.5327 17.2977 29.2327 17.1098 28.8639C16.8961 28.4446 16.8961 27.8956 16.8961 26.7977V19.3485Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const PHOTO_GLYPH = `<svg viewBox="0 0 22 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9C8.10457 9 9 8.1046 9 7C9 5.89543 8.10457 5 7 5C5.89543 5 5 5.89543 5 7C5 8.1046 5.89543 9 7 9Z"/><path d="M6 20C11.4112 7.90548 15.9093 5.78644 21 13.6329"/><path d="M17 1H5C2.79086 1 1 2.89035 1 5.22222V15.7778C1 18.1096 2.79086 20 5 20H17C19.2091 20 21 18.1096 21 15.7778V5.22222C21 2.89035 19.2091 1 17 1Z"/></svg>`;
-const PIN_GLYPH = `<svg viewBox="0 0 16.4641 16.4641" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.1087 0.659162C11.0853 -0.364249 9.3758 -0.169198 8.60922 1.05845L6.47534 4.47586C6.47534 4.47586 6.47422 4.47774 6.47022 4.48061C6.46533 4.48411 6.45489 4.49015 6.43738 4.49509C6.39911 4.50586 6.34913 4.50503 6.30448 4.48848C5.57617 4.21848 4.32599 3.92188 3.02779 4.41087C2.32836 4.67432 1.97934 5.28065 1.94131 5.89581C1.90502 6.48275 2.14207 7.08611 2.57806 7.52209L5.22968 10.1737L0.21967 15.1837C-0.0732232 15.4767 -0.0732232 15.9515 0.21967 16.2444C0.51256 16.5373 0.987437 16.5373 1.28033 16.2444L6.29035 11.2344L8.942 13.8861C9.37797 14.322 9.98135 14.5591 10.5683 14.5228C11.1834 14.4848 11.7898 14.1357 12.0532 13.4364C12.5422 12.1381 12.2456 10.8879 11.9757 10.1596C11.9591 10.115 11.9583 10.065 11.969 10.0267C11.9739 10.0092 11.98 9.99881 11.9835 9.99386C11.9864 9.98989 11.9882 9.98884 11.9882 9.98884L15.4056 7.85486C16.6333 7.08829 16.8284 5.37879 15.8049 4.35539L12.1087 0.659162ZM9.8816 1.85292C10.1371 1.44371 10.707 1.37869 11.0481 1.71983L14.7443 5.41604C15.0854 5.75718 15.0204 6.32702 14.6112 6.58253L11.1938 8.71646C10.4853 9.15889 10.3275 10.0293 10.5692 10.681C10.7835 11.2593 10.9545 12.0978 10.6495 12.9076C10.6287 12.9629 10.6055 12.9828 10.5912 12.9927C10.5731 13.0052 10.5373 13.0218 10.4757 13.0257C10.3426 13.0339 10.1525 12.9752 10.0026 12.8254L3.63872 6.46144C3.48891 6.31163 3.43022 6.12149 3.43845 5.98836C3.44225 5.92676 3.45895 5.89103 3.47148 5.87285C3.48128 5.85863 3.50124 5.83541 3.55652 5.81459C4.36639 5.50955 5.20483 5.68058 5.78309 5.89495C6.43488 6.13658 7.3052 5.97887 7.7477 5.27033L9.8816 1.85292Z"/><path class="pin-fill" d="M12.1087 0.659162C11.0853 -0.364249 9.3758 -0.169198 8.60922 1.05845L6.47534 4.47586C6.47534 4.47586 6.47422 4.47774 6.47022 4.48061C6.46533 4.48411 6.45489 4.49015 6.43738 4.49509C6.39911 4.50586 6.34913 4.50503 6.30448 4.48848C5.57617 4.21848 4.32599 3.92188 3.02779 4.41087C2.32836 4.67432 1.97934 5.28065 1.94131 5.89581C1.90502 6.48275 2.14207 7.08611 2.57806 7.52209L5.22968 10.1737L0.21967 15.1837C-0.0732232 15.4767 -0.0732232 15.9515 0.21967 16.2444C0.51256 16.5373 0.987437 16.5373 1.28033 16.2444L6.29035 11.2344L8.942 13.8861C9.37797 14.322 9.98135 14.5591 10.5683 14.5228C11.1834 14.4848 11.7898 14.1357 12.0532 13.4364C12.5422 12.1381 12.2456 10.8879 11.9757 10.1596C11.9591 10.115 11.9583 10.065 11.969 10.0267C11.9739 10.0092 11.98 9.99881 11.9835 9.99386C11.9864 9.98989 11.9882 9.98884 11.9882 9.98884L15.4056 7.85486C16.6333 7.08829 16.8284 5.37879 15.8049 4.35539L12.1087 0.659162Z"/></svg>`;
+const EXE_GLYPH = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m7 8-4 4 4 4m10-8 4 4-4 4M14 4l-4 16"/></svg>`;
+const FOLDER_GLYPH = `<svg class="ico tile-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2"/></svg>`;
+const PHOTO_GLYPH = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8h.01M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="m3 16l5-5c.928-.893 2.072-.893 3 0l5 5"/><path d="m14 14l1-1c.928-.893 2.072-.893 3 0l3 3"/></svg>`;
+const PIN_GLYPH = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path class="pin-fill" fill="currentColor" d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z"/><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873z"/></svg>`;
 function getTypeIcon(kind) {
   const icons = {
     app: EXE_GLYPH,
@@ -1778,10 +1853,10 @@ function getTypeIcon(kind) {
     file: EXE_GLYPH,
     folder: FOLDER_GLYPH,
     image: PHOTO_GLYPH,
-    document: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
-    audio: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
-    video: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`,
-    archive: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`,
+    document: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2M9 9h1m-1 4h6m-6 4h6"/></svg>`,
+    audio: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17a3 3 0 1 0 6 0a3 3 0 0 0-6 0m10 0a3 3 0 1 0 6 0a3 3 0 0 0-6 0"/><path d="M9 17V4h10v13M9 8h10"/></svg>`,
+    video: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m15 10l4.553-2.276A1 1 0 0 1 21 8.618v6.764a1 1 0 0 1-1.447.894L15 14zM3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+    archive: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20.735A2 2 0 0 1 5 19V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2h-1"/><path d="M11 17a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2m0-12h-1m3 2h-1m-1 2h-1m3 2h-1m-1 2h-1m3 2h-1"/></svg>`,
   };
   return icons[kind] || icons.file;
 }
@@ -2456,19 +2531,19 @@ async function togglePin(btn) {
     showToast(window.i18n.t("pinFailed"), true, String(e).replace("Error:", "").trim());
   }
 }
-const placeholderWords = [];
-const fixedWords = [
-  "type to search",
-  "!help — all commands",
-  "tab — autocomplete",
-  "right-click for actions",
-  "shift+enter — copy path",
-  "ctrl+shift+enter — run as admin",
-  "#ff0000 — color picker",
-  "100 usd to eur",
-  "right-click the bar to pin position",
-];
+// The hints come from the language file as one "|"-separated string, and are shown in a random
+// order: a different one each time, never the same one twice running.
+function placeholderList() {
+  const list = window.i18n.t("placeholderWords").split("|").filter(Boolean);
+  return list.length ? list : ["type to search"];
+}
 let placeholderIndex = 0;
+function nextPlaceholder(count) {
+  if (count < 2) return 0;
+  let next;
+  do { next = Math.floor(Math.random() * count); } while (next === placeholderIndex);
+  return next;
+}
 let placeholderCharIndex = 0;
 let placeholderDeleting = false;
 let placeholderTimer = null;
@@ -2485,8 +2560,9 @@ function animatePlaceholder() {
     searchInput.placeholder = "";
     return;
   }
-  const words = placeholderWords.length > 0 ? placeholderWords : fixedWords;
-  const currentWord = words[placeholderIndex % words.length];
+  const words = placeholderList();
+  if (placeholderIndex >= words.length) placeholderIndex = 0;
+  const currentWord = words[placeholderIndex];
   if (!placeholderDeleting) {
     searchInput.placeholder = currentWord.substring(0, placeholderCharIndex + 1);
     placeholderCharIndex++;
@@ -2504,7 +2580,7 @@ function animatePlaceholder() {
     if (placeholderCharIndex < 0) {
       placeholderDeleting = false;
       placeholderCharIndex = 0;
-      placeholderIndex++;
+      placeholderIndex = nextPlaceholder(words.length);
       schedulePlaceholder(animatePlaceholder, 400);
       return;
     }
@@ -2707,7 +2783,9 @@ async function performSearch(query) {
     renderResults(allResults, query);
     // A new search starts at the top (this used to happen as a side effect of hiding the list).
     resultsContainer.scrollTop = 0;
-    requestIconsForResults([...allResults, ...response.pins]);
+    // The first screenful's icons first: they are asked for together, so a long list must not hold them up.
+    requestIconsForResults([...allResults.slice(0, 30), ...response.pins]);
+    if (allResults.length > 30) requestIconsForResults(allResults.slice(30));
     const hasPins = response.pins.length > 0;
     const hasResults = response.results.length > 0;
     const isEmpty = !query.trim();
@@ -2749,6 +2827,10 @@ function activateItem(item, mods = {}) {
   }
   if (item.kind === "copy") {
     if (item.path) copyPath(item.path);
+    return;
+  }
+  if (item.kind === "font") {
+    item.run();
     return;
   }
   if (mods.ctrlKey && mods.shiftKey) {
@@ -2820,7 +2902,7 @@ searchInput.addEventListener("keydown", (e) => {
     if (e.code === "KeyP") {
       e.preventDefault();
       const item = selectableItems[selectedIndex];
-      if (item && item.path && !["help", "copy", "open"].includes(item.kind)) setItemPinned(item, !isPinned(item.path));
+      if (item && item.path && !["help", "copy", "open", "font"].includes(item.kind)) setItemPinned(item, !isPinned(item.path));
       return;
     }
   }
@@ -3090,10 +3172,10 @@ const languageReady = invoke("get_language")
 // context menu, shown above the empty box until the user types something.
 let pendingWelcome = null;
 const WELCOME_ICONS = {
-  warn: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-  key: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>`,
-  help: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-  menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>`,
+  warn: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m-1.637-9.409L2.257 17.125a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87L13.637 3.59a1.914 1.914 0 0 0-3.274 0M12 16h.01"/></svg>`,
+  key: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zm4 2v.01m4-.01v.01m4-.01v.01m4-.01v.01M6 14v.01M18 14v.01M10 14l4 .01"/></svg>`,
+  help: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9 4v.01"/><path d="M12 13a2 2 0 0 0 .914-3.782a1.98 1.98 0 0 0-2.414.483"/></svg>`,
+  menu: `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7.904 17.563a1.2 1.2 0 0 0 2.228.308l2.09-3.093l4.907 4.907a1.067 1.067 0 0 0 1.509 0l1.047-1.047a1.067 1.067 0 0 0 0-1.509l-4.907-4.907l3.113-2.09a1.2 1.2 0 0 0-.309-2.228L4 4z"/></svg>`,
 };
 function showWelcomeCard() {
   const w = pendingWelcome;

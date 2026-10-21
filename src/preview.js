@@ -15,13 +15,13 @@ const PV_TIMEOUT_MS = 1200; // the UI stops waiting; the Rust thread may linger
 const PV_CACHE_MAX = 60;
 
 const PV_ICON = {
-  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
-  url: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
-  text: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
-  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
-  document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
-  media: '<path d="M5 3l14 9-14 9V3z"/>',
-  none: '<circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  folder: '<path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2"/>',
+  url: '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m.6-3h16.8M3.6 15h16.8"/><path d="M11.5 3a17 17 0 0 0 0 18m1-18a17 17 0 0 1 0 18"/>',
+  text: '<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2M9 9h1m-1 4h6m-6 4h6"/>',
+  image: '<path d="M15 8h.01M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="m3 16l5-5c.928-.893 2.072-.893 3 0l5 5"/><path d="m14 14l1-1c.928-.893 2.072-.893 3 0l3 3"/>',
+  document: '<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2"/>',
+  media: '<path d="M7 4v16l13-8z"/>',
+  none: '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0m6 0h6"/>',
 };
 
 const pvCache = new Map(); // "path|size" -> Preview or null
@@ -136,9 +136,9 @@ function pvEnsure() {
     '<div class="pv-head"><span class="pv-title"></span>' +
     '<button class="pv-close" type="button" data-pv-action="close" aria-label="' +
     pvEscape(t("pvClose")) +
-    '"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" ' +
-    'stroke-width="1.5" stroke-linecap="round"><line x1="2" y1="2" x2="10" y2="10"/>' +
-    '<line x1="10" y1="2" x2="2" y2="10"/></svg></button></div>' +
+    '">' +
+    "<svg class=\"ico\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" width=\"18\" height=\"18\"><path d=\"M18 6L6 18M6 6l12 12\"/></svg>" +
+    '</button></div>' +
     '<div class="pv-wrap">' +
     '<div class="pv-body"></div>' +
     '<div class="pv-scrollbar"><div class="pv-thumbbar"></div></div>' +
@@ -210,8 +210,8 @@ function pvEnsure() {
 function pvIcon(kind) {
   const d = PV_ICON[kind] || PV_ICON.none;
   return (
-    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+    '<svg class="ico" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
     d +
     "</svg>"
   );

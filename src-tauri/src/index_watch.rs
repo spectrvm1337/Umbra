@@ -36,7 +36,7 @@ pub(crate) fn finish_scan_journal(entries: &mut Vec<SearchEntry>) {
     }
 }
 fn skip_set() -> HashSet<String> {
-    crate::config::get_index_excludes().into_iter().collect()
+    crate::config::index_skip_set()
 }
 fn disabled_drives() -> Vec<String> {
     crate::config::get_disabled_drives()
@@ -299,7 +299,7 @@ mod tests {
     fn adds_removes_and_follows_folder_moves() {
         let root = temp_root("apply");
         let r = root.to_string_lossy().to_string();
-        let skip: HashSet<String> = ["node_modules".to_string()].into_iter().collect();
+        let skip: HashSet<String> = ["node_modules".to_string(), ".*".to_string()].into_iter().collect();
         let mut entries = vec![
             entry_for(&format!("{r}\\old"), true),
             entry_for(&format!("{r}\\old\\a.txt"), false),
@@ -347,9 +347,12 @@ mod tests {
     }
     #[test]
     fn disabled_drives_and_excluded_parts_stay_out() {
-        let skip: HashSet<String> = ["appdata".to_string()].into_iter().collect();
+        let skip: HashSet<String> = ["appdata".to_string(), ".*".to_string()].into_iter().collect();
         assert!(is_excluded("C:\\Users\\x\\AppData\\Local\\tmp.txt", &skip));
         assert!(is_excluded("C:\\code\\.git\\HEAD", &skip));
+        // With the hidden-folders switch on, the marker is gone and only the plain list applies.
+        let hidden_on: HashSet<String> = ["appdata".to_string()].into_iter().collect();
+        assert!(!is_excluded("C:\\Users\\x\\.config\\a.txt", &hidden_on));
         assert!(!is_excluded("C:\\Users\\x\\Documents\\report.docx", &skip));
         assert!(on_disabled_drive("d:\\photos\\a.jpg", &["D:\\".to_string()]));
         assert!(!on_disabled_drive("C:\\a.jpg", &["D:\\".to_string()]));

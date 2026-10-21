@@ -51,6 +51,12 @@ pub struct Config {
     #[serde(default = "default_true")]
     pub autostart: bool,
 
+    /// The first-run setup has been finished (or skipped). A config from before the setup existed
+    /// has no such key and counts as done, so an update never starts it; a fresh install starts
+    /// with it unfinished, and one that was closed half way shows it again on the next start.
+    #[serde(default = "default_true")]
+    pub setup_done: bool,
+
     /// How the preview panel presents itself: `overlay` takes over the results
     /// area, `popup` is a small card by the cursor. A behaviour preference, not
     /// a theme one, so it lives here rather than in `ThemeConfig`.
@@ -75,7 +81,9 @@ impl Default for Config {
             disabled_drives: vec![],
             language: default_language(),
             anim_off: vec![],
-            autostart: true,
+            // Off until the setup has asked: nothing registers itself with Windows unasked.
+            autostart: false,
+            setup_done: false,
             preview_style: default_preview_style(),
         }
     }
@@ -449,6 +457,12 @@ pub fn set_language(lang: String) -> String {
     update(|c| c.language = clean.clone());
     clean
 }
+pub fn get_setup_done() -> bool {
+    read(|c| c.setup_done)
+}
+pub fn set_setup_done(done: bool) {
+    update(|c| c.setup_done = done);
+}
 pub fn get_autostart() -> bool {
     read(|c| c.autostart)
 }
@@ -653,6 +667,17 @@ mod tests {
         assert!(!off.autostart);
         let roundtrip: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(!roundtrip.autostart);
+    }
+    #[test]
+    fn setup_counts_as_done_for_old_configs_and_not_for_a_fresh_one() {
+        let old: Config = serde_json::from_str(r#"{"hotkey": "Alt+Space", "zoom": 1.0}"#).unwrap();
+        assert!(old.setup_done, "an update must not start the setup");
+        assert!(old.autostart, "and must not turn autostart off");
+        let fresh = Config::default();
+        assert!(!fresh.setup_done);
+        assert!(!fresh.autostart, "a fresh install registers nothing before it is asked");
+        let done: Config = serde_json::from_str(&serde_json::to_string(&fresh).unwrap()).unwrap();
+        assert!(!done.setup_done, "the flag is written out and read back");
     }
     #[test]
     fn density_keeps_known_modes_and_falls_back_to_full() {

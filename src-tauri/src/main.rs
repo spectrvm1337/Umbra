@@ -75,7 +75,7 @@ fn main() {
         .setup(|app| {
             paths::migrate_legacy_config_dir();
             // No config file yet: a fresh install, nothing has been saved so far.
-            let first_run = !paths::config_file().exists();
+            let fresh_install = !paths::config_file().exists();
             indexer::init_index_with_progress(app.handle().clone());
             #[cfg(target_os = "windows")]
             index_watch::start(app.handle().clone());
@@ -88,10 +88,12 @@ fn main() {
             let _ = color_pick::create_loupe_window(app);
             crate::keyboard_hook::init(app.handle().clone());
             let hook_ok = crate::keyboard_hook::is_installed();
+            if fresh_install {
+                config::save_defaults();
+            }
+            // A setup that was closed half way is shown again; a config from before it existed is done.
+            let first_run = fresh_install || !config::get_setup_done();
             if first_run || !hook_ok {
-                if first_run {
-                    config::save_defaults();
-                }
                 commands::set_welcome(app.handle(), commands::Welcome { hotkey: config::get_hotkey(), hook_ok, first_run });
             }
             themes::watch(app.handle().clone());
@@ -147,6 +149,7 @@ fn main() {
             commands::set_zoom,
             commands::get_autostart,
             commands::set_autostart,
+            commands::finish_setup,
             commands::get_preview_style,
             commands::set_preview_style,
             commands::get_theme,

@@ -84,6 +84,11 @@ pub fn set_autostart(enable: bool) -> bool {
     autostart::set_enabled(enable);
     autostart::is_enabled()
 }
+/// The first-run setup was finished or skipped.
+#[tauri::command]
+pub fn finish_setup() {
+    config::set_setup_done(true);
+}
 #[tauri::command]
 pub fn get_preview_style() -> String {
     config::get_preview_style()

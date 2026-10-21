@@ -119,6 +119,10 @@
             </div>
             <div id="settings-status" class="settings-status"></div>
             <div class="settings-row">
+              <span class="settings-label" data-i18n="lblSetup">First-run setup</span>
+              <button class="settings-text-btn" id="setting-setup-btn" data-i18n="setupRun">Run again</button>
+            </div>
+            <div class="settings-row">
               <span class="settings-label">Umbra <span id="app-version">0.2.1</span> <span data-i18n="settingsBy">by</span> <a href="#" class="settings-link" id="author-link">Spectrvm</a></span>
               <button class="settings-text-btn" id="check-update-btn">Check for updates</button>
             </div>
@@ -142,6 +146,7 @@
       </div>
       <div id="custom-scrollbar" aria-hidden="true"><div id="custom-thumb"></div></div>
     </div>
+  <div id="setup" tabindex="-1" role="dialog" aria-modal="true"></div>
   <div id="theme-panel" aria-label="Appearance">
     <div class="special-card settings-card" id="theme-card">
                 <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
@@ -299,6 +304,7 @@
   <script src="main.js?v=48"></script>
   <script src="dock.js?v=48"></script>
   <script src="themepanel.js?v=48"></script>
+  <script src="setup.js?v=48"></script>
   <script src="keynav.js?v=48"></script>
   <script src="caret.js?v=48"></script>
   <script src="preview.js?v=48"></script>

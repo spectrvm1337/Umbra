@@ -3242,6 +3242,11 @@ function showWelcomeCard() {
 function fetchWelcome() {
   languageReady.then(() => invoke("take_welcome")).then((w) => {
     if (!w) return;
+    // A fresh install (or a setup left half done) gets the setup; the card is for a hotkey that failed.
+    if (w.first_run && window.UmbraSetup) {
+      window.UmbraSetup.open({ first: true, hookOk: w.hook_ok });
+      return;
+    }
     pendingWelcome = w;
     showWelcomeCard();
   }).catch(() => {});
@@ -3304,7 +3309,14 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   }, 30);
 });
 window.__TAURI__.event.listen("window-hide-requested", () => {
+  // The first-run setup holds the window up until it is finished.
+  if (window.UmbraSetup && window.UmbraSetup.active()) return;
   hideWindow();
+});
+document.getElementById("setting-setup-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!settingsSection.classList.contains("hidden")) toggleSettings();
+  if (window.UmbraSetup) window.UmbraSetup.open({ first: false });
 });
 window.addEventListener("language-changed", () => {
   if (theme && !theme.glow) setVal(glowVal, window.i18n.t("glowOff"));

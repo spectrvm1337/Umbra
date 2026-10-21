@@ -3933,9 +3933,9 @@ video.sp-photo {
 }
 .su-foot {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px 16px 14px;
 }
@@ -3963,13 +3963,20 @@ video.sp-photo {
 .su-nav {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
-  min-width: 140px;
+  justify-self: end;
+}
+.su-density {
+  align-self: flex-start;
+}
+.su-density-tip {
+  min-height: 18px;
+  margin-top: -6px;
+}
+#setting-setup-btn {
+  margin-left: auto;
 }
 #su-defaults {
-  min-width: 140px;
-  text-align: left;
-  padding-left: 4px;
+  justify-self: start;
 }
 
 /* The hotkey as keycaps, in Settings and in the setup (main.js paintHotkey). */

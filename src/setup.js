@@ -8,6 +8,7 @@
 // what is set now rather than from defaults.
 
 const SU_STEPS = ["welcome", "look", "startup", "index", "tour", "done"];
+const SU_DENSITIES = [["full", "densityFull"], ["compact-results", "densityCompactResults"], ["compact-full", "densityCompactFull"]];
 const SU_LANGS = [["en", "English"], ["ru", "Русский"], ["de", "Deutsch"], ["ja", "日本語"]];
 const SU_ICON = {
   look: '<path d="M12 21a9 9 0 0 1 0-18c4.97 0 9 3.58 9 8 0 2.2-1.8 3-4 3h-2a2 2 0 0 0-1 3.75A1.3 1.3 0 0 1 12 21m-4-8.5v.01m1-4v.01m4-1.51v.01m4 2.5v.01"/>',
@@ -101,7 +102,12 @@ function suStepHtml(name) {
         SU_LANGS.map(([code, label]) => '<button class="seg-btn" data-lang="' + code + '">' + label + "</button>").join("") +
         "</div>" +
         '<div class="su-label">' + escapeHtml(suT("setupThemeLabel")) + "</div>" +
-        '<div class="su-themes">' + suThemeCards() + "</div>"
+        '<div class="su-themes">' + suThemeCards() + "</div>" +
+        '<div class="su-label">' + escapeHtml(suT("setupDensityLabel")) + "</div>" +
+        '<div class="seg-row su-density">' +
+        SU_DENSITIES.map(([d, key]) => '<button class="seg-btn" data-density="' + d + '">' + escapeHtml(suT(key)) + "</button>").join("") +
+        "</div>" +
+        '<p class="su-text su-text-dim su-density-tip"></p>'
       );
     case "startup":
       return (
@@ -213,6 +219,14 @@ function suBind(name, root) {
         updateLanguageButtons(lang);
       });
     });
+    suMarkDensity(root);
+    root.querySelectorAll(".su-density .seg-btn").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        // The Appearance panel's own switch does the work, so this is the same setting.
+        densitySeg.querySelector('[data-density="' + btn.dataset.density + '"]').click();
+        suMarkDensity(root);
+      })
+    );
     suMarkTheme(root);
     root.querySelectorAll(".su-theme").forEach((b) =>
       b.addEventListener("click", async () => {
@@ -413,6 +427,13 @@ function suTourPlay(root, index) {
 
 function suCurrentLang() {
   return window.i18n.getLang();
+}
+
+function suMarkDensity(root) {
+  const now = theme.density || "full";
+  root.querySelectorAll(".su-density .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.density === now));
+  const tips = { full: "densityFullTip", "compact-results": "densityCompactResultsTip", "compact-full": "densityCompactFullTip" };
+  root.querySelector(".su-density-tip").textContent = suT(tips[now] || tips.full);
 }
 
 function suMarkTheme(root) {

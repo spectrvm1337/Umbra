@@ -39,11 +39,8 @@ const suIco = (name, size) =>
   '<svg class="ico su-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" ' +
   'stroke-linejoin="round" width="' + (size || 24) + '" height="' + (size || 24) + '">' + SU_ICON[name] + "</svg>";
 
-const SU_LOGO =
-  '<svg class="su-logo" viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">' +
-  '<circle cx="32" cy="32" r="24" fill="currentColor"/>' +
-  '<path class="su-logo-rim" d="M32 5a27 27 0 1 1-19 8" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>' +
-  "</svg>";
+// The app's own mark (Umbra-icon.png): a black disc with a white arc.
+const SU_LOGO = '<img class="su-logo" src="umbra-icon.png" width="84" height="84" alt="" draggable="false">';
 
 function suKeysHtml(combo) {
   return String(combo || "")
@@ -104,8 +101,12 @@ function suStepHtml(name) {
         '<div class="su-label">' + escapeHtml(suT("setupThemeLabel")) + "</div>" +
         '<div class="su-themes">' + suThemeCards() + "</div>" +
         '<div class="su-label">' + escapeHtml(suT("setupDensityLabel")) + "</div>" +
-        '<div class="seg-row su-density">' +
-        SU_DENSITIES.map(([d, key]) => '<button class="seg-btn" data-density="' + d + '">' + escapeHtml(suT(key)) + "</button>").join("") +
+        '<div class="su-denses">' +
+        SU_DENSITIES.map(([d, key], i) =>
+          '<button class="su-dens" type="button" data-density="' + d + '" style="--i:' + i + '">' +
+          '<span class="su-dens-pic"><i class="b"></i><i class="r"></i><i class="r"></i><i class="r"></i></span>' +
+          '<span class="su-theme-name">' + escapeHtml(suT(key)) + "</span></button>"
+        ).join("") +
         "</div>" +
         '<p class="su-text su-text-dim su-density-tip"></p>'
       );
@@ -220,7 +221,7 @@ function suBind(name, root) {
       });
     });
     suMarkDensity(root);
-    root.querySelectorAll(".su-density .seg-btn").forEach((btn) =>
+    root.querySelectorAll(".su-dens").forEach((btn) =>
       btn.addEventListener("click", () => {
         // The Appearance panel's own switch does the work, so this is the same setting.
         densitySeg.querySelector('[data-density="' + btn.dataset.density + '"]').click();
@@ -431,7 +432,7 @@ function suCurrentLang() {
 
 function suMarkDensity(root) {
   const now = theme.density || "full";
-  root.querySelectorAll(".su-density .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.density === now));
+  root.querySelectorAll(".su-dens").forEach((b) => b.classList.toggle("on", b.dataset.density === now));
   const tips = { full: "densityFullTip", "compact-results": "densityCompactResultsTip", "compact-full": "densityCompactFullTip" };
   root.querySelector(".su-density-tip").textContent = suT(tips[now] || tips.full);
 }

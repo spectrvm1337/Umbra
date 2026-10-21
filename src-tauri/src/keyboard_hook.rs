@@ -66,9 +66,24 @@ unsafe extern "system" fn system_menu_proc(
     if msg == WM_SYSCOMMAND && (wparam as u32 & 0xFFF0) == SC_KEYMENU {
         let alt_space = HotkeyDef { vk: 0x20, alt: true, ..Default::default() };
         let is_hotkey = CURRENT_HOTKEY.get().is_some_and(|m| *m.lock().unwrap() == alt_space);
-        if lparam == 0x20 && is_hotkey {
+        if lparam == 0x20 {
             if let Some(win) = APP_HANDLE.get().and_then(|app| app.get_webview_window("main")) {
-                let _ = win.emit("window-hide-requested", ());
+                // The page never sees this Space, so Settings could not record Alt+Space as a
+                // new hotkey; it is told here instead and takes it while it is recording.
+                let held = |vk: i32| (GetAsyncKeyState(vk) as u16 & 0x8000) != 0;
+                let mut combo = String::new();
+                if held(0x11) {
+                    combo.push_str("Ctrl+");
+                }
+                combo.push_str("Alt+");
+                if held(0x10) {
+                    combo.push_str("Shift+");
+                }
+                combo.push_str("Space");
+                let _ = win.emit("alt-space-key", combo);
+                if is_hotkey {
+                    let _ = win.emit("window-hide-requested", ());
+                }
             }
         }
         return 0;

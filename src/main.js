@@ -399,6 +399,9 @@ document.addEventListener("keydown", (e) => {
     setTimeout(() => { if (hotkeyCapturing) paintHotkeyHint(window.i18n.t("pressKeys")); }, 1800);
     return;
   }
+  applyHotkey(combo);
+}, true);
+function applyHotkey(combo) {
   const previous = currentHotkey;
   endHotkeyCapture();
   // Shown as the new combination at once; it goes back only if the system refuses it.
@@ -417,7 +420,7 @@ document.addEventListener("keydown", (e) => {
       paintHotkeyIdle();
       setSettingsStatus(String(err), true);
     });
-}, true);
+}
 document.addEventListener("keyup", (e) => {
   if (hotkeyCapturing) paintHotkeyHeld(e);
 }, true);
@@ -3350,7 +3353,15 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
     setTimeout(() => { pointerGuard = false; }, 50);
   }, 30);
 });
+window.__TAURI__.event.listen("alt-space-key", (e) => {
+  if (hotkeyCapturing) applyHotkey(e.payload);
+});
 window.__TAURI__.event.listen("window-hide-requested", () => {
+  // With Alt+Space as the hotkey, pressing it while recording is the new combination, not a hide.
+  if (hotkeyCapturing) {
+    applyHotkey("Alt+Space");
+    return;
+  }
   // The first-run setup holds the window up until it is finished.
   if (window.UmbraSetup && window.UmbraSetup.active()) return;
   hideWindow();

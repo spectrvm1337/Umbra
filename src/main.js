@@ -260,7 +260,7 @@ async function refreshSettingsValues() {
     }
     updateLanguageButtons(currentLang);
     currentHotkey = hk || "Alt+Space";
-    settingHotkeyValue.textContent = currentHotkey;
+    paintHotkeyIdle();
     settingZoomVal.textContent = Number(zoom || 1).toFixed(2);
     settingAutostart.classList.toggle("on", !!as);
     const itemStr = window.i18n ? window.i18n.t("itemsCount") : "items";
@@ -285,10 +285,38 @@ async function loadAppVersion() {
     console.warn("version load failed:", e);
   }
 }
+// The hotkey is drawn as keycaps. While one is being recorded the row shows what is held at that
+// moment, so a press is seen before the combination is complete.
+function hotkeyKeysHtml(keys, live) {
+  return keys
+    .map((k) => '<kbd class="su-key' + (live ? " live" : "") + '">' + escapeHtml(k) + "</kbd>")
+    .join('<span class="su-plus">+</span>');
+}
+function paintHotkey(html) {
+  settingHotkeyValue.innerHTML = html;
+}
+function paintHotkeyIdle() {
+  paintHotkey(hotkeyKeysHtml(String(currentHotkey || "").split("+").filter(Boolean)));
+}
+function paintHotkeyHint(text, bad) {
+  paintHotkey('<span class="hk-hint' + (bad ? " bad" : "") + '">' + escapeHtml(text) + "</span>");
+}
+function paintHotkeyHeld(e) {
+  const held = [];
+  if (e.ctrlKey) held.push("Ctrl");
+  if (e.altKey) held.push("Alt");
+  if (e.shiftKey) held.push("Shift");
+  if (e.metaKey) held.push("Super");
+  if (!held.length) {
+    paintHotkeyHint(window.i18n.t("pressKeys"));
+    return;
+  }
+  paintHotkey(hotkeyKeysHtml(held, true) + '<span class="su-plus">+</span><kbd class="su-key su-key-wait">…</kbd>');
+}
 function endHotkeyCapture() {
   hotkeyCapturing = false;
   settingHotkeyRow.classList.remove("capturing");
-  settingHotkeyValue.textContent = currentHotkey;
+  paintHotkeyIdle();
 }
 function toggleSettings() {
   const opening = settingsSection.classList.contains("hidden");
@@ -347,7 +375,7 @@ settingHotkeyRow.addEventListener("click", (e) => {
   if (hotkeyCapturing) return;
   hotkeyCapturing = true;
   settingHotkeyRow.classList.add("capturing");
-  settingHotkeyValue.textContent = window.i18n.t("pressKeys");
+  paintHotkeyHint(window.i18n.t("pressKeys"));
   setSettingsStatus("");
 });
 document.addEventListener("pointerdown", (e) => {
@@ -361,23 +389,37 @@ document.addEventListener("keydown", (e) => {
   e.stopPropagation();
   if (e.key === "Escape") { endHotkeyCapture(); return; }
   const { pending, error, combo } = comboFromEvent(e);
-  if (pending) return;
-  if (error) {
-    setSettingsStatus(error, true);
+  if (pending) {
+    paintHotkeyHeld(e);
     return;
   }
+  if (error) {
+    setSettingsStatus(error, true);
+    paintHotkeyHint(error, true);
+    setTimeout(() => { if (hotkeyCapturing) paintHotkeyHint(window.i18n.t("pressKeys")); }, 1800);
+    return;
+  }
+  const previous = currentHotkey;
   endHotkeyCapture();
-  settingHotkeyValue.textContent = combo;
+  // Shown as the new combination at once; it goes back only if the system refuses it.
+  currentHotkey = combo;
+  paintHotkeyIdle();
+  settingHotkeyValue.classList.remove("applied");
+  void settingHotkeyValue.offsetWidth;
+  settingHotkeyValue.classList.add("applied");
   invoke("set_hotkey", { key: combo })
     .then(res => {
-      currentHotkey = combo;
       setSettingsStatus("");
       showToast(window.i18n.t("hotkeyApplied"));
     })
     .catch(err => {
-      settingHotkeyValue.textContent = currentHotkey;
+      currentHotkey = previous;
+      paintHotkeyIdle();
       setSettingsStatus(String(err), true);
     });
+}, true);
+document.addEventListener("keyup", (e) => {
+  if (hotkeyCapturing) paintHotkeyHeld(e);
 }, true);
 function applyZoom(z, save) {
   z = Math.max(0.5, Math.min(2, Math.round(z * 100) / 100));

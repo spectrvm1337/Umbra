@@ -132,8 +132,8 @@ function suStepHtml(name) {
       return (
         '<div class="su-head">' + suIco("tour") + '<h2 class="su-title">' + escapeHtml(suT("setupTourTitle")) + "</h2></div>" +
         '<div class="su-mock" aria-hidden="true">' +
-        '<div class="su-mock-bar">' + suGlyph("index", 16) + '<span class="su-mock-q"></span><i class="su-mock-caret"></i></div>' +
-        '<div class="su-mock-rows"></div>' +
+        '<div class="su-mock-inner"><div class="su-mock-bar">' + SU_SEARCH_ICON + '<span class="su-mock-q"></span><i class="su-mock-caret"></i></div>' +
+        '<div class="su-mock-rows"></div></div>' +
         '<div class="su-cap"><kbd class="su-key">Shift</kbd><span class="su-plus">+</span><kbd class="su-key">Space</kbd></div>' +
         "</div>" +
         '<p class="su-text su-scene-text"></p>' +
@@ -158,8 +158,15 @@ function suStepHtml(name) {
   return "";
 }
 
+// The dots are made once and only change class, so the active one stretches and shrinks between steps.
 function suRenderDots() {
-  suDots.innerHTML = SU_STEPS.map((_, i) => '<span class="su-dot' + (i === suStep ? " on" : i < suStep ? " past" : "") + '"></span>').join("");
+  if (suDots.children.length !== SU_STEPS.length) {
+    suDots.innerHTML = SU_STEPS.map(() => '<span class="su-dot"></span>').join("");
+  }
+  [...suDots.children].forEach((d, i) => {
+    d.classList.toggle("on", i === suStep);
+    d.classList.toggle("past", i < suStep);
+  });
 }
 
 function suRenderButtons() {
@@ -229,19 +236,20 @@ function suBind(name, root) {
     });
     const keys = root.querySelector("#su-hotkey");
     if (keys) {
+      // The settings row does the recording; this one shows what that row shows.
+      const row = keys.closest(".su-row");
       const paint = () => {
-        keys.classList.toggle("capturing", settingHotkeyRow.classList.contains("capturing"));
-        keys.innerHTML = settingHotkeyRow.classList.contains("capturing")
-          ? '<span class="su-press">' + escapeHtml(suT("setupHotkeyPress")) + "</span>"
-          : suKeysHtml(currentHotkey);
+        row.classList.toggle("capturing", settingHotkeyRow.classList.contains("capturing"));
+        keys.innerHTML = settingHotkeyValue.innerHTML;
+        keys.classList.toggle("applied", settingHotkeyValue.classList.contains("applied"));
       };
       invoke("get_hotkey").then((hk) => {
         currentHotkey = hk;
-        settingHotkeyValue.textContent = hk;
-        paint();
+        paintHotkeyIdle();
       }).catch(paint);
+      paint();
       const watch = new MutationObserver(paint);
-      watch.observe(settingHotkeyValue, { childList: true, characterData: true, subtree: true });
+      watch.observe(settingHotkeyValue, { childList: true, attributes: true, attributeFilter: ["class"] });
       watch.observe(settingHotkeyRow, { attributes: true, attributeFilter: ["class"] });
       root._suWatch = watch;
       root.querySelector("#su-hotkey-change").addEventListener("click", (e) => {
@@ -285,44 +293,78 @@ function suBind(name, root) {
   }
 }
 
-// The tour is a small copy of the real window that types a query and shows what comes back. Each
-// scene is one thing Umbra does; it plays through them in turn and a chip jumps to one.
-const SU_GLYPH = {
-  index: '<path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0m18 11l-6-6"/>',
-  app: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12h6"/>',
-  file: '<path d="M7 3h7l5 5v13H7zM14 3v5h5"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
-  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12v.01M12 12v.01M16 12v.01M8 16v.01M12 16v.01M16 16v.01"/>',
-  pipette: '<path d="m14 7 3 3M5 19l1-4 8.5-8.5a2 2 0 0 1 3 3L9 18zM15 5l1.5-1.5a2 2 0 0 1 3 3L18 8"/>',
-};
+// The tour is a small copy of the real window. It types a query and what comes back is built from
+// the same markup and classes the real results use, so it looks the way Umbra does rather than a
+// drawing of it. Each scene is one thing Umbra does; they play in turn and a chip jumps to one.
+const SU_SEARCH_ICON =
+  '<svg class="su-mock-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10.9521 10.9642L15 15M12.6667 6.83333C12.6667 10.055 10.055 12.6667 6.83333 12.6667C3.61167 12.6667 1 10.055 1 6.83333C1 3.61167 3.61167 1 6.83333 1C10.055 1 12.6667 3.61167 12.6667 6.83333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SU_LINK_ICON =
+  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6m-7 1l9-9m-5 0h5v5"/></svg>';
+const SU_CALC_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><path d="M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/></svg>';
 const SU_SCENES = [
-  { label: "setupScFind", text: "setupScFindT", query: "rep",
-    rows: [["app", "Reaper", "Application"], ["file", "Report Q3.pdf", "Documents\\Work"], ["folder", "Reports", "Desktop"]] },
-  { label: "setupScOpen", text: "setupScOpenT", query: "notes", open: true,
-    rows: [["file", "notes.md", "Documents", ["# Launch checklist", "- ship 0.2.2", "- update the site", "- write the changelog"]],
-      ["folder", "Notes", "Desktop"], ["app", "Notepad", "Application"]] },
-  { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4",
-    rows: [["calc", "235", "Calculator"]] },
-  { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats",
-    rows: [["web", "Search YouTube", "lofi beats"]] },
-  { label: "setupScColor", text: "setupScColorT", query: "!color",
-    rows: [["swatch", "#E5533D", "rgb(229, 83, 61)"], ["pipette", "Pick from screen", "Esc to cancel"]] },
+  { label: "setupScFind", text: "setupScFindT", query: "rep", items: [
+    { kind: "app", name: "REAPER", path: "C:\\Program Files\\REAPER (x64)\\reaper.exe" },
+    { kind: "document", name: "Report Q3.pdf", path: "C:\\Users\\you\\Documents\\Work\\Report Q3.pdf" },
+    { kind: "folder", name: "Reports", path: "C:\\Users\\you\\Desktop\\Reports" },
+  ] },
+  { label: "setupScOpen", text: "setupScOpenT", query: "notes", open: true, items: [
+    { kind: "document", name: "notes.md", path: "C:\\Users\\you\\Documents\\notes.md", meta: "Markdown \u00B7 312 B",
+      body: "# Launch checklist\n\n- ship 0.2.2\n- update the site\n- write the changelog\n- tell people" },
+    { kind: "folder", name: "Notes", path: "C:\\Users\\you\\Desktop\\Notes" },
+    { kind: "app", name: "Notepad", path: "C:\\Windows\\System32\\notepad.exe" },
+  ] },
+  { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4", calc: ["(1280 - 340) / 4", "235"] },
+  { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats", link: "open in youtube: lofi beats" },
+  { label: "setupScColor", text: "setupScColorT", query: "!color", color: { r: 229, g: 83, b: 61 } },
 ];
 let suTourTimers = [];
 
-const suGlyph = (name, size) =>
-  '<svg class="su-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="' +
-  (size || 18) + '" height="' + (size || 18) + '">' + SU_GLYPH[name] + "</svg>";
-
-function suRowHtml([kind, name, sub, preview], i, sel) {
-  const ic = kind === "swatch" ? '<i class="su-swatch"></i>' : suGlyph(kind);
+function suResultRow(item, i, query) {
   return (
-    '<div class="su-mr' + (sel ? " sel" : "") + '" style="--d:' + i * 70 + 'ms">' + '<span class="su-mr-ic">' + ic + "</span>" +
-    '<span class="su-mr-main"><b>' + escapeHtml(name) + "</b><em>" + escapeHtml(sub) + "</em></span>" +
-    (preview ? '<div class="su-mr-body"><pre>' + preview.map(escapeHtml).join("\n") + "</pre></div>" : "") +
-    "</div>"
+    '<div class="result-item' + (i === 0 ? " selected" : "") + '" style="animation-delay:' + i * 60 + 'ms">' +
+    '<div class="result-num"></div><div class="result-icon"><div class="result-icon-fallback ' + item.kind + '">' + getTypeIcon(item.kind) + "</div></div>" +
+    '<div class="result-name">' + highlightMatch(item.name, query) + '</div><div class="result-path">' + pathHtml(item.path) + "</div></div>"
   );
+}
+
+// What the real card holds when a text file is open: its start on the left, name and path beside it.
+function suOpenBodyHtml(item) {
+  return (
+    '<div class="sp-body sp-wide"><div class="sp-stage"><div class="sp-content"><pre class="sp-text">' + escapeHtml(item.body) + "</pre></div></div>" +
+    '<div class="sp-info"><div class="sp-name">' + escapeHtml(item.name) + '</div><div class="sp-meta">' + escapeHtml(item.meta) +
+    '</div><div class="sp-path result-path">' + pathHtml(item.path) + "</div></div></div>"
+  );
+}
+
+function suColorCard(c) {
+  const card = document.createElement("div");
+  card.className = "special-card color-card";
+  card.innerHTML = colorCardHtml(c);
+  card.querySelector(".cc-history").innerHTML = "";
+  card.querySelector(".cc-loupe").classList.add("has-capture");
+  const cv = card.querySelector(".cc-pixels");
+  const g = cv.getContext("2d");
+  // A made-up patch of screen: the colour with lighter and darker cells around it.
+  for (let y = 0; y < cv.height; y++) {
+    for (let x = 0; x < cv.width; x++) {
+      const k = 0.55 + 0.45 * Math.abs(Math.sin(x * 0.45 + y * 0.31) * Math.cos(y * 0.52 - x * 0.2));
+      g.fillStyle = "rgb(" + [c.r, c.g, c.b].map((v) => Math.round(v * k)).join(",") + ")";
+      g.fillRect(x, y, 1, 1);
+    }
+  }
+  return card;
+}
+
+function suSceneHtml(scene) {
+  if (scene.calc) {
+    return '<div class="special-card"><div class="special-action calc-card">' + SU_CALC_ICON + "<span>" + escapeHtml(scene.calc[0]) +
+      " = <b>" + escapeHtml(scene.calc[1]) + '</b></span><span class="special-hint">' + escapeHtml(suT("calcCopy")) + "</span></div></div>";
+  }
+  if (scene.link) {
+    return '<div class="special-card"><div class="special-action">' + SU_LINK_ICON + "<span>" + escapeHtml(scene.link) + "</span></div></div>";
+  }
+  return scene.items.map((it, i) => suResultRow(it, i, scene.query)).join("");
 }
 
 function suTourStop() {
@@ -343,7 +385,7 @@ function suTourPlay(root, index) {
   void text.offsetWidth;
   text.textContent = suT(scene.text);
   text.classList.add("swap");
-  mock.classList.remove("pressed", "typing");
+  mock.classList.remove("pressed");
   rows.innerHTML = "";
   q.textContent = "";
   let n = 0;
@@ -354,16 +396,18 @@ function suTourPlay(root, index) {
       later(step, 70);
       return;
     }
-    rows.innerHTML = scene.rows.map((r, i) => suRowHtml(r, i, i === 0)).join("");
+    if (scene.color) rows.replaceChildren(suColorCard(scene.color));
+    else rows.innerHTML = suSceneHtml(scene);
     if (scene.open) {
       later(() => {
+        const first = rows.firstElementChild;
         mock.classList.add("pressed");
-        rows.firstElementChild.classList.add("open");
+        first.classList.add("sp-open");
+        first.innerHTML = suOpenBodyHtml(scene.items[0]);
       }, 900);
     }
-    later(() => suTourPlay(root, (index + 1) % SU_SCENES.length), scene.open ? 4800 : 3400);
+    later(() => suTourPlay(root, (index + 1) % SU_SCENES.length), scene.open ? 5200 : 3800);
   };
-  mock.classList.add("typing");
   later(step, 350);
 }
 

@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::Manager;
 const TRAY_ID: &str = "umbra";
 struct Labels {
@@ -148,7 +149,7 @@ fn create_menu_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 fn open_menu(app: &tauri::AppHandle, x: f64, y: f64) {
-    *ANCHOR.lock().unwrap() = Some((x, y));
+    *ANCHOR.lock_or_recover() = Some((x, y));
     let _ = tauri::Emitter::emit_to(app, MENU_LABEL, "tray-menu-show", ());
 }
 /// Where a menu of `w` x `h` physical pixels goes for a click at (x, y): above
@@ -178,7 +179,7 @@ pub fn tray_menu_present(app: tauri::AppHandle, width: f64, height: f64) {
         return;
     };
     // Normally the right-click position; otherwise wherever the cursor is.
-    let anchor = ANCHOR.lock().unwrap().take();
+    let anchor = ANCHOR.lock_or_recover().take();
     let Some((x, y)) = anchor.or_else(|| app.cursor_position().ok().map(|p| (p.x, p.y))) else {
         return;
     };

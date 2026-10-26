@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use crate::search::SearchResult;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
@@ -61,7 +62,6 @@ pub(crate) fn entry_to_result(e: &SearchEntry) -> SearchResult {
         score: crate::search::ScoreKey::default(),
     }
 }
-/// A result for `path` if it is a program (exe / msi / lnk / url) that still exists.
 /// A result for `path` if it is a file that still exists, whatever its type.
 pub(crate) fn file_result(path: &str) -> Option<SearchResult> {
     let p = Path::new(path);
@@ -92,6 +92,15 @@ pub(crate) fn with_entries<R>(f: impl FnOnce(&[SearchEntry]) -> R) -> Option<R> 
         }
     }
 }
+/// The live index for writing, recovered like `with_entries` when a panic
+/// poisoned it: skipping the write would silently drop the change instead.
+pub(crate) fn write_index() -> Option<std::sync::RwLockWriteGuard<'static, Vec<SearchEntry>>> {
+    let rw = INDEX.get()?;
+    Some(rw.write().unwrap_or_else(|poisoned| {
+        crate::preview::log_note("index lock was poisoned; recovered and continuing");
+        poisoned.into_inner()
+    }))
+}
 pub(crate) fn kind_from_file(file_name: &str, is_dir: bool) -> u8 {
     if is_dir {
         return KIND_FOLDER;
@@ -100,17 +109,21 @@ pub(crate) fn kind_from_file(file_name: &str, is_dir: bool) -> u8 {
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
+    // The one list of file types. The frontend draws a row by the kind sent with
+    // it, and preview.rs keeps the same groups (plus which ones it can read as text).
     match ext.as_str() {
         "exe" | "msi" => KIND_APP,
         "lnk" | "url" => KIND_SHORTCUT,
-        "txt" | "log" | "md" | "ini" | "cfg" => KIND_DOCUMENT,
+        "txt" | "log" | "md" | "ini" | "cfg" | "csv" | "rtf" | "odt" | "ods" | "odp" | "epub" => KIND_DOCUMENT,
         "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" => KIND_DOCUMENT,
-        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "svg" | "ico" => KIND_IMAGE,
-        "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" => KIND_AUDIO,
-        "mp4" | "avi" | "mkv" | "mov" | "wmv" | "webm" => KIND_VIDEO,
-        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" => KIND_ARCHIVE,
-        "js" | "ts" | "py" | "rs" | "c" | "cpp" | "h" | "java" | "go" => KIND_CODE,
-        "html" | "css" | "json" | "xml" | "yaml" | "toml" => KIND_CODE,
+        "jpg" | "jpeg" | "jfif" | "png" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tif" | "tiff" | "heic"
+        | "avif" => KIND_IMAGE,
+        "mp3" | "wav" | "flac" | "ogg" | "oga" | "m4a" | "aac" | "wma" | "opus" | "mid" => KIND_AUDIO,
+        "mp4" | "avi" | "mkv" | "mov" | "wmv" | "webm" | "flv" | "m4v" | "3gp" | "mpg" | "mpeg" | "ogv" => KIND_VIDEO,
+        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "zst" | "iso" => KIND_ARCHIVE,
+        "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "py" | "rs" | "c" | "cpp" | "h" | "hpp" | "java" | "go"
+        | "cs" | "rb" | "php" | "lua" | "kt" | "swift" | "dart" | "sh" | "bat" | "cmd" | "ps1" | "sql" => KIND_CODE,
+        "html" | "htm" | "css" | "scss" | "json" | "xml" | "yaml" | "yml" | "toml" | "vue" | "svelte" => KIND_CODE,
         "dll" | "sys" | "so" | "dylib" | "lib" | "a" | "pdb" | "bin" | "dat" | "db" | "sqlite" | "" => KIND_SYSTEM,
         _ => KIND_FILE,
     }
@@ -147,11 +160,9 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         // the drives are walked again in the background.
         if with_entries(|r| r.is_empty()).unwrap_or(true) {
             if let Some(saved) = crate::index_cache::load() {
-                if let Some(rw) = INDEX.get() {
-                    if let Ok(mut w) = rw.write() {
-                        if w.is_empty() {
-                            *w = saved;
-                        }
+                if let Some(mut w) = write_index() {
+                    if w.is_empty() {
+                        *w = saved;
                     }
                 }
             }
@@ -226,12 +237,10 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         };
         let mut keep = keep.into_iter();
         entries.retain(|_| keep.next().unwrap_or(true));
-        if let Some(rw) = INDEX.get() {
-            if let Ok(mut w) = rw.write() {
-                *w = entries;
-                // What the watcher saw while the walk ran goes on top of it.
-                crate::index_watch::finish_scan_journal(&mut w);
-            }
+        if let Some(mut w) = write_index() {
+            *w = entries;
+            // What the watcher saw while the walk ran goes on top of it.
+            crate::index_watch::finish_scan_journal(&mut w);
         }
         if cancelled() {
             return;
@@ -295,7 +304,7 @@ fn missing_paths(paths: Vec<String>) -> std::collections::HashSet<String> {
 pub fn refresh_fast_index() {
     let cell = LAST_FAST_REFRESH.get_or_init(|| std::sync::Mutex::new(None));
     {
-        let mut guard = cell.lock().unwrap();
+        let mut guard = cell.lock_or_recover();
         if let Some(t) = *guard {
             if t.elapsed() < FAST_REFRESH_INTERVAL {
                 return;
@@ -315,20 +324,37 @@ pub fn refresh_fast_index() {
     // entries whose target no longer exists on disk (uninstalled) —
     // a fresh scan alone can't see removals. The disk checks run before
     // taking the write lock so searches are not blocked meanwhile.
-    let app_paths: Vec<String> = with_entries(|r| {
-        r.iter()
-            .filter(|e| e.kind == KIND_APP || e.kind == KIND_SHORTCUT)
-            .filter(|e| !fresh_paths.contains(&e.path))
-            .map(|e| e.path.clone())
-            .collect()
+    let (app_paths, renamed) = with_entries(|r| {
+        let mut app_paths = Vec::new();
+        let mut renamed = std::collections::HashSet::new();
+        for e in r.iter().filter(|e| e.kind == KIND_APP || e.kind == KIND_SHORTCUT) {
+            if fresh_paths.contains(&e.path) {
+                continue;
+            }
+            app_paths.push(e.path.clone());
+            // A name that is not the file's own came from the Start Menu or the
+            // registry, and this scan no longer gives it to this file: it went
+            // to another exe, or the app is gone. Left alone, an uninstaller that
+            // once got an app's name kept answering to that name for good.
+            if *e.name_lower != *derive_display_name(&e.path, e.kind).to_lowercase() {
+                renamed.insert(e.path.clone());
+            }
+        }
+        (app_paths, renamed)
     })
     .unwrap_or_default();
     let gone = missing_paths(app_paths);
-    if let Some(rw) = INDEX.get() {
-        if let Ok(mut w) = rw.write() {
-            w.retain(|e| !fresh_paths.contains(&e.path) && !gone.contains(&e.path));
-            w.extend(fresh);
-        }
+    if let Some(mut w) = write_index() {
+        w.retain_mut(|e| {
+            if fresh_paths.contains(&e.path) || gone.contains(&e.path) {
+                return false;
+            }
+            if renamed.contains(&e.path) {
+                e.name_lower = derive_display_name(&e.path, e.kind).to_lowercase().into_boxed_str();
+            }
+            true
+        });
+        w.extend(fresh);
     }
 }
 fn index_start_menu(entries: &mut Vec<SearchEntry>) {
@@ -529,10 +555,14 @@ fn find_exe_in_dir(dir: &str, app_name: &str) -> Option<String> {
         let mut exes = Vec::new();
         for entry in rd.filter_map(|e| e.ok()) {
             let path = entry.path();
+            // The uninstaller is never the app. When the app's own exe was missing
+            // for a moment (mid-update), it was the only exe left in the folder and
+            // got the app's name: "anti" found "unins000".
             if path.is_file()
                 && path
                     .extension()
                     .map_or(false, |ext| ext.eq_ignore_ascii_case("exe"))
+                && !crate::search::is_setup_or_uninstaller(&path.to_string_lossy())
             {
                 let file_name = path.file_name().unwrap().to_string_lossy().to_string();
                 let file_name_lower = file_name.to_lowercase();
@@ -797,9 +827,11 @@ fn index_drives_with_progress(
     base: usize,
 ) {
     let mut drives = get_available_drives();
+    // The drive list says `D:\`, the config `D:`; comparing the raw strings
+    // never matched, and a switched-off drive was walked all the same.
     let disabled_drives = crate::config::get_disabled_drives();
     drives.retain(|d| {
-        !disabled_drives.iter().any(|dd| d.to_uppercase() == dd.to_uppercase())
+        crate::config::drive_key(d).map_or(true, |key| !disabled_drives.contains(&key))
     });
     if drives.is_empty() {
         return;

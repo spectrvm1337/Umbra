@@ -13,6 +13,11 @@ pub struct ScoreKey {
     /// 0..1000 for results opened before under this very query (lower = picked
     /// more), 1000 for the rest; ranks above everything else (see picks.rs).
     pub pick_inv: u32,
+    /// How well the name matches, coarsely: 0 starts with the query (or a word in
+    /// it does), 1 has it somewhere inside, 2 only a typo away. It ranks above the
+    /// kind of item, so a shortcut that merely resembles the query can no longer
+    /// sit above a program whose name starts with it.
+    pub class: u32,
     pub tier: u32,
     pub primary: u32,
     pub frec_inv: u32,
@@ -221,13 +226,19 @@ fn match_score(
         2
     } else if variants.iter().any(|v| name.starts_with(v.text.as_str())) {
         3
-    } else if variants.iter().any(|v| name.contains(v.text.as_str())) {
+    } else if variants.iter().any(|v| contains_at_word_start(name, &v.text)) {
+        // "chrome" in "google chrome": as good as a prefix for a launcher.
         4
+    } else if variants.iter().any(|v| name.contains(v.text.as_str())) {
+        5
     } else {
+        // Up to four letters, one typo is a quarter of the word: "anti" then
+        // matched "tabtip", "rmactivate" and "compilation". Typos are only
+        // forgiven from five letters on.
         let q_len = q.chars().count();
-        let max_dist = if q_len <= 3 {
+        let max_dist = if q_len <= 4 {
             0
-        } else if q_len <= 6 {
+        } else if q_len <= 7 {
             1
         } else {
             2
@@ -239,10 +250,15 @@ fn match_score(
             return None;
         }
         if is_fuzzy_match(name, variants, max_dist).is_some() {
-            5
+            PRIMARY_FUZZY
         } else {
             return None;
         }
+    };
+    let class = match primary {
+        0..=4 => 0,
+        5 => 1,
+        _ => 2,
     };
 
     let ext = std::path::Path::new(&e.path)
@@ -250,12 +266,17 @@ fn match_score(
         .map(|s| s.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     let is_exe = ext == "exe";
-    let tier: u32 = if (e.kind == KIND_APP || e.kind == KIND_SHORTCUT) && !is_exe {
-        0 
+    let is_program = e.kind == KIND_APP || e.kind == KIND_SHORTCUT;
+    // Installers and uninstallers are programs nobody is looking for when they
+    // type the program's name; they go with the plain files.
+    let tier: u32 = if is_program && is_setup_or_uninstaller(&e.path) {
+        2
+    } else if is_program && !is_exe {
+        0
     } else if is_exe {
-        1 
+        1
     } else {
-        2 
+        2
     };
     let frec_score = frec.get(&e.path).copied().unwrap_or(0.0).clamp(0.0, 1000.0);
     let frec_inv = ((1000.0 - frec_score) * 10.0) as u32;
@@ -266,7 +287,20 @@ fn match_score(
     };
     let len = (e.name_lower.chars().count() as u32).min(9999);
     let path_len = (e.path.chars().count() as u32).min(9999);
-    Some(ScoreKey { pick_inv, tier, primary, frec_inv, len, path_len })
+    Some(ScoreKey { pick_inv, class, tier, primary, frec_inv, len, path_len })
+}
+/// `needle` occurs in `name` at the start of a word: at the very start, or after
+/// a space, dash, dot or other non-alphanumeric character.
+fn contains_at_word_start(name: &str, needle: &str) -> bool {
+    !needle.is_empty()
+        && name
+            .match_indices(needle)
+            .any(|(i, _)| name[..i].chars().next_back().map_or(true, |c| !c.is_alphanumeric()))
+}
+/// `unins000.exe`, `Uninstall Foo.lnk`, `FooSetup-x64.exe`, `installer.exe`.
+pub(crate) fn is_setup_or_uninstaller(path: &str) -> bool {
+    let file = path.rsplit(['\\', '/']).next().unwrap_or(path).to_lowercase();
+    file.starts_with("unins") || file.contains("uninstall") || file.contains("setup") || file.contains("installer")
 }
 /// Always this many results when there are that many matches...
 const MIN_RESULTS: usize = 30;
@@ -274,9 +308,15 @@ const MIN_RESULTS: usize = 30;
 /// many. Typo matches never extend the list.
 const MAX_RESULTS: usize = 120;
 /// `ScoreKey::primary` of a typo match; everything below it contains or starts with the query.
-const PRIMARY_FUZZY: u32 = 5;
+const PRIMARY_FUZZY: u32 = 6;
 const FUZZY_BUDGET_MS: u64 = 250;
-pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
+/// Whether `path` lies under `prefix` (`D:\`), ignoring ASCII case. Compared as
+/// bytes, so a prefix length that falls inside a multi-byte character is fine.
+fn under_prefix(path: &str, prefix: &str) -> bool {
+    path.len() >= prefix.len() && path.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
+}
+/// `prefix`, when given, keeps the results to paths under it (a drive scope).
+pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<SearchResult> {
     let q = query.to_lowercase();
     if q.is_empty() || !is_current(version) {
         return Vec::new();
@@ -294,6 +334,7 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
             .par_iter()
             .enumerate()
             .filter(|(_, e)| !disabled_kinds.contains(&e.kind))
+            .filter(|(_, e)| prefix.map_or(true, |p| under_prefix(&e.path, p)))
             .filter_map(|(i, e)| {
                 if !is_current(version) {
                     return None;
@@ -310,7 +351,13 @@ pub fn search_index(query: &str, version: u32) -> Vec<SearchResult> {
         for (score, i) in picked {
             if let Some(e) = entries.get(i) {
                 if e.kind == crate::indexer::KIND_APP || e.kind == crate::indexer::KIND_SHORTCUT {
-                    if !seen_apps.insert(&e.name_lower) {
+                    // One row per program as the user sees it. The internal name
+                    // can differ for the same program -- the registry calls it
+                    // "antigravity 2.15.1", the Start Menu "antigravity" -- and
+                    // both came out as two rows reading "Antigravity". The best
+                    // ranked one stays.
+                    let shown = crate::indexer::derive_display_name(&e.path, e.kind).to_lowercase();
+                    if !seen_apps.insert(shown) {
                         continue;
                     }
                 }
@@ -360,6 +407,57 @@ mod tests {
             println!("BENCH {q}: {hits} hits in {:?}", t.elapsed());
         }
     }
+    /// Ranks `entries` for `q` the way search_index does, without the shared index.
+    fn ranked(q: &str, entries: &[SearchEntry]) -> Vec<String> {
+        let variants = bench_variants(q);
+        let none = std::collections::HashMap::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut scored: Vec<(ScoreKey, &str)> = entries
+            .iter()
+            .filter_map(|e| match_score(e, q, &variants, &none, &none, deadline).map(|s| (s, e.path.as_str())))
+            .collect();
+        scored.sort();
+        scored.into_iter().map(|(_, p)| p.to_string()).collect()
+    }
+    #[test]
+    fn typing_anti_finds_antigravity_and_nothing_that_only_resembles_it() {
+        use crate::indexer::KIND_SHORTCUT;
+        let entries = vec![
+            entry("komori - compilation #2 - shortcut", "D:\\skins\\Komori - Compilation #2 - Shortcut.lnk", KIND_SHORTCUT),
+            entry("tabtip", "C:\\ink\\TabTip.exe", KIND_APP),
+            entry("rmactivate", "C:\\Windows\\System32\\RMActivate.exe", KIND_APP),
+            entry("uninstall antigravity", "C:\\sm\\Uninstall Antigravity.lnk", KIND_APP),
+            entry("antigravity-x64", "D:\\Downloads\\Antigravity-x64.exe", KIND_APP),
+            entry("antigravity", "C:\\sm\\Antigravity.lnk", KIND_APP),
+            entry("antigravity notes.txt", "D:\\antigravity notes.txt", KIND_DOCUMENT),
+        ];
+        assert_eq!(
+            ranked("anti", &entries),
+            vec![
+                "C:\\sm\\Antigravity.lnk",
+                "D:\\Downloads\\Antigravity-x64.exe",
+                "D:\\antigravity notes.txt",
+                "C:\\sm\\Uninstall Antigravity.lnk",
+            ],
+            "four letters forgive no typo, and the uninstaller ranks with the files"
+        );
+        // From five letters on a typo is forgiven, but such a match comes after every real one.
+        let typo = ranked("antigarvity", &entries);
+        assert_eq!(typo.first().map(String::as_str), Some("C:\\sm\\Antigravity.lnk"));
+    }
+    #[test]
+    fn a_word_inside_the_name_counts_like_a_prefix() {
+        let entries = vec![
+            entry("chrome_setup.log", "C:\\logs\\chrome_setup.log", KIND_FILE),
+            entry("google chrome", "C:\\sm\\Google Chrome.lnk", KIND_APP),
+        ];
+        assert_eq!(ranked("chrome", &entries)[0], "C:\\sm\\Google Chrome.lnk");
+        assert!(contains_at_word_start("google chrome", "chrome"));
+        assert!(!contains_at_word_start("rmactivate", "act"));
+        assert!(is_setup_or_uninstaller("C:\\x\\unins000.exe"));
+        assert!(is_setup_or_uninstaller("D:\\t\\AntigravitySetup-stable.exe"));
+        assert!(!is_setup_or_uninstaller("C:\\x\\Antigravity.exe"));
+    }
     #[test]
     fn search_finds_matches_and_is_fast() {
         SEARCH_VERSION.store(0, Ordering::SeqCst);
@@ -371,6 +469,7 @@ mod tests {
             entry("documents", "C:\\Users\\x\\Documents", KIND_FOLDER),
             entry("vacation photo", "C:\\pics\\vacation.jpg", KIND_IMAGE),
             entry("москва", "C:\\docs\\москва.txt", KIND_DOCUMENT),
+            entry("chrome notes.txt", "d:\\Заметки\\chrome notes.txt", KIND_DOCUMENT),
         ];
 
         for i in 0..300_000 {
@@ -383,7 +482,7 @@ mod tests {
         let _ = INDEX.set(std::sync::RwLock::new(entries));
         SEARCH_VERSION.store(1, Ordering::SeqCst);
         let t = std::time::Instant::now();
-        let r = search_index("chrome", 1);
+        let r = search_index("chrome", 1, None);
         let el_chrome = t.elapsed();
         assert!(!r.is_empty(), "'chrome' returned no results");
 
@@ -391,17 +490,17 @@ mod tests {
         assert!(r.iter().any(|x| x.name == "chrome"), "exact 'chrome' must be present");
         SEARCH_VERSION.store(2, Ordering::SeqCst);
         let t = std::time::Instant::now();
-        let r2 = search_index("vjcrdf", 2); 
+        let r2 = search_index("vjcrdf", 2, None); 
         let el_layout = t.elapsed();
         assert!(!r2.is_empty(), "layout variant 'vjcrdf' returned nothing");
         SEARCH_VERSION.store(3, Ordering::SeqCst);
         let t = std::time::Instant::now();
-        let r3 = search_index("spotfy", 3);
+        let r3 = search_index("spotfy", 3, None);
         let el_fuzzy = t.elapsed();
         assert!(!r3.is_empty(), "typo 'spotfy' did not match 'spotify'");
         SEARCH_VERSION.store(4, Ordering::SeqCst);
         let t = std::time::Instant::now();
-        let r4 = search_index("pohotoshop", 4);
+        let r4 = search_index("pohotoshop", 4, None);
         let el_fuzzy2 = t.elapsed();
         assert!(!r4.is_empty(), "typo 'pohotoshop' did not match 'photoshop'");
         println!(
@@ -420,8 +519,13 @@ mod tests {
                 el
             );
         }
+        // A drive scope keeps only that drive, whatever the case of the letter.
+        SEARCH_VERSION.store(5, Ordering::SeqCst);
+        let on_d = search_index("chrome", 5, Some("D:\\"));
+        assert_eq!(on_d.iter().map(|r| r.path.as_str()).collect::<Vec<_>>(), vec!["d:\\Заметки\\chrome notes.txt"]);
+        assert!(under_prefix("C:\\x", "c:\\") && !under_prefix("ЖЖ", "D:\\"), "byte compare never slices mid-char");
         SEARCH_VERSION.store(100, Ordering::SeqCst);
-        let stale = search_index("chrome", 99);
+        let stale = search_index("chrome", 99, None);
         assert!(stale.is_empty(), "stale scan must abort immediately");
         SEARCH_VERSION.store(101, Ordering::SeqCst);
     }

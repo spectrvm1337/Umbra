@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
@@ -16,7 +17,7 @@ fn pins_file_path() -> PathBuf {
     crate::paths::pins_file()
 }
 fn ensure_loaded() {
-    let mut guard = PINS_STATE.lock().unwrap();
+    let mut guard = PINS_STATE.lock_or_recover();
     if guard.is_some() {
         return;
     }
@@ -32,12 +33,12 @@ fn save(state: &PinsState) {
 }
 pub fn load_pins() -> Vec<Pin> {
     ensure_loaded();
-    let guard = PINS_STATE.lock().unwrap();
+    let guard = PINS_STATE.lock_or_recover();
     guard.as_ref().unwrap().pins.clone()
 }
 pub fn add_pin(result: &crate::search::SearchResult) -> bool {
     ensure_loaded();
-    let mut guard = PINS_STATE.lock().unwrap();
+    let mut guard = PINS_STATE.lock_or_recover();
     let state = guard.as_mut().unwrap();
     if state.pins.iter().any(|p| p.path == result.path) {
         return false;
@@ -52,7 +53,7 @@ pub fn add_pin(result: &crate::search::SearchResult) -> bool {
 }
 pub fn remove_pin(path: &str) -> bool {
     ensure_loaded();
-    let mut guard = PINS_STATE.lock().unwrap();
+    let mut guard = PINS_STATE.lock_or_recover();
     let state = guard.as_mut().unwrap();
     let len_before = state.pins.len();
     state.pins.retain(|p| p.path != path);
@@ -64,7 +65,7 @@ pub fn remove_pin(path: &str) -> bool {
 }
 pub fn reorder_pins(ordered_paths: Vec<String>) -> bool {
     ensure_loaded();
-    let mut guard = PINS_STATE.lock().unwrap();
+    let mut guard = PINS_STATE.lock_or_recover();
     let state = guard.as_mut().unwrap();
     if ordered_paths.len() != state.pins.len() {
         return false;

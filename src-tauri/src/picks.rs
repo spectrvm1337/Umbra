@@ -3,6 +3,7 @@
 //! it comes first as soon as the typed text is one of them: open Chrome after
 //! typing "ch" and it leads already on "c". Weights fade with the same half-life
 //! as the launch ranking, so old habits give way to new ones.
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -71,7 +72,7 @@ fn lookup_in(db: &Db, query: &str, now: f64) -> HashMap<String, f64> {
         .unwrap_or_default()
 }
 fn with_db<R>(f: impl FnOnce(&mut Db) -> R) -> R {
-    let mut guard = DB.lock().unwrap();
+    let mut guard = DB.lock_or_recover();
     let db = guard.get_or_insert_with(|| crate::storage::load_json(&db_path()));
     f(db)
 }

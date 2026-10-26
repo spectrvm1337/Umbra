@@ -130,6 +130,12 @@ fn fetch_icon_bytes(base: &str) -> Option<Vec<u8>> {
     let page = download(&format!("{base}/"), MAX_PAGE_BYTES)?;
     let href = find_icon_href(&String::from_utf8_lossy(&page))?;
     let url = resolve(base, &href)?;
+    // The page picks this address, not the user: it gets the same check as a
+    // typed one, so a site cannot point Umbra at 192.168.0.1 or localhost.
+    let host = crate::winhttp::parse_url(&url).ok()?.host.to_ascii_lowercase();
+    if !host_ok(&host) {
+        return None;
+    }
     download(&url, MAX_ICON_BYTES).filter(|b| sniff_mime(b).is_some())
 }
 

@@ -1,5 +1,6 @@
 //! "Check for updates": reads the newest GitHub release, compares it with the
 //! running build and can fetch the installer in the background.
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -154,7 +155,7 @@ pub fn check() -> Result<UpdateInfo, String> {
             .map_err(|e| format!("could not read release info: {e}"))?;
         let latest = release.tag_name.unwrap_or_default();
         let asset = pick_asset(&release.assets);
-        *expected_slot().lock().unwrap() = asset.map(|a| Expected {
+        *expected_slot().lock_or_recover() = asset.map(|a| Expected {
             url: a.browser_download_url.clone(),
             size: a.size,
             sha256: a.digest.as_deref().and_then(sha256_hex),
@@ -207,9 +208,10 @@ pub(crate) fn safe_file_name(name: &str) -> Option<String> {
         Some(cleaned)
     }
 }
-/// Host of an `https://…` URL, without pulling in the HTTP client.
+/// Host of an `https://…` URL, without pulling in the HTTP client. Plain http
+/// gives None: an installer fetched without TLS could be swapped on the way.
 fn url_host(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let rest = url.strip_prefix("https://")?;
     let authority = match rest.find(['/', '?', '#']) {
         Some(i) => &rest[..i],
         None => rest,
@@ -288,10 +290,16 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
     }
     #[cfg(target_os = "windows")]
     {
-        *ready_slot().lock().unwrap() = None;
-        let (total, expected_sha256) = match expected_slot().lock().unwrap().as_ref() {
-            Some(e) if e.url == url => (if e.size > 0 { e.size } else { total }, e.sha256.clone()),
-            _ => (total, None),
+        *ready_slot().lock_or_recover() = None;
+        // Only the asset the last update check found is fetched. A URL that is not
+        // that one would also skip the size and checksum GitHub gave for it.
+        let expected = match expected_slot().lock_or_recover().as_ref() {
+            Some(e) if e.url == url => Some((if e.size > 0 { e.size } else { total }, e.sha256.clone())),
+            _ => None,
+        };
+        let Some((total, expected_sha256)) = expected else {
+            let _ = tauri::Emitter::emit(&app, "update-error", "the update info changed; check for updates again");
+            return;
         };
         std::thread::spawn(move || {
         let emit = |downloaded: u64, total: u64| {
@@ -326,17 +334,21 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
                 return Err(format!("download failed with HTTP {status}"));
             }
             let mut last_emit = std::time::Instant::now();
-            let size = response.write_to_file(&dest, total, |downloaded, total| {
+            let written = response.write_to_file(&dest, total, |downloaded, total| {
                 if last_emit.elapsed().as_millis() >= 120 || downloaded == total {
                     emit(downloaded, total);
                     last_emit = std::time::Instant::now();
                 }
+            });
+            // A transfer cut off half way leaves no half installer behind.
+            let size = written.inspect_err(|_| {
+                let _ = std::fs::remove_file(&dest);
             })?;
             if let Err(err) = verify_download(&dest, size, total, expected_sha256.as_deref()) {
                 let _ = std::fs::remove_file(&dest);
                 return Err(err);
             }
-            *ready_slot().lock().unwrap() = Some(dest.clone());
+            *ready_slot().lock_or_recover() = Some(dest.clone());
             Ok(Downloaded {
                 path: dest.to_string_lossy().to_string(),
                 file_name,
@@ -348,7 +360,7 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
                 let _ = tauri::Emitter::emit(&app, "update-downloaded", done);
             }
             Err(err) => {
-                *ready_slot().lock().unwrap() = None;
+                *ready_slot().lock_or_recover() = None;
                 let _ = tauri::Emitter::emit(&app, "update-error", err);
             }
         }
@@ -358,12 +370,12 @@ pub fn start_download(app: tauri::AppHandle, url: String, file_name: String, tot
 /// Runs the downloaded installer. The path is never taken from the frontend —
 /// only the file we fetched ourselves is ever launched.
 pub fn install(app: tauri::AppHandle) -> Result<(), String> {
-    let path = ready_slot().lock().unwrap().clone();
+    let path = ready_slot().lock_or_recover().clone();
     let Some(path) = path else {
         return Err("nothing has been downloaded yet".to_string());
     };
     if !path.is_file() {
-        *ready_slot().lock().unwrap() = None;
+        *ready_slot().lock_or_recover() = None;
         return Err("the downloaded installer is gone".to_string());
     }
     #[cfg(target_os = "windows")]
@@ -486,6 +498,7 @@ mod tests {
         assert!(!is_trusted_host("https://evil.example.com/Umbra.exe"));
         assert!(!is_trusted_host("https://github.com.evil.test/Umbra.exe"));
         assert!(!is_trusted_host("not-a-url"));
+        assert!(!is_trusted_host("http://github.com/spectrvm1337/Umbra/releases/download/v1/x.exe"), "no TLS");
     }
     #[test]
     fn sanitises_remote_asset_names() {

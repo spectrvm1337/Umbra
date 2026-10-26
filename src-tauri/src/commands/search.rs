@@ -6,8 +6,10 @@ pub struct SearchResponse {
     pub pins: Vec<search::SearchResult>,
     pub indexed: usize,
 }
+/// `scope` (`D:` or `D:\`) keeps the results to one drive: typing `D:\ report`
+/// searches for "report" on D: only.
 #[tauri::command]
-pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse {
+pub async fn search_all(_app: tauri::AppHandle, query: String, scope: Option<String>) -> SearchResponse {
     if query.trim().is_empty() {
         let saved_pins = pins::load_pins();
         return SearchResponse {
@@ -17,7 +19,8 @@ pub async fn search_all(_app: tauri::AppHandle, query: String) -> SearchResponse
         };
     }
     let version = search::SEARCH_VERSION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    let results = tauri::async_runtime::spawn_blocking(move || crate::search::search_index(&query, version))
+    let prefix = scope.as_deref().and_then(crate::config::drive_key).map(|d| format!("{d}\\"));
+    let results = tauri::async_runtime::spawn_blocking(move || crate::search::search_index(&query, version, prefix.as_deref()))
         .await
         .unwrap_or_default();
     if !search::is_current(version) {

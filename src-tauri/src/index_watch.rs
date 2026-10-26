@@ -3,6 +3,7 @@
 //! unlike the NTFS change journal); another collects what they report and
 //! applies it to the index in batches. What changed while Umbra was closed is
 //! picked up by the drive walk at the next start.
+use crate::sync::LockExt;
 use crate::indexer::{self, SearchEntry};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -21,17 +22,19 @@ enum Event {
     /// The drive reported more than the buffer could hold; some changes are lost.
     Overflow,
 }
-/// Changes applied while a full walk runs are collected here and applied again
+/// Batches applied while a full walk runs are collected here and applied again
 /// to the walk's result when it replaces the index, so none of them get lost.
-static SCAN_JOURNAL: Mutex<Option<Vec<Change>>> = Mutex::new(None);
+/// They are kept already prepared: re-reading the disk for them here would
+/// happen under the write lock.
+static SCAN_JOURNAL: Mutex<Option<Vec<Batch>>> = Mutex::new(None);
 pub(crate) fn begin_scan_journal() {
-    *SCAN_JOURNAL.lock().unwrap() = Some(Vec::new());
+    *SCAN_JOURNAL.lock_or_recover() = Some(Vec::new());
 }
 /// Call with the index write lock held, right after the walk's result went in.
 pub(crate) fn finish_scan_journal(entries: &mut Vec<SearchEntry>) {
-    if let Some(changes) = SCAN_JOURNAL.lock().unwrap().take() {
-        if !changes.is_empty() {
-            apply_changes(entries, &changes, &skip_set(), &disabled_drives());
+    if let Some(batches) = SCAN_JOURNAL.lock_or_recover().take() {
+        for batch in &batches {
+            commit(entries, batch);
         }
     }
 }
@@ -68,15 +71,26 @@ fn entry_for(path: &str, is_dir: bool) -> SearchEntry {
         kind,
     }
 }
-/// Applies a batch of changes. Only the last change per path counts; a removed
-/// path also takes everything below it (a deleted or renamed folder), and an
-/// added folder is walked, because a folder moved in is reported as one name.
+/// A set of changes worked out against the disk, ready to go into the index.
+#[derive(Clone, Default)]
+pub(crate) struct Batch {
+    removed: HashSet<String>,
+    added: Vec<SearchEntry>,
+}
+/// Applies a batch of changes in one go (tests and callers that hold no lock).
 pub(crate) fn apply_changes(
     entries: &mut Vec<SearchEntry>,
     changes: &[Change],
     skip: &HashSet<String>,
     disabled: &[String],
 ) {
+    commit(entries, &prepare(changes, skip, disabled));
+}
+/// Everything that touches the disk: only the last change per path counts, and
+/// an added folder is walked, because a folder moved in is reported as one name.
+/// Runs without the index lock -- a folder of fifty thousand files dropped in
+/// takes a while to walk, and the search must not wait for it.
+pub(crate) fn prepare(changes: &[Change], skip: &HashSet<String>, disabled: &[String]) -> Batch {
     let mut last: HashMap<&str, bool> = HashMap::new(); // path -> exists
     for c in changes {
         match c {
@@ -84,7 +98,7 @@ pub(crate) fn apply_changes(
             Change::Removed(p) => last.insert(p.as_str(), false),
         };
     }
-    let removed: HashSet<&str> = last.iter().filter(|(_, &added)| !added).map(|(p, _)| *p).collect();
+    let removed: HashSet<String> = last.iter().filter(|(_, &added)| !added).map(|(p, _)| p.to_string()).collect();
     let mut added: Vec<SearchEntry> = Vec::new();
     for (path, _) in last.iter().filter(|(_, &added)| added) {
         if is_excluded(path, skip) || on_disabled_drive(path, disabled) {
@@ -104,7 +118,14 @@ pub(crate) fn apply_changes(
             }
         }
     }
-    let added_paths: HashSet<&str> = added.iter().map(|e| e.path.as_str()).collect();
+    Batch { removed, added }
+}
+/// Puts a prepared batch into the index: a removed path also takes everything
+/// below it (a deleted or renamed folder). No disk access, so it is safe under
+/// the write lock.
+pub(crate) fn commit(entries: &mut Vec<SearchEntry>, batch: &Batch) {
+    let removed = &batch.removed;
+    let added_paths: HashSet<&str> = batch.added.iter().map(|e| e.path.as_str()).collect();
     if !removed.is_empty() || !added_paths.is_empty() {
         // This runs under the index's write lock, so its cost is everyone's wait:
         // one hash lookup per entry, nothing more. Only a folder can have
@@ -129,7 +150,7 @@ pub(crate) fn apply_changes(
             entries.retain(|e| !removed_dirs.iter().any(|d| e.path.starts_with(d.as_str())));
         }
     }
-    entries.extend(added);
+    entries.extend(batch.added.iter().cloned());
 }
 /// Watches every fixed drive that is indexed. Removable drives are left alone so
 /// an open handle never blocks ejecting them.
@@ -263,13 +284,11 @@ fn apply_loop(app: tauri::AppHandle, rx: Receiver<Event>) {
         }
         if !pending.is_empty() {
             let changes = std::mem::take(&mut pending);
-            let (skip, disabled) = (skip_set(), disabled_drives());
-            if let Some(rw) = indexer::INDEX.get() {
-                if let Ok(mut w) = rw.write() {
-                    apply_changes(&mut w, &changes, &skip, &disabled);
-                    if let Some(journal) = SCAN_JOURNAL.lock().unwrap().as_mut() {
-                        journal.extend(changes);
-                    }
+            let batch = prepare(&changes, &skip_set(), &disabled_drives());
+            if let Some(mut w) = indexer::write_index() {
+                commit(&mut w, &batch);
+                if let Some(journal) = SCAN_JOURNAL.lock_or_recover().as_mut() {
+                    journal.push(batch);
                 }
             }
             dirty_since.get_or_insert_with(Instant::now);

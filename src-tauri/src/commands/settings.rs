@@ -227,9 +227,16 @@ pub fn get_anim_off() -> Vec<String> {
 pub fn set_anim_off(kind: String, off: bool) -> Vec<String> {
     config::set_anim_off(kind, off)
 }
+/// Turns a drive on or off and rebuilds the index, so its files come or go now
+/// rather than at the next start.
 #[tauri::command]
-pub fn set_drive_enabled(drive: String, enabled: bool) -> Vec<String> {
-    config::set_drive_enabled(&drive, enabled)
+pub fn set_drive_enabled(app: tauri::AppHandle, drive: String, enabled: bool) -> Vec<String> {
+    let before = config::get_disabled_drives();
+    let after = config::set_drive_enabled(&drive, enabled);
+    if after != before {
+        indexer::init_index_with_progress(app);
+    }
+    after
 }
 #[tauri::command]
 pub fn open_themes_folder() -> Result<(), String> {

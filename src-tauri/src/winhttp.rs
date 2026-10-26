@@ -252,6 +252,8 @@ impl Response {
             progress(written, total);
         }
         file.flush().map_err(|e| e.to_string())?;
+        // On disk before the checksum is taken and the installer is started.
+        file.sync_all().map_err(|e| e.to_string())?;
         Ok(written)
     }
 }

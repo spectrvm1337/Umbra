@@ -359,13 +359,13 @@ function comboFromEvent(e) {
   else if (/^F([1-9]|1[0-2])$/.test(code)) base = code;
   else if (code === "Space") base = "Space";
   else if (/^Arrow(Up|Down|Left|Right)$/.test(code)) base = code;
-  if (!base) return { error: "unsupported key — use a letter, digit, F1–F12, Space or arrow" };
+  if (!base) return { error: t("hotkeyUnsupported") };
   const mods = [];
   if (e.ctrlKey) mods.push("Ctrl");
   if (e.altKey) mods.push("Alt");
   if (e.shiftKey) mods.push("Shift");
   if (e.metaKey) mods.push("Super");
-  if (mods.length === 0) return { error: "include a modifier — Ctrl, Alt or Shift" };
+  if (mods.length === 0) return { error: t("hotkeyNeedsModifier") };
   return { combo: [...mods, base].join("+") };
 }
 settingHotkeyRow.addEventListener("click", (e) => {
@@ -414,9 +414,10 @@ function applyHotkey(combo) {
       showToast(window.i18n.t("hotkeyApplied"));
     })
     .catch(err => {
+      console.warn("set_hotkey refused:", err);
       currentHotkey = previous;
       paintHotkeyIdle();
-      setSettingsStatus(String(err), true);
+      setSettingsStatus(t("hotkeyUnsupported"), true);
     });
 }
 document.addEventListener("keyup", (e) => {
@@ -446,7 +447,7 @@ settingAutostartRow.addEventListener("click", async () => {
   try {
     const now = await invoke("set_autostart", { enable: want });
     settingAutostart.classList.toggle("on", !!now);
-    showToast(now ? "Autostart on" : "Autostart off");
+    showToast(t(now ? "autostartOn" : "autostartOff"));
   } catch (err) {
     showToast(window.i18n.t("autostartFailed"), true, String(err).replace("Error:", "").trim());
   }
@@ -454,14 +455,10 @@ settingAutostartRow.addEventListener("click", async () => {
 settingReindex.addEventListener("click", async (e) => {
   e.stopPropagation();
   try {
-
-    indexingActive = true;
-    indexRan = true;
-    indexSpinner.classList.add("visible");
-    if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
+    showIndexingStarted();
     await invoke("reindex");
     toggleSettings();
-    showNotify("Rebuilding index", { type: "info", detail: "search still works" });
+    showNotify(t("reindexStarted"), { type: "info", detail: t("reindexStartedDetail") });
   } catch (err) {
     setSettingsStatus(String(err), true);
   }
@@ -470,12 +467,16 @@ settingReindex.addEventListener("click", async (e) => {
 // index, which the Rust side starts; this shows the progress.
 let indexOpts = { hidden: false, appdata: false };
 const INDEX_OPTION_NAMES = ["hidden", "appdata"];
-async function setIndexOption(name, on) {
-  if (!!indexOpts[name] === on) return;
+// The spinner and the "indexing…" count, for the settings that rebuild the index.
+function showIndexingStarted() {
   indexingActive = true;
   indexRan = true;
   indexSpinner.classList.add("visible");
   if (settingIndexed) settingIndexed.textContent = window.i18n.t("indexingDots");
+}
+async function setIndexOption(name, on) {
+  if (!!indexOpts[name] === on) return;
+  showIndexingStarted();
   indexOpts = await invoke("set_index_option", { name, on });
 }
 async function toggleIndexOption(name) {
@@ -575,7 +576,7 @@ function setMenuFolded(container, folded, instant) {
 const groupOn = (g) => g.kinds.every((k) => !disabledKinds.includes(k));
 function renderExcludeCount() {
   const off = CONTENT_GROUPS.filter((g) => !groupOn(g)).map((g) => getGroupLabel(g).toLowerCase());
-  const offDrives = disabledDrives.map((d) => d.replace(":\\", ""));
+  const offDrives = disabledDrives.filter((d) => availableDrives.includes(d)).map((d) => d.replace(/:$/, ""));
   const tr = (k, f) => (window.i18n ? window.i18n.t(k) : f);
   const offIndex = [
     ["hidden", "lblHiddenFolders", "Hidden folders (.xxx)"],
@@ -593,7 +594,7 @@ function renderExcludeCount() {
 let contentFolded = false;
 function renderContentGroups(instant) {
   const onKinds = CONTENT_GROUPS.length - CONTENT_GROUPS.filter((g) => !groupOn(g)).length;
-  const onDrives = availableDrives.length - disabledDrives.length;
+  const onDrives = availableDrives.filter((d) => !disabledDrives.includes(d)).length;
   const onIndex = INDEX_OPTION_NAMES.filter((n) => indexOpts[n]).length;
   const totalOn = onKinds + onDrives + onIndex;
   const total = CONTENT_GROUPS.length + availableDrives.length + INDEX_OPTION_NAMES.length;
@@ -624,6 +625,8 @@ async function toggleGroup(g) {
 }
 async function toggleDrive(d) {
   const enable = disabledDrives.includes(d);
+  // The backend rebuilds the index so the drive's files come or go now.
+  showIndexingStarted();
   try {
     disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: enable });
   } catch (err) {
@@ -642,7 +645,7 @@ async function toggleAll() {
         kinds = await invoke("set_kind_enabled", { kind: k, enabled: false });
       }
       disabledKinds = kinds;
-      for (const d of (state.savedDrives || []).filter((x) => availableDrives.includes(x))) {
+      for (const d of (state.savedDrives || []).map(driveKey).filter((x) => availableDrives.includes(x))) {
         disabledDrives = await invoke("set_drive_enabled", { drive: d, enabled: false });
       }
       for (const name of INDEX_OPTION_NAMES) {
@@ -671,12 +674,15 @@ async function toggleAll() {
   }
   renderContentGroups();
 }
+// Drives are kept as "D:" everywhere, the form the config stores them in; the drive list from
+// Windows says "D:\", and comparing the two never matched.
 let availableDrives = [];
 let disabledDrives = [];
+const driveKey = (d) => String(d || "").trim().replace(/\\+$/, "").toUpperCase();
 async function contentMenuLoad() {
   try {
     disabledKinds = await invoke("get_disabled_kinds");
-    availableDrives = await invoke("get_available_drives");
+    availableDrives = (await invoke("get_available_drives")).map(driveKey);
     disabledDrives = await invoke("get_disabled_drives");
     indexOpts = await invoke("get_index_options");
   } catch (err) {
@@ -684,7 +690,7 @@ async function contentMenuLoad() {
   }
   // Folded only while it is true: with everything shown (and the menu not left
   // unfolded last time), there is nothing per item to pick yet.
-  const everythingOn = disabledKinds.length === 0 && disabledDrives.length === 0
+  const everythingOn = disabledKinds.length === 0 && !disabledDrives.some((d) => availableDrives.includes(d))
     && INDEX_OPTION_NAMES.every((n) => indexOpts[n]);
   contentFolded = everythingOn && menuStateRead("content").folded !== false;
 }
@@ -903,7 +909,7 @@ const authorLink = document.getElementById("author-link");
 if (authorLink) {
   authorLink.addEventListener("click", (e) => {
     e.preventDefault();
-    invoke("launch_item", { path: "https://github.com/Spectrvm/umbra" }).catch(console.error);
+    invoke("launch_item", { path: "https://github.com/spectrvm1337/Umbra" }).catch(console.error);
   });
 }
 const checkUpdateBtn = document.getElementById("check-update-btn");
@@ -1017,7 +1023,7 @@ async function checkForUpdates(manual) {
 }
 async function startUpdateDownload(info) {
   if (!info.asset_url || !info.asset_name) {
-    updateState = { ...updateState, phase: "error", error: "this release has no downloadable build" };
+    updateState = { ...updateState, phase: "error", error: t("updNoAsset") };
     renderUpdatePanel();
     return;
   }
@@ -1813,10 +1819,10 @@ function renderMonitorButtons(monitors) {
     });
     monitorButtonsEl.appendChild(b);
   };
-  mk("Active", -1, "the monitor the window is currently on");
+  mk(t("monActive"), -1, t("monActiveTip"));
   monitors.forEach((m) => {
     mk(m.primary ? `${m.index + 1}*` : String(m.index + 1), m.index,
-      `${m.width}×${m.height}${m.primary ? " · primary" : ""}`);
+      `${m.width}×${m.height}${m.primary ? " · " + t("monPrimary") : ""}`);
   });
   updatePlacementUI();
 }
@@ -1956,29 +1962,33 @@ function needsRealIcon(item) {
   const ext = item.path.split(".").pop().toLowerCase();
   return ext === "exe" || ext === "lnk" || ext === "ico" || ext === "url";
 }
+// The file type comes with each result from the index (kind_from_file in indexer.rs), which is the
+// one list of extensions. This is only for items that arrive without one: a file dropped on the dock.
 function getExtGroup(path) {
   if (!path) return "file";
   const ext = path.split(".").pop().toLowerCase();
   const groups = {
-    document: ["txt","doc","docx","pdf","rtf","odt","md","log","csv","xls","xlsx","ppt","pptx","epub"],
-    image: ["png","jpg","jpeg","gif","bmp","svg","webp","ico","tiff","tif","heic"],
-    audio: ["mp3","wav","ogg","flac","aac","wma","m4a","opus"],
-    video: ["mp4","mkv","avi","mov","wmv","flv","webm","m4v","3gp"],
+    document: ["txt","log","md","ini","cfg","csv","rtf","odt","ods","odp","epub","pdf","doc","docx","xls","xlsx","ppt","pptx"],
+    image: ["jpg","jpeg","jfif","png","gif","bmp","webp","svg","ico","tif","tiff","heic","avif"],
+    audio: ["mp3","wav","flac","ogg","oga","m4a","aac","wma","opus","mid"],
+    video: ["mp4","avi","mkv","mov","wmv","webm","flv","m4v","3gp","mpg","mpeg","ogv"],
     archive: ["zip","rar","7z","tar","gz","bz2","xz","zst","iso"],
-    code: ["js","ts","py","rs","go","c","cpp","h","hpp","java","cs","rb","php","html","css","json","xml","yaml","yml","toml","sh","bat","ps1","lua","r","swift","kt","dart"],
+    code: ["js","mjs","cjs","ts","tsx","jsx","py","rs","c","cpp","h","hpp","java","go","cs","rb","php","lua","kt","swift","dart","sh","bat","cmd","ps1","sql","html","htm","css","scss","json","xml","yaml","yml","toml","vue","svelte"],
   };
   for (const [group, exts] of Object.entries(groups)) {
     if (exts.includes(ext)) return group;
   }
   return "file";
 }
+const INDEX_KINDS = new Set(["document", "image", "audio", "video", "archive", "code"]);
 // path -> icon data URL, or null when the backend has none for that path. Kept across
 // searches so typing does not re-request icons (and flash skeletons) for rows it already had.
 const iconCache = new Map();
 const ICON_CACHE_MAX = 1500;
 function getVisualKind(item) {
   if (item.kind === "folder") return "folder";
-  return needsRealIcon(item) ? (item.kind || "file") : getExtGroup(item.path);
+  if (needsRealIcon(item)) return item.kind || "file";
+  return INDEX_KINDS.has(item.kind) ? item.kind : getExtGroup(item.path);
 }
 function createResultItem(item, index, query) {
   const div = document.createElement("div");
@@ -2229,15 +2239,18 @@ function clearGhost() {
 }
 function updateGhost() {
   const value = searchInput.value;
+  // With a drive scope ("D:\ chr") the name is completed from the part after it.
+  const scoped = parseDriveScope(value);
+  const typed = scoped ? scoped.query : value;
   const top = selectableItems[0];
   const name = top && top.name ? top.name : "";
   if (
-    value &&
-    name.length > value.length &&
-    name.slice(0, value.length).toLowerCase() === value.toLowerCase()
+    typed &&
+    name.length > typed.length &&
+    name.slice(0, typed.length).toLowerCase() === typed.toLowerCase()
   ) {
     ghostTyped.textContent = value;
-    ghostRest.textContent = name.slice(value.length);
+    ghostRest.textContent = name.slice(typed.length);
   } else {
     clearGhost();
   }
@@ -2284,7 +2297,7 @@ function stepQueryHistory(dir) {
 searchInput.addEventListener("input", () => { queryHistoryPos = -1; });
 async function launchItem(path) {
   // Typed this, opened that: next time it comes first for this query (picks.rs).
-  const typed = searchInput.value.trim();
+  const typed = searchedText();
   if (typed) invoke("record_pick", { query: typed, path }).catch(() => {});
   rememberQuery();
   hideWindow(); 
@@ -2775,7 +2788,7 @@ let indexingActive = false;
 let indexRan = false;
 let idxPct = 0;
 function syncIndexTip(active) {
-  indexSpinner.dataset.tip = active ? `Indexing… ${idxPct}%` : "Index ready";
+  indexSpinner.dataset.tip = active ? t("indexingPct", { pct: idxPct }) : t("indexReady");
 }
 listen("index-progress", (event) => {
   const p = event.payload;
@@ -2819,10 +2832,22 @@ function fetchWithTimeout(url, ms = 8000) {
   const timer = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
+// "D:\ report" or "d: report" searches for "report" on that drive only. The space is what tells it
+// from a path: "D:\Games" (no space) still offers to open the folder.
+function parseDriveScope(query) {
+  const m = /^\s*([a-z]):\\?\s+(\S.*)$/i.exec(query);
+  return m ? { drive: m[1].toUpperCase() + ":", query: m[2] } : null;
+}
+// What is actually being searched for: the box's text without a drive scope in front of it.
+function searchedText() {
+  const scoped = parseDriveScope(searchInput.value);
+  return scoped ? scoped.query.trim() : searchInput.value.trim();
+}
 async function performSearch(query) {
   lastQuery = query;
   if (query.trim()) pendingWelcome = null;
-  if (handleSpecialCommand(query)) {
+  const scoped = parseDriveScope(query);
+  if (!scoped && handleSpecialCommand(query)) {
     // Drop any search still in flight (it would render its results under the
     // card) and clear what the last search left on screen.
     currentSearchId++;
@@ -2840,7 +2865,7 @@ async function performSearch(query) {
   // The previous rows stay up until the new ones arrive; hiding them here made the
   // list blink on every keystroke.
   try {
-    const response = await invoke("search_all", { query });
+    const response = await invoke("search_all", scoped ? { query: scoped.query, scope: scoped.drive } : { query });
     if (myId !== currentSearchId) return;
     if (!query.trim() && !pinsInList()) {
       // The pins live in the side dock, so the empty box lists recently opened items.
@@ -2850,7 +2875,7 @@ async function performSearch(query) {
     allResults = response.results;
     renderPins(response.pins);
     updateSelectableItems();
-    renderResults(allResults, query);
+    renderResults(allResults, scoped ? scoped.query : query);
     // A new search starts at the top (this used to happen as a side effect of hiding the list).
     resultsContainer.scrollTop = 0;
     // The first screenful's icons first: they are asked for together, so a long list must not hold them up.
@@ -2868,7 +2893,9 @@ async function performSearch(query) {
     if (!isEmpty && !hasResults) {
       emptyState.querySelector("span").textContent = indexingNow
         ? window.i18n.t("indexingEmpty")
-        : window.i18n.t("noResults");
+        : scoped
+          ? window.i18n.t("noResultsOn", { drive: scoped.drive })
+          : window.i18n.t("noResults");
     }
 
     hint.classList.toggle("hidden", !(isEmpty && !(hasPins && pinsInList())));
@@ -3348,15 +3375,16 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
     setTimeout(() => { pointerGuard = false; }, 50);
   }, 30);
 });
+// Alt+Space (with Ctrl / Shift) pressed inside the window: Windows keeps it from the page, so the
+// backend reports it. While a hotkey is being recorded it is the new combination; otherwise, if it
+// is the hotkey, it closes the window like the hotkey does anywhere else.
 window.__TAURI__.event.listen("alt-space-key", (e) => {
-  if (hotkeyCapturing) applyHotkey(e.payload);
+  const { combo, hotkey } = e.payload || {};
+  if (hotkeyCapturing) applyHotkey(combo);
+  else if (hotkey && !(window.UmbraSetup && window.UmbraSetup.active())) hideWindow();
 });
 window.__TAURI__.event.listen("window-hide-requested", () => {
-  // With Alt+Space as the hotkey, pressing it while recording is the new combination, not a hide.
-  if (hotkeyCapturing) {
-    applyHotkey("Alt+Space");
-    return;
-  }
+  if (hotkeyCapturing) return;
   // The first-run setup holds the window up until it is finished.
   if (window.UmbraSetup && window.UmbraSetup.active()) return;
   hideWindow();

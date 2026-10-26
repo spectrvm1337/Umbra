@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fs;
@@ -30,6 +31,19 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     }
     result
 }
+/// Deletes the temp files `write_atomic` leaves behind when the process is killed
+/// mid-write (`index.bin.<pid>.<n>.tmp` can be tens of megabytes). Files of this
+/// process are left alone: one of its writes may be under way.
+pub fn remove_stale_temp_files(dir: &Path) {
+    let own = format!(".{}.", std::process::id());
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".tmp") && !name.contains(&own) && entry.file_type().is_ok_and(|t| t.is_file()) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
 /// Latest unsaved contents per file. Settings commands run on the UI thread,
 /// so they only drop their JSON here; a background thread writes it shortly
 /// after, and a burst of clicks becomes a single write.
@@ -40,7 +54,7 @@ static FLUSH_SCHEDULED: AtomicBool = AtomicBool::new(false);
 static WRITING: Mutex<()> = Mutex::new(());
 const SAVE_DELAY: Duration = Duration::from_millis(300);
 pub fn save_later(path: PathBuf, contents: String) {
-    PENDING.lock().unwrap().insert(path, contents);
+    PENDING.lock_or_recover().insert(path, contents);
     if FLUSH_SCHEDULED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -52,8 +66,8 @@ pub fn save_later(path: PathBuf, contents: String) {
 }
 /// Writes everything `save_later` still holds. Call before the process exits.
 pub fn flush_pending() {
-    let _writing = WRITING.lock().unwrap();
-    let files = std::mem::take(&mut *PENDING.lock().unwrap());
+    let _writing = WRITING.lock_or_recover();
+    let files = std::mem::take(&mut *PENDING.lock_or_recover());
     for (path, contents) in files {
         let _ = write_atomic(&path, contents);
     }
@@ -102,6 +116,21 @@ mod tests {
         write_atomic(&path, "second").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
         assert_eq!(files_in(&dir.join("nested")), vec!["config.json"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn stale_temp_files_of_other_processes_are_removed() {
+        let dir = temp_dir("stale");
+        fs::write(dir.join("index.bin"), "keep").unwrap();
+        fs::write(dir.join("index.bin.3288.1.tmp"), "left by a killed run").unwrap();
+        let mine = format!("config.json.{}.7.tmp", std::process::id());
+        fs::write(dir.join(&mine), "being written").unwrap();
+        remove_stale_temp_files(&dir);
+        assert_eq!(files_in(&dir), {
+            let mut v = vec!["index.bin".to_string(), mine];
+            v.sort();
+            v
+        });
         fs::remove_dir_all(&dir).unwrap();
     }
     #[test]

@@ -16,6 +16,7 @@ mod preview;
 mod registry;
 mod search;
 mod storage;
+mod sync;
 mod taskbar;
 mod themes;
 mod tray;
@@ -74,6 +75,7 @@ fn main() {
         }))
         .setup(|app| {
             paths::migrate_legacy_config_dir();
+            storage::remove_stale_temp_files(&paths::config_dir());
             // No config file yet: a fresh install, nothing has been saved so far.
             let fresh_install = !paths::config_file().exists();
             indexer::init_index_with_progress(app.handle().clone());

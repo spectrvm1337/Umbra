@@ -20,6 +20,8 @@ const TEXT_MAX_LINES: usize = 60;
 const TEXT_MAX_LINE_CHARS: usize = 200;
 /// Past this a "text" file is a database or a dump, not something to preview.
 const TEXT_MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// panic.log is rotated once it grows past this.
+const LOG_MAX_BYTES: u64 = 256 * 1024;
 
 const IMAGE: &[&str] = &[
     "png", "jpg", "jpeg", "jfif", "gif", "bmp", "svg", "webp", "ico", "tiff", "tif", "heic",
@@ -31,7 +33,11 @@ const DOCUMENT: &[&str] = &[
 const AUDIO: &[&str] = &[
     "mp3", "wav", "ogg", "oga", "flac", "aac", "wma", "m4a", "opus", "mid",
 ];
-const VIDEO: &[&str] = &["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "3gp", "ts"];
+// No "ts": far more of those on a PC are TypeScript than MPEG transport
+// streams, and they were played as a broken video instead of shown as text.
+const VIDEO: &[&str] = &[
+    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "ogv",
+];
 const TEXT: &[&str] = &[
     "txt", "log", "md", "markdown", "csv", "tsv", "json", "xml", "yml", "yaml", "toml", "ini",
     "cfg", "conf", "env", "bat", "cmd", "ps1", "sh", "rs", "js", "mjs", "cjs", "ts", "tsx",
@@ -123,6 +129,11 @@ fn modified_ms(meta: &std::fs::Metadata) -> Option<u64> {
 pub fn log_note(message: &str) {
     use std::io::Write;
     let path = crate::paths::config_dir().join("panic.log");
+    // Kept small: past the cap the log becomes panic.old.log (replacing the
+    // previous one) and a fresh file starts, so it can never fill the disk.
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX_BYTES) {
+        let _ = std::fs::rename(&path, path.with_file_name("panic.old.log"));
+    }
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -221,7 +232,7 @@ pub fn build_preview(path: &str, thumb_size: u32) -> Preview {
         } else {
             path.to_string()
         };
-        if let Some((png, w, h)) = thumbnail(&source, thumb_size) {
+        if let Some((png, w, h)) = thumbnail(&source, thumb_size, pv.modified_ms.unwrap_or(0)) {
             use base64::Engine as _;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
             pv.thumb = Some(format!("data:image/png;base64,{b64}"));
@@ -364,8 +375,10 @@ impl ThumbCache {
             budget,
         }
     }
-    fn key(path: &str, size: u32) -> String {
-        format!("{size}|{path}")
+    /// The file's modification time is part of the key, so a picture edited
+    /// while Umbra runs is shown as it is now rather than as it was.
+    fn key(path: &str, size: u32, modified_ms: u64) -> String {
+        format!("{size}|{modified_ms}|{path}")
     }
     fn get(&mut self, key: &str) -> Option<(Vec<u8>, u32, u32)> {
         let hit = self.map.get(key).cloned();
@@ -406,13 +419,12 @@ impl ThumbCache {
 // A panic inside the worker must not make the next preview panic again on the
 // poisoned lock; the cached bytes are still fine to hand out.
 fn lock_cache() -> std::sync::MutexGuard<'static, ThumbCache> {
-    THUMB_CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    use crate::sync::LockExt;
+    THUMB_CACHE.lock_or_recover()
 }
 
-fn thumbnail(path: &str, size: u32) -> Option<(Vec<u8>, u32, u32)> {
-    let key = ThumbCache::key(path, size);
+fn thumbnail(path: &str, size: u32, modified_ms: u64) -> Option<(Vec<u8>, u32, u32)> {
+    let key = ThumbCache::key(path, size, modified_ms);
     if let Some(hit) = lock_cache().get(&key) {
         return Some(hit);
     }
@@ -444,9 +456,8 @@ fn shell_thumbnail(path: &str, size: u32) -> Option<(Vec<u8>, u32, u32)> {
         if init.is_ok() {
             CoUninitialize();
         }
-        if let Err(e) = &bitmap {
-            log_note(&format!("Shell gave no thumbnail for {path}: {e:?}"));
-        }
+        // A file with no thumbnail handler is ordinary, not worth a line in the
+        // log: noting each one (with its full path) is what made the log grow.
         // Read the pixels before releasing the bitmap.
         let hbitmap = match bitmap {
             Ok(b) if !b.is_invalid() => b,
@@ -576,6 +587,7 @@ mod shell_tests {
     }
 
     #[test]
+    #[ignore = "diagnostic: walks C:\\ and D:\\ looking for a media file; run with --ignored"]
     fn what_the_shell_actually_gives_for_media() {
         // Diagnostic: the panel shows whatever the Shell returns, so it matters
         // what that is for a video. Finds a real one and prints the result.
@@ -651,10 +663,14 @@ mod shell_tests {
     fn a_locked_cache_survives_a_poisoned_lock() {
         // A panic anywhere inside the worker would leave the mutex poisoned; the
         // next preview must still work rather than panic again on unwrap.
-        let mut c = ThumbCache::with_budget(4096);
-        c.insert("k".into(), (vec![1, 2, 3], 1, 1));
-        assert_eq!(c.bytes, 3);
-        assert_eq!(c.get("k").map(|v| v.1), Some(1));
+        let _ = std::thread::spawn(|| {
+            let _held = THUMB_CACHE.lock().unwrap();
+            panic!("poison the cache");
+        })
+        .join();
+        assert!(THUMB_CACHE.is_poisoned());
+        lock_cache().insert("k".into(), (vec![1, 2, 3], 1, 1));
+        assert_eq!(lock_cache().get("k").map(|v| v.1), Some(1));
     }
 }
 
@@ -674,6 +690,7 @@ mod tests {
         assert_eq!(classify("mp3"), "audio");
         assert_eq!(classify("flac"), "audio");
         assert_eq!(classify("rs"), "text");
+        assert_eq!(classify("ts"), "text", "TypeScript, not an MPEG stream");
         assert_eq!(classify("csv"), "text");
         assert_eq!(classify("xyz"), "other");
         assert_eq!(extension_of("C:\\a\\B.PNG"), "png");
@@ -906,8 +923,13 @@ mod tests {
 
         // Cache keys must not collide across sizes for the same path.
         assert_ne!(
-            ThumbCache::key("C:\\a.png", 256),
-            ThumbCache::key("C:\\a.png", 512)
+            ThumbCache::key("C:\\a.png", 256, 1),
+            ThumbCache::key("C:\\a.png", 512, 1)
+        );
+        // ...nor across edits of the same file.
+        assert_ne!(
+            ThumbCache::key("C:\\a.png", 256, 1),
+            ThumbCache::key("C:\\a.png", 256, 2)
         );
     }
 }

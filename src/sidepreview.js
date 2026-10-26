@@ -397,5 +397,9 @@ document.addEventListener("keyup", (e) => {
 window.addEventListener("blur", spRelease);
 document.addEventListener("visibilitychange", spRelease);
 
+// A file edited while Umbra sat in the tray is shown as it is now: previews are kept only while
+// the window stays open (the backend's thumbnails are keyed by modification time as well).
+window.__TAURI__.event.listen("window-shown", () => spCache.clear());
+
 window.UmbraSidePreview = { refresh: spRefresh, hold: spSetHeld, held: () => spHeld };
 if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", spInit);

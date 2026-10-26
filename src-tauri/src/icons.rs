@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::sync::{LazyLock, Mutex};
@@ -49,14 +50,14 @@ pub fn get_icon_png_data(path: &str) -> Option<Vec<u8>> {
         return None;
     }
     {
-        let mut cache = ICON_CACHE.lock().unwrap();
+        let mut cache = ICON_CACHE.lock_or_recover();
         if let Some(cached) = cache.get(path) {
             return Some(cached);
         }
     }
     let result = hicon_to_png(path);
     if let Some(bytes) = &result {
-        let mut cache = ICON_CACHE.lock().unwrap();
+        let mut cache = ICON_CACHE.lock_or_recover();
         cache.insert(path.to_string(), bytes.clone());
     }
     result

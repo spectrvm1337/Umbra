@@ -4,7 +4,10 @@ use std::time::{Duration, SystemTime};
 /// Compared after each folder change notification, so only real edits to
 /// .css files reach the frontend.
 fn themes_signature() -> Vec<(String, u64, u128)> {
-    let mut entries: Vec<(String, u64, u128)> = match std::fs::read_dir(crate::paths::themes_dir()) {
+    signature_of(&crate::paths::themes_dir())
+}
+fn signature_of(dir: &Path) -> Vec<(String, u64, u128)> {
+    let mut entries: Vec<(String, u64, u128)> = match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .flatten()
             .filter_map(|entry| {
@@ -124,31 +127,21 @@ impl ChangeWaiter {
 }
 #[cfg(test)]
 mod tests {
+    use super::signature_of;
     #[test]
-    fn signature_tracks_names_sizes_and_order() {
-        let a = vec![
-            ("b.css".to_string(), 10u64, 1u128),
-            ("a.css".to_string(), 20u64, 2u128),
-        ];
-        let b = vec![
-            ("a.css".to_string(), 20u64, 2u128),
-            ("b.css".to_string(), 10u64, 1u128),
-        ];
-        assert_eq!(
-            signatures(a.iter().cloned().collect()),
-            signatures(b.iter().cloned().collect())
-        );
-        let changed: Vec<_> = b
-            .into_iter()
-            .map(|(n, s, m)| if n == "a.css" { (n, s + 1, m) } else { (n, s, m) })
-            .collect();
-        assert_ne!(
-            signatures(a.into_iter().collect()),
-            signatures(changed.into_iter().collect())
-        );
-    }
-    fn signatures(mut v: Vec<(String, u64, u128)>) -> Vec<(String, u64, u128)> {
-        v.sort();
-        v
+    fn signature_sees_css_edits_and_ignores_other_files() {
+        let dir = std::env::temp_dir().join(format!("umbra-themes-sig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("b.css"), "a{}").unwrap();
+        std::fs::write(dir.join("a.css"), "b{}").unwrap();
+        let first = signature_of(&dir);
+        let names: Vec<&str> = first.iter().map(|e| e.0.as_str()).collect();
+        assert_eq!(names, vec!["a.css", "b.css"], "sorted, so read order does not matter");
+        std::fs::write(dir.join("notes.txt"), "not a theme").unwrap();
+        assert_eq!(signature_of(&dir), first, "other files are not themes");
+        std::fs::write(dir.join("a.css"), "b{color:red}").unwrap();
+        assert_ne!(signature_of(&dir), first, "an edit changes the size");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

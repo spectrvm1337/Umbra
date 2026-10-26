@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
@@ -358,25 +359,25 @@ fn normalise_hotkey(config: &mut Config) {
     }
 }
 
+/// `D:`, `d:\` or ` D:\ ` -> `D:`, the one form a drive is stored and compared in;
+/// None for anything that is not a letter and a colon.
+pub(crate) fn drive_key(drive: &str) -> Option<String> {
+    let t = drive.trim().trim_end_matches('\\');
+    let bytes = t.as_bytes();
+    (bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()).then(|| t.to_ascii_uppercase())
+}
 /// A drive is a letter and a colon. Anything else in the list is a hand-edited
 /// mistake, and the indexer matches these as path prefixes -- so a stray value
-/// with a multi-byte character in it was enough to panic the watcher.
+/// with a multi-byte character in it was enough to panic the watcher. Older
+/// versions stored `D:\` beside `D:`, so duplicates go too.
 fn normalise_drives(drives: &[String]) -> Vec<String> {
-    drives
-        .iter()
-        .filter_map(|d| {
-            let t = d.trim().trim_end_matches('\\');
-            let bytes = t.as_bytes();
-            if bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
-                Some(t.to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
+    let mut out: Vec<String> = drives.iter().filter_map(|d| drive_key(d)).collect();
+    out.sort();
+    out.dedup();
+    out
 }
 fn with_state<R>(f: impl FnOnce(&mut ConfigState) -> R) -> R {
-    let mut guard = STATE.lock().unwrap();
+    let mut guard = STATE.lock_or_recover();
     let state = guard.get_or_insert_with(|| {
         let path = config_path();
         let mut config: Config = crate::storage::load_json(&path);
@@ -529,9 +530,6 @@ pub fn set_zoom(zoom: f64) {
     let z = if zoom.is_finite() { zoom.clamp(0.5, 2.0) } else { 1.0 };
     update(|c| c.zoom = z);
 }
-pub fn get_index_excludes() -> Vec<String> {
-    read(|c| c.index_excludes.clone())
-}
 /// Marker in the skip set meaning "skip every name that starts with a dot".
 pub(crate) const SKIP_DOT_NAMES: &str = ".*";
 /// What the indexer leaves out by name: the exclude list, plus `AppData` and the dot folders
@@ -618,17 +616,19 @@ pub fn set_anim_off(kind: String, off: bool) -> Vec<String> {
 }
 /// Turns one drive on or off and returns the new disabled list.
 pub fn set_drive_enabled(drive: &str, enabled: bool) -> Vec<String> {
-    let d = drive.trim().to_uppercase();
+    let Some(d) = drive_key(drive) else {
+        return get_disabled_drives();
+    };
     update(|c| {
-        let drives = &mut c.disabled_drives;
+        let mut drives = normalise_drives(&c.disabled_drives);
         if enabled {
             drives.retain(|x| x != &d);
-        } else if !d.is_empty() && !drives.contains(&d) {
+        } else if !drives.contains(&d) {
             drives.push(d);
+            drives.sort();
         }
-        drives.sort();
-        drives.dedup();
-        drives.clone()
+        c.disabled_drives = drives.clone();
+        drives
     })
 }
 #[cfg(test)]
@@ -678,6 +678,16 @@ mod tests {
         assert!(on.contains(".git") && on.contains("node_modules"), "the plain list still applies");
         let old_config = skip_set_for(&["appdata".to_string()], false, true);
         assert!(!old_config.contains("appdata"), "the switch wins over an old list entry");
+    }
+    #[test]
+    fn drives_have_one_stored_form() {
+        assert_eq!(drive_key("d:\\").as_deref(), Some("D:"));
+        assert_eq!(drive_key(" D: ").as_deref(), Some("D:"));
+        assert_eq!(drive_key("Д:"), None);
+        assert_eq!(drive_key("D:\\x"), None);
+        // An old config with both spellings of the same drive and some junk.
+        let old = ["D:".to_string(), "D:\\".to_string(), "e:\\".to_string(), "nope".to_string()];
+        assert_eq!(normalise_drives(&old), vec!["D:".to_string(), "E:".to_string()]);
     }
     #[test]
     fn align_validation_rejects_bad_values_without_panicking() {

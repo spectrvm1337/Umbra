@@ -1,5 +1,5 @@
 let faviconTimer = 0;
-// Slides the site's own icon in between the card's arrow and its label once it has been fetched, Waits for a pause in
+// Slides the site's own icon in between the card's arrow and its label once it has been fetched,
 // pushing the label aside. Waits for a pause in typing, and drops the answer if the card has moved on
 // to another address meanwhile.
 function loadFavicon(url) {
@@ -46,6 +46,7 @@ function showOpenCard(url, label) {
   selectedIndex = 0;
   loadFavicon(url);
 }
+const WIKI_LANGS = new Set(["en", "ru", "de", "ja"]);
 const OPEN_TLDS = new Set(["com", "org", "net", "io", "dev", "me", "gg", "tv", "co", "uk", "de", "info", "xyz", "ru", "su", "ua", "by", "kz", "рф"]);
 // A URL or an absolute path typed into the search box, normalized for launch_item; null for ordinary searches.
 function parseOpenTarget(q) {
@@ -138,8 +139,8 @@ function handleSpecialCommand(query) {
       <div class="special-card">
         <div class="special-action${invalid ? " is-disabled" : ""}" data-kill="${escapeHtml(procName)}">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0m7-2l4 4m0-4l-4 4"/></svg>
-          <span>kill process: ${escapeHtml(procName)}</span>
-          <span class="special-hint">${invalid ? "wildcards and paths are not allowed" : ""}</span>
+          <span>${escapeHtml(t("killLabel", { name: procName }))}</span>
+          <span class="special-hint">${invalid ? escapeHtml(t("killInvalid")) : ""}</span>
         </div>
       </div>
     `;
@@ -150,7 +151,7 @@ function handleSpecialCommand(query) {
       .then(async (found) => {
         if (!action.isConnected) return;
         action.querySelector(".special-hint").textContent =
-          found.count === 0 ? "not running" : found.count === 1 ? "running" : `${found.count} running`;
+          found.count === 0 ? t("procNotRunning") : found.count === 1 ? t("procRunning") : t("procRunningN", { n: found.count });
         if (!found.path) return;
         const src = (await invoke("get_icons", { paths: [found.path] }))[found.path];
         if (!src || !action.isConnected) return;
@@ -177,7 +178,7 @@ function handleSpecialCommand(query) {
   const powerMatch = q.match(/^(shutdown|restart|sleep)$/i);
   if (powerMatch) {
     const cmd = powerMatch[1].toLowerCase();
-    const labels = { shutdown: "shutting down", restart: "restarting", sleep: "sleeping" };
+    const word = cmd[0].toUpperCase() + cmd.slice(1);
     // Same as kill: never let Enter fall through to a stale result on a power prompt.
     selectableItems = [];
     selectedIndex = -1;
@@ -188,7 +189,7 @@ function handleSpecialCommand(query) {
       <div class="special-card">
         <div class="special-action" data-power="${cmd}">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M7 6a7.75 7.75 0 1 0 10 0m-5-2v8"/></svg>
-          <span>confirm ${cmd}?</span>
+          <span>${escapeHtml(t("powerConfirm" + word))}</span>
         </div>
       </div>
     `;
@@ -196,7 +197,7 @@ function handleSpecialCommand(query) {
       try {
         const result = await invoke("exec_power_command", { command: cmd });
         const el = specialContent.querySelector(".special-action span");
-        el.textContent = labels[cmd] || result;
+        el.textContent = t("powerDoing" + word) || result;
       } catch (e) {
         const el = specialContent.querySelector(".special-action span");
         el.textContent = `${window.i18n.t("errorPrefix")}: ${e}`;
@@ -224,6 +225,7 @@ function handleSpecialCommand(query) {
       { name: "(2+3)*4 · 200+10%", desc: t("helpCalc"), fill: "" },
       { name: "kill <proc>", desc: t("helpKill"), fill: "kill " },
       { name: "shutdown|restart|sleep", desc: t("helpPower"), fill: "" },
+      { name: "D:\\ <query>", desc: t("helpDrive"), fill: "D:\\ " },
       { name: "<link or path>", desc: t("helpOpen"), fill: "" },
     ];
     resultsSection.classList.remove("hidden");
@@ -271,7 +273,8 @@ function handleSpecialCommand(query) {
       g: "https://www.google.com/search?q=",
       google: "https://www.google.com/search?q=",
       ru: "https://www.google.ru/search?q=",
-      wiki: "https://ru.wikipedia.org/w/index.php?search=",
+      // The Wikipedia of the interface language.
+      wiki: `https://${WIKI_LANGS.has(window.i18n.getLang()) ? window.i18n.getLang() : "en"}.wikipedia.org/w/index.php?search=`,
       w: "https://en.wikipedia.org/w/index.php?search=",
       translate: "https://translate.google.com/?sl=auto&tl=en&text=",
       so: "https://stackoverflow.com/search?q=",
@@ -282,12 +285,12 @@ function handleSpecialCommand(query) {
       d: "https://duckduckgo.com/?q=",
     };
     const url = sites[site] || `https://www.google.com/search?q=${site}+`;
-    showOpenCard(`${url}${encodeURIComponent(query)}`, `open in ${site}: ${query}`);
+    showOpenCard(`${url}${encodeURIComponent(query)}`, t("openIn", { site, query }));
     return true;
   }
   const target = parseOpenTarget(q);
   if (target) {
-    showOpenCard(target, `open ${target}`);
+    showOpenCard(target, t("openTarget", { target }));
     return true;
   }
   return false;

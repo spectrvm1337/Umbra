@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Instant, Duration};
 use tauri::{AppHandle, Manager, Emitter};
@@ -64,26 +65,26 @@ unsafe extern "system" fn system_menu_proc(
     _data: usize,
 ) -> LRESULT {
     if msg == WM_SYSCOMMAND && (wparam as u32 & 0xFFF0) == SC_KEYMENU {
-        let alt_space = HotkeyDef { vk: 0x20, alt: true, ..Default::default() };
-        let is_hotkey = CURRENT_HOTKEY.get().is_some_and(|m| *m.lock().unwrap() == alt_space);
         if lparam == 0x20 {
             if let Some(win) = APP_HANDLE.get().and_then(|app| app.get_webview_window("main")) {
                 // The page never sees this Space, so Settings could not record Alt+Space as a
-                // new hotkey; it is told here instead and takes it while it is recording.
+                // new hotkey; it is told here instead. One event carries both facts -- the
+                // combination and whether it is the hotkey -- because the page alone knows
+                // whether it is recording: two separate events used to record the combination
+                // and then hide the window straight after.
                 let held = |vk: i32| (GetAsyncKeyState(vk) as u16 & 0x8000) != 0;
+                let pressed = HotkeyDef { vk: 0x20, alt: true, ctrl: held(0x11), shift: held(0x10), win: false };
+                let is_hotkey = CURRENT_HOTKEY.get().is_some_and(|m| *m.lock_or_recover() == pressed);
                 let mut combo = String::new();
-                if held(0x11) {
+                if pressed.ctrl {
                     combo.push_str("Ctrl+");
                 }
                 combo.push_str("Alt+");
-                if held(0x10) {
+                if pressed.shift {
                     combo.push_str("Shift+");
                 }
                 combo.push_str("Space");
-                let _ = win.emit("alt-space-key", combo);
-                if is_hotkey {
-                    let _ = win.emit("window-hide-requested", ());
-                }
+                let _ = win.emit("alt-space-key", serde_json::json!({ "combo": combo, "hotkey": is_hotkey }));
             }
         }
         return 0;
@@ -149,7 +150,7 @@ pub fn is_supported_hotkey(hotkey: &str) -> bool {
 pub fn update_hotkey() {
     let def = parse_hotkey(&effective_hotkey()).unwrap_or_default();
     let guard = CURRENT_HOTKEY.get_or_init(|| Mutex::new(def.clone()));
-    *guard.lock().unwrap() = def;
+    *guard.lock_or_recover() = def;
 }
 fn toggle_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -167,14 +168,14 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 
         let hotkey = {
             if let Some(m) = CURRENT_HOTKEY.get() {
-                m.lock().unwrap().clone()
+                m.lock_or_recover().clone()
             } else {
                 HotkeyDef::default()
             }
         };
         if hotkey.vk != 0 && kbd.vkCode as u16 == hotkey.vk {
             if w == WM_KEYUP || w == WM_SYSKEYUP {
-                let mut supp = SUPPRESS_KEYUP.get_or_init(|| Mutex::new(false)).lock().unwrap();
+                let mut supp = SUPPRESS_KEYUP.get_or_init(|| Mutex::new(false)).lock_or_recover();
                 if *supp {
                     *supp = false;
                     return 1;
@@ -199,7 +200,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                         return 1; 
                     }
                     *last = Instant::now();
-                    *SUPPRESS_KEYUP.get_or_init(|| Mutex::new(false)).lock().unwrap() = true;
+                    *SUPPRESS_KEYUP.get_or_init(|| Mutex::new(false)).lock_or_recover() = true;
                     if let Some(app) = APP_HANDLE.get() {
                         // Windows only waits a few hundred ms for a low-level hook and
                         // silently removes one that is too slow, so showing the window

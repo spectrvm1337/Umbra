@@ -1,3 +1,4 @@
+use crate::sync::LockExt;
 use tauri::Manager;
 #[tauri::command]
 pub fn hide_window(app: tauri::AppHandle) {
@@ -11,7 +12,7 @@ use crate::config;
 /// stretched on the last summon never shifts where the next one lands.
 static BASE_SIZE: std::sync::Mutex<(f64, f64)> = std::sync::Mutex::new((660.0, 560.0));
 fn base_size_physical(window: &tauri::WebviewWindow) -> (i32, i32) {
-    let (w, h) = *BASE_SIZE.lock().unwrap();
+    let (w, h) = *BASE_SIZE.lock_or_recover();
     let scale = window.scale_factor().unwrap_or(1.0);
     ((w * scale).round() as i32, (h * scale).round() as i32)
 }
@@ -45,7 +46,13 @@ pub fn refit_window(app: &tauri::AppHandle) {
         }
     }
 }
+/// Bumped by every new move. A move whose number is no longer the latest stops,
+/// so two summons in a row (or the eyedropper's dock while the window is still
+/// gliding in) never have two threads pulling the window different ways.
+static MOVE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 fn animate_window_to(window: tauri::WebviewWindow, target_x: i32, target_y: i32) {
+    use std::sync::atomic::Ordering;
+    let gen = MOVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         let start = window.outer_position().ok();
         let (from_x, from_y) = match start {
@@ -108,6 +115,9 @@ fn animate_window_to(window: tauri::WebviewWindow, target_x: i32, target_y: i32)
         let duration_ms = 320u64;
         let started = std::time::Instant::now();
         loop {
+            if MOVE_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
             let p = (started.elapsed().as_millis() as f64 / duration_ms as f64).min(1.0);
             let e = ease(p);
             let x = from_x as f64 + (target_x - from_x) as f64 * e;
@@ -139,7 +149,7 @@ fn side_extents(window: &tauri::WebviewWindow) -> (i32, i32) {
         "right" => right += px(DOCK_RESERVE),
         _ => {}
     }
-    let (panel, panel_left) = *THEME_PANEL.lock().unwrap();
+    let (panel, panel_left) = *THEME_PANEL.lock_or_recover();
     if panel_left {
         left += px(panel);
     } else {
@@ -280,11 +290,11 @@ pub fn resize_main_window(
 ) {
     // Callers that only resize (the grip) leave the panel as it was.
     if let Some(w) = panel_width {
-        *THEME_PANEL.lock().unwrap() = (w.clamp(0.0, 1400.0), panel_left.unwrap_or(false));
+        *THEME_PANEL.lock_or_recover() = (w.clamp(0.0, 1400.0), panel_left.unwrap_or(false));
     }
     let width = width.clamp(480.0, 1500.0);
     let height = height.clamp(400.0, 900.0);
-    *BASE_SIZE.lock().unwrap() = (width, height);
+    *BASE_SIZE.lock_or_recover() = (width, height);
     match shift_x {
         Some(shift) if shift != 0.0 => resize_and_shift(&app, shift),
         _ => refit_window(&app),
@@ -359,7 +369,7 @@ static WELCOME: std::sync::Mutex<Option<Welcome>> = std::sync::Mutex::new(None);
 /// Queues the card and tells the page; whichever comes first, this event or the
 /// page asking on load, gets it (take_welcome hands it out once).
 pub fn set_welcome(app: &tauri::AppHandle, welcome: Welcome) {
-    *WELCOME.lock().unwrap() = Some(welcome);
+    *WELCOME.lock_or_recover() = Some(welcome);
     let _ = tauri::Emitter::emit(app, "welcome-ready", ());
 }
 /// Called by the page once it has loaded (an event sent from setup could arrive
@@ -367,7 +377,7 @@ pub fn set_welcome(app: &tauri::AppHandle, welcome: Welcome) {
 /// hands the card over, once.
 #[tauri::command]
 pub fn take_welcome(app: tauri::AppHandle) -> Option<Welcome> {
-    let welcome = WELCOME.lock().unwrap().take()?;
+    let welcome = WELCOME.lock_or_recover().take()?;
     if let Some(window) = app.get_webview_window("main") {
         crate::show_window(&window);
     }

@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 mod autostart;
+mod blur;
 mod color_pick;
 mod commands;
 mod config;
@@ -76,6 +77,7 @@ fn main() {
         .setup(|app| {
             paths::migrate_legacy_config_dir();
             storage::remove_stale_temp_files(&paths::config_dir());
+            updater::remove_replaced_copy();
             // No config file yet: a fresh install, nothing has been saved so far.
             let fresh_install = !paths::config_file().exists();
             indexer::init_index_with_progress(app.handle().clone());
@@ -99,6 +101,7 @@ fn main() {
                 commands::set_welcome(app.handle(), commands::Welcome { hotkey: config::get_hotkey(), hook_ok, first_run });
             }
             themes::watch(app.handle().clone());
+            blur::apply(app.handle());
             let win_focus = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Focused(focused) = event {
@@ -192,6 +195,9 @@ fn main() {
             color_pick::set_pick_exclusion,
             commands::dock_window_for_pick,
             preview::get_preview,
+            blur::set_blur_shapes,
+            blur::set_blur_fade,
+            blur::set_blur_lift,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

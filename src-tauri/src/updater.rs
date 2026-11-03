@@ -42,19 +42,49 @@ struct Asset {
     #[serde(default)]
     digest: Option<String>,
 }
-/// Picks the installer we can actually run: prefer the NSIS setup, then the
-/// portable build (named `_x64_portable` up to 0.1.5, `_x64-portable` since),
-/// then any .exe.
-fn pick_asset(assets: &[Asset]) -> Option<&Asset> {
-    assets
-        .iter()
-        .find(|a| a.name.ends_with("_x64-setup.exe"))
-        .or_else(|| {
-            assets.iter().find(|a| {
-                a.name.ends_with("_x64-portable.exe") || a.name.ends_with("_x64_portable.exe")
-            })
-        })
-        .or_else(|| assets.iter().find(|a| a.name.ends_with(".exe")))
+/// Picks the build to update to: the NSIS setup for an installed copy and the portable build
+/// (named `_x64_portable` up to 0.1.5, `_x64-portable` since) for a portable one, each falling back
+/// to the other, then any .exe.
+fn pick_asset(assets: &[Asset], portable: bool) -> Option<&Asset> {
+    let setup = || assets.iter().find(|a| a.name.ends_with("_x64-setup.exe"));
+    let bare = || assets.iter().find(|a| is_portable_name(&a.name));
+    let preferred = if portable { bare().or_else(setup) } else { setup().or_else(bare) };
+    preferred.or_else(|| assets.iter().find(|a| a.name.ends_with(".exe")))
+}
+fn is_portable_name(name: &str) -> bool {
+    name.ends_with("_x64-portable.exe") || name.ends_with("_x64_portable.exe")
+}
+/// A portable copy is a bare umbra.exe: the installer always puts its uninstaller beside the
+/// executable it installs.
+pub fn is_portable() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| !dir.join("uninstall.exe").is_file()))
+        .unwrap_or(false)
+}
+/// Where a portable update moves the copy it replaces; it is deleted on the next start.
+fn replaced_copy(exe: &std::path::Path) -> PathBuf {
+    exe.with_extension("exe.old")
+}
+/// Deletes the copy a portable update left behind (it was still running at the time).
+pub fn remove_replaced_copy() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(replaced_copy(&exe));
+    }
+}
+/// Puts a downloaded portable build where the running one (`exe`) is, so shortcuts and autostart
+/// keep pointing at it. A running .exe cannot be overwritten but can be renamed, so it is moved
+/// aside first and put back if the copy fails.
+fn swap_in_portable(exe: &std::path::Path, new: &std::path::Path) -> Result<(), String> {
+    let old = replaced_copy(exe);
+    let _ = std::fs::remove_file(&old);
+    std::fs::rename(exe, &old).map_err(|e| format!("could not move the running copy aside: {e}"))?;
+    if let Err(e) = std::fs::copy(new, exe) {
+        let _ = std::fs::remove_file(exe);
+        let _ = std::fs::rename(&old, exe);
+        return Err(format!("could not put the new version in place: {e}"));
+    }
+    Ok(())
 }
 /// The lowercase hex of a `sha256:…` digest, or None for any other algorithm.
 fn sha256_hex(digest: &str) -> Option<String> {
@@ -154,7 +184,7 @@ pub fn check() -> Result<UpdateInfo, String> {
         let release: Release = serde_json::from_slice(&body)
             .map_err(|e| format!("could not read release info: {e}"))?;
         let latest = release.tag_name.unwrap_or_default();
-        let asset = pick_asset(&release.assets);
+        let asset = pick_asset(&release.assets, is_portable());
         *expected_slot().lock_or_recover() = asset.map(|a| Expected {
             url: a.browser_download_url.clone(),
             size: a.size,
@@ -378,10 +408,21 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
         *ready_slot().lock_or_recover() = None;
         return Err("the downloaded installer is gone".to_string());
     }
+    // A portable copy updated to the portable build: the new exe takes the running one's place and
+    // is what gets started. Anything else is an installer and is run as it is.
+    let is_bare = path.file_name().is_some_and(|n| is_portable_name(&n.to_string_lossy()));
+    let path = if is_portable() && is_bare {
+        let exe = std::env::current_exe().map_err(|e| format!("could not find the running copy: {e}"))?;
+        swap_in_portable(&exe, &path)?;
+        exe
+    } else {
+        path
+    };
     #[cfg(target_os = "windows")]
     {
         // The installer cannot replace umbra.exe while we are still holding
-        // it, so hand the launch to a detached cmd and quit. `ping` is the
+        // it, so hand the launch to a detached cmd and quit (the new portable copy too: started
+        // while this one runs, it would hand itself over to it and exit). `ping` is the
         // delay because `timeout` refuses to run without a console.
         // The path goes in through an environment variable and the command
         // line is passed raw: std would escape the quotes as \" (which cmd
@@ -444,8 +485,32 @@ mod tests {
     fn accepts_both_portable_names() {
         for name in ["Umbra_0.1.7_x64-portable.exe", "Umbra_0.1.5_x64_portable.exe"] {
             let assets = vec![asset("readme.exe"), asset(name)];
-            assert_eq!(pick_asset(&assets).unwrap().name, name);
+            assert_eq!(pick_asset(&assets, false).unwrap().name, name);
         }
+    }
+    #[test]
+    fn a_portable_copy_updates_to_the_portable_build() {
+        let assets = vec![asset("Umbra_0.2.4_x64-setup.exe"), asset("Umbra_0.2.4_x64-portable.exe")];
+        assert_eq!(pick_asset(&assets, true).unwrap().name, "Umbra_0.2.4_x64-portable.exe");
+        // A release without a portable build still updates it, with the installer.
+        assert_eq!(pick_asset(&assets[..1], true).unwrap().name, "Umbra_0.2.4_x64-setup.exe");
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_portable_swap_puts_the_new_build_where_the_old_one_was() {
+        let dir = std::env::temp_dir().join(format!("umbra-swap-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("umbra.exe");
+        let new = dir.join("Umbra_0.2.4_x64-portable.exe");
+        std::fs::write(&exe, b"old").unwrap();
+        std::fs::write(&new, b"new").unwrap();
+        swap_in_portable(&exe, &new).unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
+        assert_eq!(std::fs::read(dir.join("umbra.exe.old")).unwrap(), b"old");
+        // A missing download leaves the running copy where it was.
+        assert!(swap_in_portable(&exe, &dir.join("gone.exe")).is_err());
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
     fn reads_sha256_digests() {
@@ -478,14 +543,14 @@ mod tests {
             asset("Umbra_0.1.3_x64-setup.exe"),
         ];
         assert_eq!(
-            pick_asset(&assets).unwrap().name,
+            pick_asset(&assets, false).unwrap().name,
             "Umbra_0.1.3_x64-setup.exe"
         );
         assert_eq!(
-            pick_asset(&assets[..1]).unwrap().name,
+            pick_asset(&assets[..1], false).unwrap().name,
             "Umbra_0.1.3_x64_portable.exe"
         );
-        assert!(pick_asset(&[]).is_none());
+        assert!(pick_asset(&[], false).is_none());
     }
     #[test]
     fn only_trusted_hosts_are_downloaded() {

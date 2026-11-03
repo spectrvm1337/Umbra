@@ -107,6 +107,10 @@
                 <button class="seg-btn" data-pins="right" data-i18n-tip="pinsRightTip" data-i18n="pinsRight">Right</button>
               </div>
             </div>
+            <div class="settings-row interactive" id="setting-pinsfold-row" data-i18n-tip="pinsFoldTip" data-tip="Favorites in the list stay folded until ↓ or the arrow under the search box opens them, and the search box waits in the middle of the window">
+              <span class="settings-label" data-i18n="lblPinsFold">Fold favorites</span>
+              <span class="toggle" id="setting-pinsfold"><span class="toggle-knob"></span></span>
+            </div>
             <div class="settings-row interactive" id="setting-exclude-row">
               <span class="settings-label" data-i18n="lblContent">Content Categories</span>
               <span class="settings-value" id="setting-exclude-count">…</span>
@@ -144,6 +148,9 @@
         <div id="pins-section" class="section hidden">
           <div id="pins-list"></div>
         </div>
+        <button id="pins-toggle" tabindex="-1" data-i18n-tip="pinsToggleTip" data-tip="Favorites (↓)" aria-label="Favorites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
         <div id="results-section" class="section hidden">
           <div id="results-list"></div>
         </div>
@@ -180,12 +187,29 @@
                     <button id="setting-alpha-plus" class="stepper-btn">+</button>
                   </div>
                 </div>
+                <div class="settings-row interactive" id="setting-blur-row" data-i18n-tip="blurTip" data-tip="What is behind the window shows blurred through the cards. The number adds blur on top of the system's">
+                  <span class="settings-label" data-i18n="lblBlur">Blur</span>
+                  <div class="row-extras dep-extras" id="blur-extras">
+                    <div class="zoom-stepper">
+                      <button id="setting-blur-minus" class="stepper-btn">−</button>
+                      <span id="setting-blur-val">0</span>
+                      <button id="setting-blur-plus" class="stepper-btn">+</button>
+                    </div>
+                  </div>
+                  <span class="toggle" id="setting-blur"><span class="toggle-knob"></span></span>
+                </div>
                 <div class="settings-row theme-dependent" id="row-radius">
                   <span class="settings-label" data-i18n="lblRadius">Corner Radius</span>
-                  <div class="zoom-stepper">
-                    <button id="setting-radius-minus" class="stepper-btn">−</button>
-                    <span id="setting-radius-val">12</span>
-                    <button id="setting-radius-plus" class="stepper-btn">+</button>
+                  <div class="row-extras">
+                    <div class="seg-row" id="corner-seg">
+                      <button class="seg-btn" data-corner="round" data-i18n-tip="cornerRoundTip" data-i18n="cornerRound">Round</button>
+                      <button class="seg-btn" data-corner="squircle" data-i18n-tip="cornerSquircleTip" data-i18n="cornerSquircle">Squircle</button>
+                    </div>
+                    <div class="zoom-stepper">
+                      <button id="setting-radius-minus" class="stepper-btn">−</button>
+                      <span id="setting-radius-val">12</span>
+                      <button id="setting-radius-plus" class="stepper-btn">+</button>
+                    </div>
                   </div>
                 </div>
                 <div class="settings-row interactive" id="setting-border-row">
@@ -309,5 +333,7 @@
   <script src="keynav.js?v=48"></script>
   <script src="caret.js?v=48"></script>
   <script src="sidepreview.js?v=48"></script>
+  <script src="blur.js?v=48"></script>
+  <script src="pinsfold.js?v=48"></script>
 </body>
 </html>

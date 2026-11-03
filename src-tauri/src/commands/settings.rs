@@ -160,6 +160,7 @@ pub fn set_theme(app: tauri::AppHandle, theme: config::ThemeConfig) -> config::T
     let saved = config::set_theme(theme);
     // Apply "results to screen bottom" right away rather than on the next summon.
     super::refit_window(&app);
+    crate::blur::apply(&app);
     saved
 }
 #[derive(serde::Serialize)]

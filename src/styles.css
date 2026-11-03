@@ -256,9 +256,17 @@ body {
   opacity: 0;
   filter: blur(var(--window-blur));
   transform: translateY(-24px);
+  /* The column's place for "Fold favorites" (pinsfold.js); `translate`, so it adds to the show and
+     hide `transform`. */
+  translate: 0 var(--lift, 0px);
   transition:  opacity var(--t-fade, 320ms) cubic-bezier(0.16, 1, 0.3, 1),
     filter var(--t-blur, 380ms) cubic-bezier(0.16, 1, 0.3, 1),
-    transform var(--t-move, 320ms) cubic-bezier(0.16, 1, 0.3, 1)
+    transform var(--t-move, 320ms) cubic-bezier(0.16, 1, 0.3, 1),
+    translate var(--t-move, 0.55s) var(--ease-glide)
+}
+/* A summon puts the column in place at once (pinsfold.js). */
+#app-container.lift-instant {
+  transition-property: opacity, filter, transform;
 }
 #app-container.window-showing {
   opacity: 1;
@@ -343,12 +351,18 @@ body {
 .drag-bar .ntf-detail {
   position: absolute;
   left: 50%;
-  bottom: 18px;
-  /* No vertical padding here on purpose. The window gives this hint only a few
-     pixels above the drag bar -- in the compact densities --pad-y is 6, so the
-     line box is already level with the top edge and anything taller is clipped
-     by the window, not by this element. */
-  padding: 0 6px;
+  bottom: 14px;
+  /* No padding on top on purpose. The window gives this hint only a few pixels
+     above the drag bar -- in the compact densities --pad-y is 6, so the line box
+     is already level with the top edge and anything taller is clipped by the
+     window, not by this element. The 4px below (with `bottom` 4px lower, so the
+     text stays put) and the 6px at the sides hold the text shadow, which
+     `.ntf-clip`'s overflow would otherwise cut off. */
+  padding: 0 6px 4px;
+  /* Every layer is offset down at least as far as it blurs, so nothing reaches
+     above the letters, where the window edge is; it reaches 4px down and 2px
+     sideways, inside the padding. */
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45), 0 2px 2px rgba(0, 0, 0, 0.35);
   transform: translateX(-50%) translateY(6px);
   max-width: min(480px, calc(100vw - 48px));
   font-size: 13px;
@@ -1481,7 +1495,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 }
 /* Staggered entrance for the settings rows. */
 #settings-section:not(.hidden) .settings-row {
-  animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: result-enter var(--t-move, 0.55s) var(--ease-glide) both;
 }
 #settings-section:not(.hidden) .settings-row:nth-child(1) { animation-delay: 0.02s; }
 #settings-section:not(.hidden) .settings-row:nth-child(2) { animation-delay: 0.045s; }
@@ -1918,7 +1932,7 @@ body > .result-item.sortable-fallback {
   font-size: 13px;
   line-height: 16px;
   font-weight: var(--weight-medium);
-  animation: result-enter 0.3s cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: result-enter var(--t-move, 0.55s) var(--ease-glide) both;
 }
 #empty-state.hidden {
   display: none;
@@ -1939,12 +1953,12 @@ body > .result-item.sortable-fallback {
   box-shadow: var(--card-shadow);
   transition:  background-color var(--t-color, 0.1s) ease-out, box-shadow var(--t-glow, 0.1s) ease-out, transform var(--t-move, 0.15s) ease-out, margin-right var(--t-size, 0.26s) var(--ease-out-apple);
   flex-shrink: 0;
-  animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: result-enter var(--t-move, 0.55s) var(--ease-glide) both;
 }
 @keyframes result-enter {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -2334,7 +2348,7 @@ body > .result-item.pin-drag-copy {
   box-shadow: var(--card-shadow);
   overflow: hidden;
   flex-shrink: 0;
-  animation: result-enter 0.22s cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: result-enter var(--t-move, 0.55s) var(--ease-glide) both;
 }
 /* Same box as .result-item (the card supplies the border), so command cards line
    up with the result rows in every density mode. */
@@ -3825,4 +3839,72 @@ video.sp-photo {
 @keyframes hk-ring {
   from { box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent); }
   to { box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 8px transparent; }
+}
+
+/* ===== Fold favorites (pinsfold.js) ===== */
+/* One soft curve for everything this layout moves: it eases in as well as out, so nothing starts
+   with a jolt. */
+:root {
+  --ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* The arrow is in the list's flow, right after the favourites: under the box while they are folded,
+   under the last of them once they are open. */
+#pins-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 22px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: translate var(--t-move, 0.55s) var(--ease-glide), color var(--t-color, 0.2s) ease;
+}
+#pins-toggle.available {
+  display: flex;
+  animation: pins-toggle-in var(--t-fade, 0.45s) var(--ease-glide) both;
+}
+#pins-section:not(.hidden) + #pins-toggle {
+  margin-top: 6px;
+}
+@keyframes pins-toggle-in {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+}
+#pins-toggle:hover {
+  color: var(--text);
+}
+#pins-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: rotate var(--t-move, 0.55s) var(--ease-glide);
+}
+#pins-toggle.open svg {
+  rotate: 180deg;
+}
+/* Folding: the rows fade up and out before the list is taken away (setPinsOpen in main.js waits
+   the same 0.22s). */
+#pins-section {
+  transition: opacity var(--t-fade, 0.22s) ease, translate var(--t-move, 0.22s) var(--ease-glide);
+}
+#pins-section.pins-closing {
+  opacity: 0;
+  translate: 0 -8px;
+}
+
+/* ===== Squircle corners (Appearance → Corner Radius) ===== */
+/* Continuous corners: the curve eases into the straight edge instead of meeting it as an arc, so a
+   card reads calmer at the same radius. Only the cards and what is drawn like them; capsules,
+   toggles and dots stay round. Chromium paints it natively; elsewhere the arcs stay. */
+@supports (corner-shape: squircle) {
+  html[data-corners="squircle"] :is(#search-box, .result-item, .special-card, .settings-card, #hint,
+      #context-menu, #content-menu, #anim-menu, #color-picker, #setup, .dock-tile, #pin-dock,
+      .sp-photo, .sp-pdf, .sp-content, .su-row, .su-opt, .su-mock, .su-mock-bar) {
+    corner-shape: squircle;
+  }
 }

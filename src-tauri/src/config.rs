@@ -161,6 +161,9 @@ pub struct ThemeConfig {
     pub card_bg: String,
     pub card_alpha: f64,
     pub radius: u32,
+    /// Cards get continuous (squircle) corners instead of circular arcs.
+    #[serde(default)]
+    pub squircle: bool,
     #[serde(default = "default_density")]
     pub density: String,
     /// The interface font: `wix`, `sn-pro` or `montserrat`, or `sys:<name>` for a font picked with `!font`.
@@ -181,6 +184,12 @@ pub struct ThemeConfig {
     /// The selected result is always opened up into a large preview card.
     #[serde(default)]
     pub side_preview: bool,
+    /// Blur what is behind the window under the cards (blur.rs).
+    #[serde(default)]
+    pub blur_on: bool,
+    /// Extra blur on top of the system's, in px.
+    #[serde(default)]
+    pub blur_strength: u32,
     pub text: String,
     pub glow: bool,
     pub glow_strength: u32,
@@ -200,6 +209,10 @@ pub struct ThemeConfig {
     /// column on the `left` / `right` of the window.
     #[serde(default = "default_pins_style")]
     pub pins_style: String,
+    /// The favourites list under the empty search box stays folded until ↓ or its arrow opens it,
+    /// and the search box waits in the middle of the window while nothing is under it.
+    #[serde(default)]
+    pub pins_auto_hide: bool,
 
     #[serde(default)]
     pub light_mode: bool,
@@ -229,6 +242,7 @@ fn default_density() -> String {
 fn default_font() -> String {
     "wix".into()
 }
+pub const MAX_BLUR_STRENGTH: u32 = 40;
 /// How many fonts picked with `!font` are kept as choices.
 const MAX_SYSTEM_FONTS: usize = 6;
 /// A family name that is safe to put inside a CSS `font-family: '…'`: letters, digits, spaces
@@ -249,12 +263,15 @@ impl Default for ThemeConfig {
             card_bg: "#1e1e1e".into(),
             card_alpha: 1.0,
             radius: 12,
+            squircle: false,
             density: default_density(),
             font: default_font(),
             system_fonts: Vec::new(),
             gap: default_gap(),
             tall_results: false,
             side_preview: false,
+            blur_on: false,
+            blur_strength: 0,
             text: "#e3e3e3".into(),
             glow: false,
             glow_strength: 14,
@@ -264,6 +281,7 @@ impl Default for ThemeConfig {
             glow_color: String::new(),
             border_color: String::new(),
             pins_style: default_pins_style(),
+            pins_auto_hide: false,
             light_mode: false,
             follow_system: false,
             custom_theme: None,
@@ -318,6 +336,7 @@ impl ThemeConfig {
             "list" | "left" | "right" => {}
             _ => self.pins_style = default_pins_style(),
         }
+        self.blur_strength = self.blur_strength.clamp(0, MAX_BLUR_STRENGTH);
         self
     }
 }
@@ -804,6 +823,24 @@ mod tests {
         let on: ThemeConfig = serde_json::from_str(r#"{"sidePreview": true}"#).unwrap();
         assert!(on.side_preview);
         assert!(serde_json::to_string(&on).unwrap().contains(r#""sidePreview":true"#));
+    }
+    #[test]
+    fn blur_defaults_off_and_clamps_its_strength() {
+        assert!(!ThemeConfig::default().blur_on);
+        // The earlier string setting is ignored rather than breaking the theme.
+        let old: ThemeConfig = serde_json::from_str(r#"{"blur": "host", "radius": 7}"#).unwrap();
+        assert_eq!(old.radius, 7);
+        let strong: ThemeConfig = serde_json::from_str(r#"{"blurOn": true, "blurStrength": 999}"#).unwrap();
+        let strong = strong.sanitized();
+        assert!(strong.blur_on);
+        assert_eq!(strong.blur_strength, MAX_BLUR_STRENGTH);
+    }
+    #[test]
+    fn pins_auto_hide_defaults_off_and_uses_the_camel_case_key() {
+        assert!(!ThemeConfig::default().pins_auto_hide);
+        let on: ThemeConfig = serde_json::from_str(r#"{"pinsAutoHide": true}"#).unwrap();
+        assert!(on.pins_auto_hide);
+        assert!(serde_json::to_string(&on).unwrap().contains(r#""pinsAutoHide":true"#));
     }
     #[test]
     fn tall_results_defaults_off_and_uses_the_camel_case_key() {

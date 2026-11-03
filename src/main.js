@@ -1112,6 +1112,9 @@ const borderToggle = document.getElementById("setting-border");
 const borderWVal = document.getElementById("setting-borderw-val");
 const borderPosSeg = document.getElementById("border-pos-seg");
 const densitySeg = document.getElementById("density-seg");
+const cornerSeg = document.getElementById("corner-seg");
+const blurToggle = document.getElementById("setting-blur");
+const blurVal = document.getElementById("setting-blur-val");
 const fontSeg = document.getElementById("font-seg");
 const tallRow = document.getElementById("setting-tall-row");
 const systemRow = document.getElementById("setting-system-row");
@@ -1139,6 +1142,8 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ref
 const tallToggle = document.getElementById("setting-tall");
 const sidePreviewRow = document.getElementById("setting-sidepreview-row");
 const sidePreviewToggle = document.getElementById("setting-sidepreview");
+const pinsFoldRow = document.getElementById("setting-pinsfold-row");
+const pinsFoldToggle = document.getElementById("setting-pinsfold");
 const glowToggle = document.getElementById("setting-glow");
 const glowVal = document.getElementById("setting-glow-val");
 const glowCustom = document.getElementById("glow-custom");
@@ -1255,10 +1260,19 @@ function applyTheme() {
     b.classList.toggle("active", b.dataset.pos === theme.borderPos));
   densitySeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.density === theme.density));
+  root.dataset.corners = theme.squircle ? "squircle" : "round";
+  cornerSeg.querySelectorAll(".seg-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.corner === root.dataset.corners));
+  blurToggle.classList.toggle("on", !!theme.blurOn);
+  setDepHidden("blur-extras", !theme.blurOn);
+  setVal(blurVal, theme.blurStrength ?? 0);
+  if (typeof applyBlur === "function") applyBlur(theme.blurOn);
   fontSeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.font === font));
   tallToggle.classList.toggle("on", !!theme.tallResults);
   sidePreviewToggle.classList.toggle("on", !!theme.sidePreview);
+  pinsFoldToggle.classList.toggle("on", !!theme.pinsAutoHide);
+  if (typeof syncPinsFold === "function") syncPinsFold();
   root.dataset.sidePreview = theme.sidePreview ? "on" : "off";
   if (window.UmbraSidePreview) window.UmbraSidePreview.refresh();
   accentCustom.style.background = theme.accent;
@@ -1637,6 +1651,11 @@ bindStepper("setting-borderw-minus", "setting-borderw-plus",
     theme = { ...theme, borderW: Math.max(0, Math.min(8, v)), borderOn: true };
     saveTheme();
   });
+bindStepper("setting-blur-minus", "setting-blur-plus",
+  () => theme.blurStrength ?? 0, (v) => {
+    theme = { ...theme, blurStrength: Math.max(0, Math.min(40, v)), blurOn: true };
+    saveTheme();
+  });
 bindStepper("setting-glow-minus", "setting-glow-plus",
   () => theme.glowStrength, (v) => {
     theme = { ...theme, glowStrength: Math.max(0, Math.min(40, v)), glow: true };
@@ -1663,6 +1682,9 @@ bindScrub(gapVal,
 bindScrub(borderWVal,
   () => theme.borderW,
   (v) => { theme = { ...theme, borderW: clampStep(0, 8)(v), borderOn: true }; saveTheme(); });
+bindScrub(blurVal,
+  () => theme.blurStrength ?? 0,
+  (v) => { theme = { ...theme, blurStrength: clampStep(0, 40)(Math.round(v)), blurOn: true }; saveTheme(); });
 bindScrub(glowVal,
   () => theme.glowStrength,
   (v) => { theme = { ...theme, glowStrength: clampStep(0, 40)(Math.round(v)), glow: true }; saveTheme(); });
@@ -1681,6 +1703,20 @@ borderPosSeg.addEventListener("click", (e) => {
   if (!btn) return;
   e.stopPropagation();
   theme = { ...theme, borderPos: btn.dataset.pos };
+  saveTheme();
+});
+cornerSeg.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg-btn");
+  if (!btn) return;
+  e.stopPropagation();
+  theme = { ...theme, squircle: btn.dataset.corner === "squircle" };
+  saveTheme();
+});
+blurToggle.parentElement.addEventListener("click", (e) => {
+  if (e.target.closest(".zoom-stepper")) return;
+  theme = { ...theme, blurOn: !theme.blurOn };
+  // Fully opaque cards would hide the blur, so turning it on makes them see-through once.
+  if (theme.blurOn && theme.cardAlpha >= 1) theme.cardAlpha = 0.6;
   saveTheme();
 });
 densitySeg.addEventListener("click", (e) => {
@@ -1737,6 +1773,12 @@ fontSeg.addEventListener("click", (e) => {
 systemRow.addEventListener("click", async () => {
   theme = { ...theme, followSystem: !theme.followSystem };
   if (theme.followSystem) await refreshSystemTheme();
+  saveTheme();
+});
+// The settings are open while this is clicked; closing them searches again, which folds the list.
+pinsFoldRow.addEventListener("click", () => {
+  theme = { ...theme, pinsAutoHide: !theme.pinsAutoHide };
+  pinsOpen = false;
   saveTheme();
 });
 sidePreviewRow.addEventListener("click", () => {
@@ -1907,8 +1949,52 @@ function pinsInList() {
   const style = document.documentElement.dataset.pins;
   return style !== "left" && style !== "right";
 }
+// "Fold favorites": the list under the empty box stays folded until ↓ or the arrow under the box
+// opens it (pinsfold.js). Folded, the pins are neither shown nor reachable with the keyboard.
+let pinsOpen = false;
+let pinsCloseTimer = null;
+function pinsFolded() {
+  return !!(theme && theme.pinsAutoHide) && pinsInList() && !pinsOpen;
+}
+function setPinsOpen(open) {
+  if (pinsOpen === open) return;
+  pinsOpen = open;
+  clearTimeout(pinsCloseTimer);
+  pinsSection.classList.remove("pins-closing");
+  const apply = () => {
+    selectedIndex = -1;
+    updateSelectableItems();
+    // The arrow under the list glides to its new place (pinsfold.js).
+    const move = typeof pfMoveArrow === "function" ? pfMoveArrow : (f) => f();
+    move(() => pinsSection.classList.toggle("hidden", currentPins.length === 0 || !!lastQuery.trim() || pinsFolded()));
+    // The rows come in exactly as search results do: their staggered enter animation, from the start.
+    if (open) {
+      const rows = [...pinsList.children];
+      for (const row of rows) row.style.animation = "none";
+      void pinsList.offsetWidth;
+      // Clearing the shorthand drops the per-row delay too, so it is put back: one after another,
+      // the stagger createResultItem gives them.
+      rows.forEach((row, i) => {
+        row.style.animation = "";
+        row.style.animationDelay = `${Math.min(i, 8) * 25}ms`;
+      });
+    }
+    updateSelection();
+    layoutCustomScrollbar();
+    if (typeof syncPinsFold === "function") syncPinsFold();
+  };
+  if (open || pinsSection.classList.contains("hidden") || motionOff()) return apply();
+  // Folding: the rows fade out while the box already glides back to the middle (pins-closing in
+  // the stylesheet; same length).
+  pinsSection.classList.add("pins-closing");
+  if (typeof syncPinsFold === "function") syncPinsFold();
+  pinsCloseTimer = setTimeout(() => {
+    pinsSection.classList.remove("pins-closing");
+    apply();
+  }, 220);
+}
 function updateSelectableItems() {
-  if (lastQuery.trim() || !pinsInList()) {
+  if (lastQuery.trim() || !pinsInList() || pinsFolded()) {
     selectableItems = [...allResults];
   } else {
     selectableItems = [...currentPins, ...allResults];
@@ -2167,7 +2253,7 @@ function selectableContainers() {
   if (lastQuery.trim() || !pinsInList()) {
     containers.push(resultsList);
   } else {
-    if (currentPins.length > 0) containers.push(pinsList);
+    if (currentPins.length > 0 && !pinsFolded()) containers.push(pinsList);
     containers.push(resultsList);
   }
   return containers;
@@ -2614,7 +2700,7 @@ async function togglePin(btn) {
     updateSelectableItems();
     renumberRows();
     updateGhost();
-    pinsSection.classList.toggle("hidden", currentPins.length === 0 || !!lastQuery.trim());
+    pinsSection.classList.toggle("hidden", currentPins.length === 0 || !!lastQuery.trim() || pinsFolded());
     updateSelection();
     layoutCustomScrollbar();
     if (typeof renderDock === "function") renderDock();
@@ -2901,7 +2987,7 @@ async function performSearch(query) {
     hint.classList.toggle("hidden", !(isEmpty && !(hasPins && pinsInList())));
     updateSelection();
     updateGhost();
-    pinsSection.classList.toggle("hidden", !hasPins || !isEmpty);
+    pinsSection.classList.toggle("hidden", !hasPins || !isEmpty || pinsFolded());
     resultsSection.classList.toggle("hidden", !hasResults);
     if (isEmpty && hasPins && pinsInList()) resultsSection.classList.add("hidden");
   } catch (err) {
@@ -3028,11 +3114,25 @@ searchInput.addEventListener("keydown", (e) => {
     performSearch(searchInput.value);
     return;
   }
+  // Folded favourites: ↓ in the empty box opens them, ↑ from the first one folds them again.
+  if (theme && theme.pinsAutoHide && pinsInList() && !lastQuery.trim() && currentPins.length > 0 &&
+      settingsSection.classList.contains("hidden")) {
+    if (e.key === "ArrowDown" && !pinsOpen) {
+      e.preventDefault();
+      setPinsOpen(true);
+      return;
+    }
+    if (e.key === "ArrowUp" && pinsOpen && selectedIndex <= 0) {
+      e.preventDefault();
+      setPinsOpen(false);
+      return;
+    }
+  }
   const containers = [];
   if (lastQuery.trim()) {
     containers.push(resultsList);
   } else {
-    if (currentPins.length > 0) containers.push(pinsList);
+    if (currentPins.length > 0 && !pinsFolded()) containers.push(pinsList);
     containers.push(resultsList);
   }
   let total = 0;
@@ -3358,6 +3458,10 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   settingsSection.classList.add("hidden");
   settingsBtn.classList.remove("open");
   closeContentMenu();
+  // Folded favourites start folded on every summon; the search below hides them.
+  clearTimeout(pinsCloseTimer);
+  pinsSection.classList.remove("pins-closing");
+  pinsOpen = false;
   appContainer.classList.remove("window-hidden", "window-hiding");
   appContainer.classList.add("window-showing");
   animateAllRows = true;

@@ -168,7 +168,9 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
             }
         }
         crate::index_watch::begin_scan_journal();
-        let mut entries = Vec::with_capacity(100_000);
+        // Room for about as many entries as last time: grown by doubling from a small start, the
+        // list ended up to twice the size it needed, and the copies on the way were all live at once.
+        let mut entries = Vec::with_capacity(with_entries(|r| r.len() + r.len() / 16).unwrap_or(0).max(100_000));
         let cancelled = || INDEX_RUN.load(std::sync::atomic::Ordering::SeqCst) != run;
         emit_progress(
             &app,
@@ -237,10 +239,20 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
         };
         let mut keep = keep.into_iter();
         entries.retain(|_| keep.next().unwrap_or(true));
-        if let Some(mut w) = write_index() {
-            *w = entries;
+        entries.shrink_to_fit();
+        let old = write_index().map(|mut w| {
+            let old = std::mem::replace(&mut *w, entries);
             // What the watcher saw while the walk ran goes on top of it.
             crate::index_watch::finish_scan_journal(&mut w);
+            old
+        });
+        // A million strings take a while to free; not while the search waits on the lock.
+        drop(old);
+        // The old index was as big as the new one; without this the heap keeps all of it committed.
+        #[cfg(target_os = "windows")]
+        unsafe {
+            use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapCompact};
+            HeapCompact(GetProcessHeap(), 0);
         }
         if cancelled() {
             return;
@@ -749,11 +761,32 @@ pub(crate) fn pruned_walk(root: &Path, skip_dirs: std::collections::HashSet<Stri
             if depth.is_none() {
                 return;
             }
+            // A folder tagged as a cache is listed, but what is in it is not.
+            let tagged = children
+                .iter()
+                .any(|c| c.as_ref().is_ok_and(|c| c.file_name().to_string_lossy().eq_ignore_ascii_case(CACHE_TAG)));
+            if tagged {
+                children.clear();
+                return;
+            }
             children.retain(|child| match child {
-                Ok(c) => !is_skipped_name(&c.file_name().to_string_lossy(), &skip_dirs),
+                Ok(c) => {
+                    let name = c.file_name().to_string_lossy();
+                    !is_skipped_name(&name, &skip_dirs) && !is_hash_name(&name)
+                }
                 Err(_) => true,
             });
         })
+}
+/// The Cache Directory Tagging Specification: a folder holding this file (Cargo's `target`, and
+/// other build and cache folders) says it is regenerated output, so its contents are not indexed.
+/// Unlike excluding names such as `target` or `build`, this never hides a folder of real files.
+pub(crate) const CACHE_TAG: &str = "CACHEDIR.TAG";
+/// A name that is only a long hex hash, extension aside: object stores (osu!lazer's `files`,
+/// Minecraft's `assets\objects`, caches) name their blobs this way, and nobody types one.
+pub(crate) fn is_hash_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    stem.len() >= 32 && stem.bytes().all(|b| b.is_ascii_hexdigit())
 }
 fn index_drive(
     drive: &str,
@@ -979,6 +1012,34 @@ mod tests {
         let expected: HashSet<String> = ["keep", "keep/a.txt"].iter().map(|s| s.to_string()).collect();
         assert_eq!(found, expected);
         fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn pruned_walk_leaves_out_tagged_caches_and_hash_named_blobs() {
+        let root = temp_dir("walk-junk");
+        touch(root.join("target").join("CACHEDIR.TAG"));
+        touch(root.join("target").join("debug").join("app.exe"));
+        touch(root.join("files").join("a").join("ab").join("ab12".repeat(16)));
+        touch(root.join("objects").join("0f").join(format!("{}.png", "0f".repeat(20))));
+        touch(root.join("build").join("report.pdf"));
+        touch(root.join("cafe.txt"));
+        let found: HashSet<String> = pruned_walk(&root, HashSet::new())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.depth() > 0 && e.file_type().is_file())
+            .map(|e| e.path().strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        // A folder merely named build keeps its files; short hex-looking names are ordinary names.
+        let expected: HashSet<String> = ["build/report.pdf", "cafe.txt"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(found, expected);
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn only_long_hex_names_count_as_hashes() {
+        assert!(is_hash_name(&"a1".repeat(20)));
+        assert!(is_hash_name(&format!("{}.png", "f0".repeat(16))));
+        assert!(!is_hash_name("deadbeef.txt"));
+        assert!(!is_hash_name("3f2504e0-4f89-11d3-9a0c-0305e82c3301"));
+        assert!(!is_hash_name(&format!("{}g", "a".repeat(40))));
     }
     #[test]
     fn system_tools_are_indexed_without_recursing() {

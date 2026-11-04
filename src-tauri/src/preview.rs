@@ -12,8 +12,9 @@ use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
 /// Thumbnails are big enough that a count-based cache would evict the wrong
-/// thing, so the budget is in bytes.
-const THUMB_CACHE_BYTES: usize = 64 * 1024 * 1024;
+/// thing, so the budget is in bytes. 16 MB holds the previews of a few screens of results; a
+/// preview that fell out is made again in a moment.
+const THUMB_CACHE_BYTES: usize = 16 * 1024 * 1024;
 /// How much of a text file to read before deciding what to show.
 const TEXT_PROBE_BYTES: usize = 16 * 1024;
 const TEXT_MAX_LINES: usize = 60;

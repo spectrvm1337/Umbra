@@ -61,6 +61,9 @@ function syncPinsFold() {
   // A list taller than the room left keeps the box at the top, where it always was; nothing is
   // pushed out of the bottom of the window either.
   lift = Math.max(0, Math.min(lift, room));
+  // The theme panel hangs from the top of the column down to the bottom of the window, which grows
+  // to fit it (themepanel.js); moved down it would be cut off.
+  if (document.documentElement.dataset.tp) lift = 0;
   appContainer.style.setProperty("--lift", Math.round(lift) + "px");
   // The blur under the cards makes the same move (blur.js).
   if (typeof blurLift === "function") blurLift(Math.round(lift));

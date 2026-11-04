@@ -4,7 +4,36 @@ use tauri::Manager;
 pub fn hide_window(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
+        set_webview_awake(&w, false);
     }
+}
+/// The window is hidden nearly all the time, and a hidden WebView2 still holds its caches and runs
+/// its timers. Asleep, it is told to keep as little memory as it can and is suspended (no scripts,
+/// no rendering); `SetIsVisible(true)` on the next summon wakes it before the window shows. Hiding
+/// the window alone does not tell WebView2 it is hidden, and it refuses to suspend while it thinks
+/// it is on screen.
+pub fn set_webview_awake(window: &tauri::WebviewWindow, awake: bool) {
+    #[cfg(target_os = "windows")]
+    let _ = window.with_webview(move |webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows::core::Interface;
+        let controller = webview.controller();
+        let _ = controller.SetIsVisible(awake);
+        let Ok(core) = controller.CoreWebView2() else { return };
+        // Both are newer interfaces: an older WebView2 runtime simply skips them.
+        if let Ok(core) = core.cast::<ICoreWebView2_19>() {
+            let level = if awake { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW };
+            let _ = core.SetMemoryUsageTargetLevel(level);
+        }
+        if !awake {
+            if let Ok(core) = core.cast::<ICoreWebView2_3>() {
+                let _ = core.TrySuspend(&webview2_com::TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
+            }
+        }
+    });
 }
 use crate::config;
 /// The window's normal size in logical px: what the resize grip last set, or
@@ -293,7 +322,9 @@ pub fn resize_main_window(
         *THEME_PANEL.lock_or_recover() = (w.clamp(0.0, 1400.0), panel_left.unwrap_or(false));
     }
     let width = width.clamp(480.0, 1500.0);
-    let height = height.clamp(400.0, 900.0);
+    // Up to 1600 for the theme panel, which grows the window to fit its card (the page keeps it to
+    // the screen's work area); the resize grip stops lower, at MAIN_MAX_H.
+    let height = height.clamp(400.0, 1600.0);
     *BASE_SIZE.lock_or_recover() = (width, height);
     match shift_x {
         Some(shift) if shift != 0.0 => resize_and_shift(&app, shift),

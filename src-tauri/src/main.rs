@@ -55,6 +55,8 @@ pub fn show_window(window: &tauri::WebviewWindow) {
 pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
     #[cfg(target_os = "windows")]
     taskbar::show_if_autohide();
+    // Woken first, so the page is running again by the time the window and "window-shown" arrive.
+    commands::set_webview_awake(window, true);
     let _ = window.show();
     let _ = window.set_focus();
     let _ = window.emit("window-shown", serde_json::json!({ "openSettings": open_settings }));
@@ -89,7 +91,6 @@ fn main() {
             if let Some((x, y)) = config::pinned_position() {
                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
             }
-            let _ = color_pick::create_loupe_window(app);
             crate::keyboard_hook::init(app.handle().clone());
             let hook_ok = crate::keyboard_hook::is_installed();
             if fresh_install {
@@ -102,6 +103,15 @@ fn main() {
             }
             themes::watch(app.handle().clone());
             blur::apply(app.handle());
+            // Started hidden (autostart): the page gets a few seconds to load, then sleeps until the
+            // first summon instead of only after the first hide.
+            let sleeper = window.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(8));
+                if !sleeper.is_visible().unwrap_or(true) {
+                    commands::set_webview_awake(&sleeper, false);
+                }
+            });
             let win_focus = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Focused(focused) = event {
@@ -168,6 +178,7 @@ fn main() {
             commands::take_welcome,
             tray::tray_menu_items,
             tray::tray_menu_present,
+            tray::tray_menu_ready,
             tray::tray_menu_action,
             tray::tray_menu_hide,
             commands::set_window_pin,

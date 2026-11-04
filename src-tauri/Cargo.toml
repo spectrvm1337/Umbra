@@ -60,6 +60,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Networking_WinHttp",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
+    "Win32_System_Memory",
 ] }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
@@ -78,10 +79,16 @@ windows = { version = "0.61", features = [
     "System",
     "UI_Composition",
     "UI_Composition_Desktop",
+    "Graphics",
     "Graphics_Effects",
     "Win32_System_WinRT_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
 ] }
 windows-numerics = "0.2"
+# The WebView2 interfaces Tauri's own webview is behind (already a dependency of wry, same version):
+# asleep while the window is hidden (commands/window.rs).
+webview2-com = "0.38"
 # #[implement] (the blur effect in blur.rs) expands to paths in windows-core.
 windows-core = "0.61"
 tauri-plugin-single-instance = "2.4.4"

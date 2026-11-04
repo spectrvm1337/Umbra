@@ -40,6 +40,22 @@ fn shared_prefix(a: &str, b: &str) -> usize {
 fn default_name(path: &str, kind: u8) -> String {
     derive_display_name(path, kind).to_lowercase()
 }
+/// Whether the entry's name is just the one its path gives (`default_name`), worked out without
+/// building either string: this runs for every entry of every save, a million times or more.
+/// Lowercasing char by char can differ from `str::to_lowercase` (a final Σ), and then the names
+/// simply do not match and the name is stored, so a saved name is never lost.
+fn is_default_name(e: &SearchEntry) -> bool {
+    use crate::indexer::{KIND_APP, KIND_SHORTCUT};
+    let Some(file) = std::path::Path::new(&e.path).file_name().and_then(|f| f.to_str()) else {
+        return *e.name_lower == *default_name(&e.path, e.kind);
+    };
+    let shown = if e.kind == KIND_APP || e.kind == KIND_SHORTCUT {
+        file.rsplit_once('.').map_or(file, |(n, _)| n)
+    } else {
+        file
+    };
+    shown.chars().flat_map(char::to_lowercase).eq(e.name_lower.chars())
+}
 pub(crate) fn encode(entries: &[SearchEntry]) -> Vec<u8> {
     let mut out = Vec::with_capacity(entries.len() * 24 + 16);
     out.extend_from_slice(MAGIC);
@@ -51,7 +67,7 @@ pub(crate) fn encode(entries: &[SearchEntry]) -> Vec<u8> {
         out.push(e.kind);
         put_varint(&mut out, shared);
         put_str(&mut out, &e.path[shared..]);
-        if *e.name_lower == *default_name(&e.path, e.kind) {
+        if is_default_name(e) {
             out.push(0);
         } else {
             out.push(1);

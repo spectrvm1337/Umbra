@@ -251,7 +251,8 @@ function resizeWindowSides(leftBefore) {
   const panel = typeof tpExtraWidth === "function" ? tpExtraWidth() : 0;
   return invoke("resize_main_window", {
     width: mainLogicalW + dockExtraWidth(),
-    height: mainLogicalH,
+    // Taller while the theme panel needs it (themepanel.js).
+    height: Math.max(mainLogicalH, typeof tpWantedHeight === "function" ? tpWantedHeight() : 0),
     shiftX,
     panelWidth: panel,
     panelLeft: typeof tpSide !== "undefined" && tpSide === "left",

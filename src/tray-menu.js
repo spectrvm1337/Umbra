@@ -84,7 +84,8 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
-listen("tray-menu-show", async () => {
+// The window is made on the first right-click; once this listens, that click is handed over.
+const trayMenuListening = listen("tray-menu-show", async () => {
   await Promise.all([applyTheme(), applyAnimSettings(), render()]);
   menu.classList.remove("shown");
   // The window is sized to the menu plus room for its shadow.
@@ -95,3 +96,4 @@ listen("tray-menu-show", async () => {
   menu.classList.add("shown");
 });
 listen("tray-menu-refresh", () => render());
+trayMenuListening.then(() => invoke("tray_menu_ready")).catch(() => {});

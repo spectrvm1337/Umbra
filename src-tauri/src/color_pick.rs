@@ -25,8 +25,13 @@ const LOUPE_LABEL: &str = "pick-loupe";
 /// sits inside the area it is capturing.
 const LOUPE_GAP: i32 = 30;
 
-/// The small window that follows the cursor while picking. Created hidden at start-up.
-pub fn create_loupe_window(app: &tauri::App) -> tauri::Result<()> {
+/// The small window that follows the cursor while picking. Made the first time the eyedropper runs
+/// rather than at start-up: every window is a WebView2 renderer of its own, ~30 MB for a window most
+/// people never see. Called off the main thread (building a window from a sync command on it hangs).
+fn ensure_loupe_window(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(LOUPE_LABEL).is_some() {
+        return Ok(());
+    }
     let w = tauri::WebviewWindowBuilder::new(app, LOUPE_LABEL, tauri::WebviewUrl::App("pick-loupe.html".into()))
         .title("Umbra loupe")
         .inner_size(132.0, 132.0)
@@ -179,6 +184,9 @@ unsafe extern "system" fn mouse_proc(code: i32, w_param: WPARAM, l_param: LPARAM
 }
 
 fn run(app: AppHandle) {
+    if let Err(e) = ensure_loupe_window(&app) {
+        eprintln!("loupe window: {e}");
+    }
     unsafe {
         let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), std::ptr::null_mut(), 0);
         if hook.is_null() {

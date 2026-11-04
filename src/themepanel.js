@@ -39,6 +39,25 @@ function refreshThemePanelRoom() {
   }).catch((err) => console.warn("theme panel:", err));
 }
 
+// The card is as tall as its rows: while it is open the window grows down to fit it (within the
+// screen's work area) instead of the card scrolling. resizeWindowSides (dock.js) asks for this.
+function tpWantedHeight() {
+  if (!tpSide) return 0;
+  const card = document.getElementById(tpView === "keys" ? "keys-card" : "theme-card");
+  if (!card || !card.scrollHeight) return 0;
+  const need = (themePanel.offsetTop + card.scrollHeight + 12) * tpScreenScale();
+  const room = screen.availTop + screen.availHeight - window.screenY;
+  return Math.ceil(Math.min(need, room));
+}
+// Measured once the card is on screen, and again when its rows change (a menu opening, rows hiding).
+function tpFitHeight() {
+  tpChain = tpChain.then(() => {
+    if (tpSide) return resizeWindowSides();
+  }).catch((err) => console.warn("theme panel:", err));
+  return tpChain;
+}
+themePanel.addEventListener("click", () => setTimeout(tpFitHeight, 320));
+
 const tpSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tpFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 const tpAnimated = () => !motionOff() && appContainer.classList.contains("window-showing");
@@ -64,7 +83,9 @@ function togglePanelView(view) {
   tpView = view;
   themePanel.dataset.view = view;
   themePanel.setAttribute("aria-label", view === "keys" ? "Keybinds" : "Appearance");
-  return setThemePanel(true);
+  setThemePanel(true);
+  // The other view is another height.
+  return tpFitHeight();
 }
 
 async function runThemePanel() {
@@ -98,6 +119,8 @@ async function openThemePanel(side) {
   if (animated) await tpFrames();
   if (masked) appContainer.classList.remove("dock-switching");
   themePanel.classList.add("show");
+  // Only now is the card laid out, so only now can the window be fitted to it.
+  await resizeWindowSides();
 }
 
 async function closeThemePanel() {

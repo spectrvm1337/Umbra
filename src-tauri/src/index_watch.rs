@@ -47,7 +47,28 @@ fn disabled_drives() -> Vec<String> {
 /// Same rule as the drive walk: a hidden (dot) or excluded name anywhere below
 /// the drive root keeps the path out of the index.
 fn is_excluded(path: &str, skip: &HashSet<String>) -> bool {
-    path.split('\\').skip(1).any(|part| !part.is_empty() && indexer::is_skipped_name(part, skip))
+    path.split('\\')
+        .skip(1)
+        .any(|part| !part.is_empty() && (indexer::is_skipped_name(part, skip) || indexer::is_hash_name(part)))
+}
+/// Below a folder tagged as a cache (CACHEDIR.TAG), which the drive walk does not go into either.
+/// A build writes thousands of files into one folder, so each folder is looked up on disk once per
+/// batch (`seen`).
+fn in_tagged_cache(path: &str, seen: &mut HashMap<String, bool>) -> bool {
+    let mut dir = Path::new(path).parent();
+    while let Some(d) = dir {
+        if d.parent().is_none() {
+            break; // the drive root
+        }
+        let tagged = *seen
+            .entry(d.to_string_lossy().to_lowercase())
+            .or_insert_with(|| d.join(indexer::CACHE_TAG).is_file());
+        if tagged {
+            return true;
+        }
+        dir = d.parent();
+    }
+    false
 }
 fn on_disabled_drive(path: &str, disabled: &[String]) -> bool {
     // Compared as bytes, never as a string slice. `path[..d.len()]` panics when
@@ -100,8 +121,9 @@ pub(crate) fn prepare(changes: &[Change], skip: &HashSet<String>, disabled: &[St
     }
     let removed: HashSet<String> = last.iter().filter(|(_, &added)| !added).map(|(p, _)| p.to_string()).collect();
     let mut added: Vec<SearchEntry> = Vec::new();
+    let mut tagged = HashMap::new();
     for (path, _) in last.iter().filter(|(_, &added)| added) {
-        if is_excluded(path, skip) || on_disabled_drive(path, disabled) {
+        if is_excluded(path, skip) || on_disabled_drive(path, disabled) || in_tagged_cache(path, &mut tagged) {
             continue;
         }
         let Ok(meta) = std::fs::symlink_metadata(path) else {
@@ -257,7 +279,10 @@ fn watch_drive(root: &str, tx: Sender<Event>) {
     unsafe { CloseHandle(handle) };
 }
 const BATCH_QUIET: Duration = Duration::from_millis(400);
-const SAVE_AFTER: Duration = Duration::from_secs(60);
+/// index.bin only lets the next start search at once while its walk of the drives runs, which
+/// brings the index up to date anyway; so changes are saved rarely rather than rewriting tens of
+/// MB every minute that games and builds write files.
+const SAVE_AFTER: Duration = Duration::from_secs(10 * 60);
 const OVERFLOW_RESCAN_EVERY: Duration = Duration::from_secs(30 * 60);
 /// Gathers changes until the drives are quiet for a moment, applies them, and
 /// saves the index to disk a minute after the last applied change.

@@ -127,7 +127,9 @@ fn handle_action(app: &tauri::AppHandle, id: &str) {
 // cursor, inside the work area of that monitor. It hides when it loses focus.
 const MENU_LABEL: &str = "tray-menu";
 static ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
-fn create_menu_window(app: &tauri::App) -> tauri::Result<()> {
+/// Made on the first right-click rather than at start-up: every window is a WebView2 renderer of its
+/// own (~30 MB). Its page calls tray_menu_ready once it listens, and gets the pending click then.
+fn create_menu_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let window = tauri::WebviewWindowBuilder::new(app, MENU_LABEL, tauri::WebviewUrl::App("tray-menu.html".into()))
         .title("Umbra")
         .inner_size(240.0, 300.0)
@@ -150,7 +152,23 @@ fn create_menu_window(app: &tauri::App) -> tauri::Result<()> {
 }
 fn open_menu(app: &tauri::AppHandle, x: f64, y: f64) {
     *ANCHOR.lock_or_recover() = Some((x, y));
-    let _ = tauri::Emitter::emit_to(app, MENU_LABEL, "tray-menu-show", ());
+    if app.get_webview_window(MENU_LABEL).is_some() {
+        let _ = tauri::Emitter::emit_to(app, MENU_LABEL, "tray-menu-show", ());
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = create_menu_window(&app) {
+            eprintln!("tray menu window: {e}");
+        }
+    });
+}
+/// The menu page listens now: a right-click that came in while it was loading is shown.
+#[tauri::command]
+pub fn tray_menu_ready(app: tauri::AppHandle) {
+    if ANCHOR.lock_or_recover().is_some() {
+        let _ = tauri::Emitter::emit_to(&app, MENU_LABEL, "tray-menu-show", ());
+    }
 }
 /// Where a menu of `w` x `h` physical pixels goes for a click at (x, y): above
 /// and to the left of the cursor like the system menu, flipped when that would
@@ -215,7 +233,6 @@ pub fn tray_menu_hide(app: tauri::AppHandle) {
 }
 pub fn create(app: &tauri::App) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    create_menu_window(app)?;
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip(tooltip())

@@ -3114,6 +3114,13 @@ searchInput.addEventListener("keydown", (e) => {
     performSearch(searchInput.value);
     return;
   }
+  // → in the empty box opens the settings; with the dock on the right, → goes into the dock (keynav.js).
+  if (e.key === "ArrowRight" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && !searchInput.value &&
+      settingsSection.classList.contains("hidden") && document.documentElement.dataset.pins !== "right") {
+    e.preventDefault();
+    toggleSettings();
+    return;
+  }
   // Folded favourites: ↓ in the empty box opens them, ↑ from the first one folds them again.
   if (theme && theme.pinsAutoHide && pinsInList() && !lastQuery.trim() && currentPins.length > 0 &&
       settingsSection.classList.contains("hidden")) {
@@ -3269,7 +3276,9 @@ function setMainSize(w, h) {
   if (cw === mainLogicalW && ch === mainLogicalH) return;
   mainLogicalW = cw;
   mainLogicalH = ch;
-  pendingSize = { width: cw + dockW, height: ch };
+  // The open theme panel keeps the window as tall as it needs (themepanel.js).
+  const tpH = typeof tpWantedHeight === "function" ? tpWantedHeight() : 0;
+  pendingSize = { width: cw + dockW, height: Math.max(ch, tpH) };
   if (!resizeRaf) resizeRaf = requestAnimationFrame(() => {
     resizeRaf = null;
     if (pendingSize) invoke("resize_main_window", pendingSize).catch(() => {});

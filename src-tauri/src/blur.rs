@@ -14,9 +14,9 @@ use windows::UI::Composition::{CompositionBrush, CompositionEffectSourceParamete
 use windows::Win32::System::WinRT::Graphics::Direct2D::{IGraphicsEffectD2D1Interop, IGraphicsEffectD2D1Interop_Impl, GRAPHICS_EFFECT_PROPERTY_MAPPING};
 use windows_sys::Win32::Foundation::HWND;
 
-/// A card: x, y, width, height, corner radius, and its opacity on the page (0..1), so its blur fades
-/// in and out with it.
-pub type Shape = [f64; 6];
+/// A card: x, y, width, height, corner radius, its opacity on the page (0..1) so its blur fades in
+/// and out with it, and its corner curve as the K of CSS `superellipse(K)` (1 round, 2 squircle).
+pub type Shape = [f64; 7];
 
 static SHAPES: Mutex<Vec<Shape>> = Mutex::new(Vec::new());
 
@@ -27,6 +27,8 @@ struct Host {
     root: ContainerVisual,
     brush: CompositionBrush,
     strength: u32,
+    /// Builds the squircle clips.
+    d2d: windows::Win32::Graphics::Direct2D::ID2D1Factory,
 }
 
 thread_local! {
@@ -160,7 +162,9 @@ fn host_start(hwnd: HWND) -> windows::core::Result<Host> {
     let root = compositor.CreateContainerVisual()?;
     target.SetRoot(&root)?;
     let brush = make_brush(&compositor, 0)?;
-    Ok(Host { _queue: queue, compositor, _target: target, root, brush, strength: 0 })
+    use windows::Win32::Graphics::Direct2D::{D2D1CreateFactory, D2D1_FACTORY_TYPE_SINGLE_THREADED};
+    let d2d = unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
+    Ok(Host { _queue: queue, compositor, _target: target, root, brush, strength: 0, d2d })
 }
 
 /// The system's blurred backdrop, blurred `strength` px more.
@@ -237,19 +241,133 @@ fn host_draw(host: &Host, shapes: &[Shape]) -> windows::core::Result<()> {
     let kids = host.root.Children()?;
     kids.RemoveAll()?;
     for s in shapes {
-        let [x, y, w, h, r, opacity] = s.map(|v| v as f32);
+        let [x, y, w, h, r, opacity, k] = s.map(|v| v as f32);
         let sprite = host.compositor.CreateSpriteVisual()?;
         sprite.SetBrush(&host.brush)?;
         sprite.SetOpacity(opacity.clamp(0.0, 1.0))?;
         sprite.SetOffset(Vector3 { X: x, Y: y, Z: 0.0 })?;
         sprite.SetSize(Vector2 { X: w, Y: h })?;
-        let shape = host.compositor.CreateRoundedRectangleGeometry()?;
-        shape.SetSize(Vector2 { X: w, Y: h })?;
-        shape.SetCornerRadius(Vector2 { X: r, Y: r })?;
-        sprite.SetClip(&host.compositor.CreateGeometricClipWithGeometry(&shape)?)?;
+        let clip = if (k - 1.0).abs() > 0.01 && r > 0.0 {
+            let path = windows::UI::Composition::CompositionPath::Create(&corner_path(host, w, h, r, k)?)?;
+            host.compositor.CreateGeometricClipWithGeometry(&host.compositor.CreatePathGeometryWithPath(&path)?)?
+        } else {
+            let shape = host.compositor.CreateRoundedRectangleGeometry()?;
+            shape.SetSize(Vector2 { X: w, Y: h })?;
+            shape.SetCornerRadius(Vector2 { X: r, Y: r })?;
+            host.compositor.CreateGeometricClipWithGeometry(&shape)?
+        };
+        sprite.SetClip(&clip)?;
         kids.InsertAtTop(&sprite)?;
     }
     Ok(())
+}
+
+// ---- squircle corners -------------------------------------------------------------------------
+// Composition rounds rectangles with circular arcs only. A card with `corner-shape: squircle` has
+// superellipse corners, so its clip is drawn as a Direct2D path and handed over as a CompositionPath.
+
+/// Segments per corner: at the radii a card can have (up to 24px times the zoom) the polyline is
+/// closer than half a pixel to the curve.
+const SQUIRCLE_STEPS: usize = 16;
+
+/// The outline of a `w`×`h` rectangle whose corners of radius `r` are CSS `superellipse(k)`,
+/// clockwise from the top edge. In each r×r corner box the curve is |x|ⁿ + |y|ⁿ = 1 with n = 2^k
+/// (k = 2, Chromium's `squircle`, is n = 4), i.e. (cos θ)^(2/n), (sin θ)^(2/n) over a quarter turn.
+fn corner_points(w: f32, h: f32, r: f32, k: f32) -> Vec<windows_numerics::Vector2> {
+    use std::f32::consts::FRAC_PI_2;
+    let r = r.min(w / 2.0).min(h / 2.0);
+    let p = 2.0 / 2f32.powf(k.clamp(0.0, 8.0));
+    // Corner centre, which way it bulges, and whether θ runs up or down so the outline goes clockwise.
+    let corners = [
+        (w - r, r, 1.0, -1.0, false),   // top right: from the top edge down to the right edge
+        (w - r, h - r, 1.0, 1.0, true), // bottom right: from the right edge to the bottom edge
+        (r, h - r, -1.0, 1.0, false),   // bottom left: from the bottom edge to the left edge
+        (r, r, -1.0, -1.0, true),       // top left: from the left edge up to the top edge
+    ];
+    let mut points = Vec::with_capacity(4 * (SQUIRCLE_STEPS + 1));
+    for (cx, cy, sx, sy, rising) in corners {
+        for i in 0..=SQUIRCLE_STEPS {
+            let f = i as f32 / SQUIRCLE_STEPS as f32;
+            let t = if rising { f } else { 1.0 - f } * FRAC_PI_2;
+            points.push(windows_numerics::Vector2 {
+                X: cx + sx * r * t.cos().max(0.0).powf(p),
+                Y: cy + sy * r * t.sin().max(0.0).powf(p),
+            });
+        }
+    }
+    points
+}
+
+fn corner_path(host: &Host, w: f32, h: f32, r: f32, k: f32) -> windows::core::Result<windows::Graphics::IGeometrySource2D> {
+    let points = corner_points(w, h, r, k);
+    let own = build_outline(&host.d2d, &points)?;
+    Ok(D2DShape { own, points }.into())
+}
+
+/// The closed outline through `points`, as a geometry of `factory`.
+fn build_outline(
+    factory: &windows::Win32::Graphics::Direct2D::ID2D1Factory,
+    points: &[windows_numerics::Vector2],
+) -> windows::core::Result<windows::Win32::Graphics::Direct2D::ID2D1Geometry> {
+    use windows::Win32::Graphics::Direct2D::Common::{D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED};
+    let geometry = unsafe { factory.CreatePathGeometry()? };
+    unsafe {
+        let sink = geometry.Open()?;
+        sink.BeginFigure(points[0], D2D1_FIGURE_BEGIN_FILLED);
+        sink.AddLines(&points[1..]);
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink.Close()?;
+    }
+    geometry.cast()
+}
+
+/// Hands a Direct2D geometry to Composition (what Win2D's CanvasGeometry does in C#). Composition
+/// draws with a Direct2D factory of its own and may ask for the geometry made on it; a geometry from
+/// another factory is an error to Direct2D, so the outline is kept and built again on request.
+#[implement(windows::Graphics::IGeometrySource2D, windows::Win32::System::WinRT::Graphics::Direct2D::IGeometrySource2DInterop)]
+struct D2DShape {
+    own: windows::Win32::Graphics::Direct2D::ID2D1Geometry,
+    points: Vec<windows_numerics::Vector2>,
+}
+
+impl windows::Graphics::IGeometrySource2D_Impl for D2DShape_Impl {}
+
+impl windows::Win32::System::WinRT::Graphics::Direct2D::IGeometrySource2DInterop_Impl for D2DShape_Impl {
+    fn GetGeometry(&self) -> windows::core::Result<windows::Win32::Graphics::Direct2D::ID2D1Geometry> {
+        Ok(self.own.clone())
+    }
+    fn TryGetGeometryUsingFactory(
+        &self,
+        factory: windows::core::Ref<'_, windows::Win32::Graphics::Direct2D::ID2D1Factory>,
+    ) -> windows::core::Result<windows::Win32::Graphics::Direct2D::ID2D1Geometry> {
+        build_outline(factory.ok()?, &self.points)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::corner_points;
+    #[test]
+    fn a_round_corner_k_of_1_is_a_circular_arc() {
+        let r = 12.0;
+        let mid = corner_points(100.0, 40.0, r, 1.0)[8];
+        let away = r * (1.0 - std::f32::consts::FRAC_1_SQRT_2);
+        assert!(((100.0 - mid.X) - away).abs() < 0.05 && (mid.Y - away).abs() < 0.05);
+    }
+    #[test]
+    fn a_squircle_outline_touches_the_edges_and_bulges_past_the_arc() {
+        let (w, h, r) = (100.0, 40.0, 12.0);
+        let pts = corner_points(w, h, r, 2.0);
+        assert_eq!(pts.len(), 4 * 17);
+        // Every corner starts and ends on the card's edges, and nothing leaves the card.
+        assert!(pts.iter().all(|p| p.X >= -1e-3 && p.X <= w + 1e-3 && p.Y >= -1e-3 && p.Y <= h + 1e-3));
+        assert!((pts[0].X - (w - r)).abs() < 1e-3 && pts[0].Y.abs() < 1e-3);
+        assert!((pts[16].X - w).abs() < 1e-3 && (pts[16].Y - r).abs() < 1e-3);
+        // Halfway round the top right corner the squircle is r·(1 − 2^-¼) ≈ 0.159·r from the corner
+        // point on each axis; a circular arc would be 0.293·r away.
+        let mid = pts[8];
+        assert!(((w - mid.X) - 0.159 * r).abs() < 0.05 && (mid.Y - 0.159 * r).abs() < 0.05);
+    }
 }
 
 // ---- the Gaussian blur effect -----------------------------------------------------------------

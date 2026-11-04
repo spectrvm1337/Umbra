@@ -45,6 +45,16 @@ function blurLift(lift) {
   invoke("set_blur_lift", { y, ms: ms || 0 }).catch((err) => console.warn("blur lift:", err));
 }
 
+// The card's corner curve as the K of superellipse(K): 1 is a circular arc, 2 a squircle. Chromium
+// may hand the computed value back as the keyword or as superellipse(2), so both are read; Rust draws
+// the clip with the same curve.
+function blurCornerK(cs) {
+  const v = (cs.cornerTopLeftShape || cs.cornerShape || "round").trim().split(/\s+(?![^(]*\))/)[0];
+  const m = /^superellipse\(\s*([-\d.]+)/.exec(v);
+  if (m) return parseFloat(m[1]) || 1;
+  return v === "squircle" ? 2 : 1;
+}
+
 function blurShapes() {
   const d = window.devicePixelRatio || 1;
   const list = blurList.getBoundingClientRect();
@@ -64,14 +74,9 @@ function blurShapes() {
     // The radius is in the card's own px; the rect is after zoom and transforms.
     const scale = el.offsetWidth ? r.width / el.offsetWidth : 1;
     const cs = getComputedStyle(el);
-    // Composition clips with circular arcs only. A squircle corner (|x|⁴+|y|⁴=1) reaches much further
-    // into the corner, so the arc used is the one through the same point on the diagonal:
-    // r·(1 − 2^-¼) / (1 − 1/√2) ≈ 0.54·r.
-    const shape = cs.cornerTopLeftShape || cs.cornerShape || "";
-    const k = shape.startsWith("squircle") ? 0.54 : 1;
-    const rad = Math.min((parseFloat(cs.borderTopLeftRadius) || 0) * scale * k, w / 2, h / 2);
+    const rad = Math.min((parseFloat(cs.borderTopLeftRadius) || 0) * scale, w / 2, h / 2);
     const px = [r.left, top - shift, w, h, rad].map((v) => Math.round(v * d * 10) / 10);
-    out.push([...px, blurOpacity(el)]);
+    out.push([...px, blurOpacity(el), blurCornerK(cs)]);
   }
   return out;
 }
@@ -79,6 +84,13 @@ function blurShapes() {
 // The cards measured in one frame are sent in the next: the page reaches the screen through
 // WebView2's renderer a frame later than the blur through DWM, so sent at once the blur ran ahead.
 let blurPending = null;
+// Measuring walks every card's parents through getComputedStyle, so it is skipped while nothing can
+// have moved: no change to the page, no scroll or resize, and no animation or transition running.
+let blurDirty = true;
+const blurMarkDirty = () => { blurDirty = true; };
+new MutationObserver(blurMarkDirty).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+addEventListener("scroll", blurMarkDirty, true);
+addEventListener("resize", blurMarkDirty);
 function blurFrame() {
   if (!blurOn) return; // applyBlur starts the loop again
   requestAnimationFrame(blurFrame);
@@ -86,6 +98,8 @@ function blurFrame() {
     invoke("set_blur_shapes", { shapes: blurPending }).catch((err) => console.warn("blur:", err));
     blurPending = null;
   }
+  if (!blurDirty && document.getAnimations().length === 0) return;
+  blurDirty = false;
   const shapes = blurShapes();
   const key = JSON.stringify(shapes);
   if (key === blurSent) return;
@@ -111,6 +125,7 @@ function applyBlur(on) {
   const was = blurOn;
   blurOn = !!on;
   blurSent = ""; // a fresh blur gets the cards again
+  blurDirty = true;
   blurLiftSent = null; // and the column's place
   if (!was && blurOn) {
     requestAnimationFrame(blurFrame);

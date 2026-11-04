@@ -5,33 +5,30 @@ pub fn hide_window(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
         set_webview_awake(&w, false);
+        // The screen behind it, for the next summon, once DWM has taken the window off.
+        crate::backdrop::refresh_later(&w, 300);
     }
 }
-/// The window is hidden nearly all the time, and a hidden WebView2 still holds its caches and runs
-/// its timers. Asleep, it is told to keep as little memory as it can and is suspended (no scripts,
-/// no rendering); `SetIsVisible(true)` on the next summon wakes it before the window shows. Hiding
-/// the window alone does not tell WebView2 it is hidden, and it refuses to suspend while it thinks
-/// it is on screen.
+/// The window is hidden nearly all the time, and a hidden WebView2 still holds its caches. Asleep it
+/// is told it is not on screen (hiding the window alone does not tell it) and to keep as little
+/// memory as it can; `SetIsVisible(true)` on the next summon wakes it before the window shows.
+/// It is not suspended (TrySuspend): after a long idle a suspended page took long enough to come
+/// back that the summon showed an empty window, the next press of the hotkey hid it again, and Umbra
+/// seemed to open only at the fifth try. A hidden page does nothing anyway.
 pub fn set_webview_awake(window: &tauri::WebviewWindow, awake: bool) {
     #[cfg(target_os = "windows")]
     let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
-            ICoreWebView2_19, ICoreWebView2_3, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
-            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
         };
         use windows::core::Interface;
         let controller = webview.controller();
         let _ = controller.SetIsVisible(awake);
         let Ok(core) = controller.CoreWebView2() else { return };
-        // Both are newer interfaces: an older WebView2 runtime simply skips them.
+        // A newer interface: an older WebView2 runtime simply skips it.
         if let Ok(core) = core.cast::<ICoreWebView2_19>() {
             let level = if awake { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW };
             let _ = core.SetMemoryUsageTargetLevel(level);
-        }
-        if !awake {
-            if let Ok(core) = core.cast::<ICoreWebView2_3>() {
-                let _ = core.TrySuspend(&webview2_com::TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(()))));
-            }
         }
     });
 }

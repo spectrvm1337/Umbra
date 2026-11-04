@@ -316,6 +316,43 @@ fn under_prefix(path: &str, prefix: &str) -> bool {
     path.len() >= prefix.len() && path.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
 }
 /// `prefix`, when given, keeps the results to paths under it (a drive scope).
+fn is_program(e: &SearchEntry) -> bool {
+    e.kind == KIND_APP || e.kind == KIND_SHORTCUT
+}
+fn shown_name(e: &SearchEntry) -> String {
+    crate::indexer::derive_display_name(&e.path, e.kind).to_lowercase()
+}
+/// For a program found more than once among the best matches (a Start Menu shortcut, one on the
+/// desktop, the registry's entry, an exe on disk), the one that opens the newest copy, by shown name.
+/// An old install with its shortcut still in the Start Menu used to win just by ranking first, and
+/// opening it broke the newer one's data (Modrinth 0.15 starting against 0.22's database).
+fn newest_copies(picked: &[(ScoreKey, usize)], entries: &[SearchEntry]) -> std::collections::HashMap<String, usize> {
+    let mut groups: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for &(_, i) in picked.iter().take(400) {
+        if let Some(e) = entries.get(i).filter(|e| is_program(e)) {
+            groups.entry(shown_name(e)).or_default().push(i);
+        }
+    }
+    groups
+        .into_iter()
+        .filter(|(_, rows)| rows.len() > 1)
+        .map(|(name, rows)| (name, newest_of(&rows, |i| crate::program_version::of(&entries[i].path))))
+        .collect()
+}
+/// The row whose program has the highest version; the best ranked (first) one on a tie, and when no
+/// version can be read at all.
+fn newest_of(rows: &[usize], version: impl Fn(usize) -> Option<u64>) -> usize {
+    let mut best = rows[0];
+    let mut best_version = version(best);
+    for &row in &rows[1..] {
+        let v = version(row);
+        if v > best_version {
+            best = row;
+            best_version = v;
+        }
+    }
+    best
+}
 pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<SearchResult> {
     let q = query.to_lowercase();
     if q.is_empty() || !is_current(version) {
@@ -346,17 +383,23 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
             return Vec::new();
         }
         picked.sort_unstable();
+        let newest = newest_copies(&picked, entries);
         let mut deduplicated = Vec::with_capacity(MAX_RESULTS);
         let mut seen_apps = std::collections::HashSet::new();
         for (score, i) in picked {
-            if let Some(e) = entries.get(i) {
-                if e.kind == crate::indexer::KIND_APP || e.kind == crate::indexer::KIND_SHORTCUT {
+            if let Some(mut e) = entries.get(i) {
+                if is_program(e) {
                     // One row per program as the user sees it. The internal name
                     // can differ for the same program -- the registry calls it
                     // "antigravity 2.15.1", the Start Menu "antigravity" -- and
-                    // both came out as two rows reading "Antigravity". The best
-                    // ranked one stays.
-                    let shown = crate::indexer::derive_display_name(&e.path, e.kind).to_lowercase();
+                    // both came out as two rows reading "Antigravity". The row
+                    // goes where the best ranked one is, and opens the newest copy.
+                    let shown = shown_name(e);
+                    if !seen_apps.contains(&shown) {
+                        if let Some(best) = newest.get(&shown).and_then(|&j| entries.get(j)) {
+                            e = best;
+                        }
+                    }
                     if !seen_apps.insert(shown) {
                         continue;
                     }
@@ -381,6 +424,14 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
 mod tests {
     use super::*;
     use crate::indexer::{INDEX, KIND_APP, KIND_DOCUMENT, KIND_FILE, KIND_FOLDER, KIND_IMAGE};
+    #[test]
+    fn the_newest_copy_of_a_program_wins_and_a_tie_keeps_the_best_ranked() {
+        // Rows 0 (Start Menu, 0.15.1), 1 (desktop, 0.22.1), 2 (registry, 0.22.1), 3 (nothing there).
+        let v = |row: usize| [Some(15u64), Some(22), Some(22), None][row];
+        assert_eq!(newest_of(&[0, 1, 2, 3], v), 1);
+        assert_eq!(newest_of(&[3, 0], v), 0, "a shortcut to nothing loses");
+        assert_eq!(newest_of(&[3, 3], |_| None), 3, "no versions: the best ranked stays");
+    }
     fn entry(name: &str, path: &str, kind: u8) -> SearchEntry {
         SearchEntry {
             name_lower: name.to_lowercase().into_boxed_str(),

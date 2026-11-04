@@ -418,32 +418,30 @@ pub fn install(app: tauri::AppHandle) -> Result<(), String> {
     } else {
         path
     };
+    start_after_exit(app, &path)
+}
+/// Starts `path` once this process has quit, and quits. The installer cannot replace umbra.exe while
+/// it is still held, and a new copy of Umbra started while this one runs hands itself over to it
+/// (single instance) and exits; so the launch goes to a detached cmd that waits a moment first.
+/// `ping` is the delay because `timeout` refuses to run without a console. The path goes in through
+/// an environment variable and the command line is passed raw: std would escape the quotes as \"
+/// (which cmd does not understand), and a path pasted into the line would have its %…% and &
+/// interpreted by cmd.
+pub(crate) fn start_after_exit(app: tauri::AppHandle, path: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // The installer cannot replace umbra.exe while we are still holding
-        // it, so hand the launch to a detached cmd and quit (the new portable copy too: started
-        // while this one runs, it would hand itself over to it and exit). `ping` is the
-        // delay because `timeout` refuses to run without a console.
-        // The path goes in through an environment variable and the command
-        // line is passed raw: std would escape the quotes as \" (which cmd
-        // does not understand), and a path pasted into the line would have
-        // its %…% and & interpreted by cmd.
         use std::os::windows::process::CommandExt;
         std::process::Command::new("cmd")
-            .env("UMBRA_INSTALLER", &path)
+            .env("UMBRA_INSTALLER", path)
             .raw_arg("/D /C ping -n 3 127.0.0.1 >NUL & start \"\" \"%UMBRA_INSTALLER%\"")
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
-            .map_err(|e| format!("could not start the installer: {e}"))?;
-        exit_soon(app);
-        Ok(())
+            .map_err(|e| format!("could not start {}: {e}", path.display()))?;
     }
     #[cfg(not(target_os = "windows"))]
-    {
-        open::that_detached(&path).map_err(|e| e.to_string())?;
-        exit_soon(app);
-        Ok(())
-    }
+    open::that_detached(path).map_err(|e| e.to_string())?;
+    exit_soon(app);
+    Ok(())
 }
 /// Quits on a short delay so the detached launcher is running before the
 /// executable is released.

@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 mod autostart;
+mod backdrop;
 mod blur;
 mod color_pick;
 mod commands;
@@ -13,6 +14,7 @@ mod indexer;
 mod paths;
 mod picks;
 mod pins;
+mod program_version;
 mod preview;
 mod registry;
 mod search;
@@ -53,13 +55,15 @@ pub fn show_window(window: &tauri::WebviewWindow) {
 /// Shows the window; with `open_settings` the page opens the settings panel as
 /// part of the same "window-shown" event (the tray's Settings item).
 pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
+    // What was behind the window when it last went away (contrast.js); never taken here, see backdrop.rs.
+    let backdrop = backdrop::latest();
     #[cfg(target_os = "windows")]
     taskbar::show_if_autohide();
     // Woken first, so the page is running again by the time the window and "window-shown" arrive.
     commands::set_webview_awake(window, true);
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("window-shown", serde_json::json!({ "openSettings": open_settings }));
+    let _ = window.emit("window-shown", serde_json::json!({ "openSettings": open_settings, "backdrop": backdrop }));
     indexer::refresh_fast_index_async();
     if !config::is_pinned() {
         commands::place_window(window.app_handle());
@@ -68,6 +72,10 @@ pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
     }
 }
 fn main() {
+    // Everything opened from Umbra inherits its environment. Started from a terminal that sets this,
+    // cmd stops looking in the current folder, and a batch file calling another one beside it
+    // (`call gradlew.bat`) failed to find it; opened from Explorer it would have worked.
+    std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
     preview::install_panic_hook();
     let _ = rayon::ThreadPoolBuilder::new().num_threads(3).build_global();
     tauri::Builder::default()
@@ -105,6 +113,8 @@ fn main() {
             blur::apply(app.handle());
             // Started hidden (autostart): the page gets a few seconds to load, then sleeps until the
             // first summon instead of only after the first hide.
+            // The wallpaper behind the window for the first summon (contrast.js).
+            backdrop::refresh_later(&window, 1500);
             let sleeper = window.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(8));

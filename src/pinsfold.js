@@ -1,6 +1,6 @@
 // "Fold favorites" (theme.pinsAutoHide; the folding itself is setPinsOpen in main.js). This file has
 // the arrow under the favourites and the layout that goes with the setting: while nothing is under
-// the search box, the box waits in the middle of the screen; once something is (results, a card,
+// the search box, the box waits a little above the middle of the window; once something is (results, a card,
 // the settings, the opened favourites), that is centred and the box sits on top of it. This is done
 // by moving the whole column (--lift), so the page layout never changes and the stylesheet animates it.
 
@@ -21,14 +21,10 @@ function pfContentHeight() {
   return bottom;
 }
 
-// The middle of the screen's work area, in the column's px. The window is centred on the whole
-// monitor, taskbar included, and may have been dragged anywhere.
-// shortcut: screenY and the screen are in the primary monitor's scale; off on a second monitor with another scale.
-function pfScreenMid() {
-  const zs = typeof tpScreenScale === "function" ? tpScreenScale() : 1;
-  const mid = (screen.availTop + screen.availHeight / 2 - window.screenY) / zs;
-  return Number.isFinite(mid) ? mid : appContainer.clientHeight / 2;
-}
+// Only for a window placed in the middle of the screen (Settings → Window Position): placed at the
+// top or the bottom, the box stays at the top of the window as it always was. The middle is the
+// window's own, never where the window is on screen, so dragging it does not drag the column back.
+const pfCentred = () => !placement || !placement.align || placement.align[0] === "c";
 
 function syncPinsFold() {
   const on = pfOn();
@@ -46,7 +42,11 @@ function syncPinsFold() {
   // Folding rows still take their room while they fade, but the box already heads for the middle.
   const h = pinsSection.classList.contains("pins-closing") ? 0 : pfContentHeight();
   const H = appContainer.clientHeight;
-  const mid = pfScreenMid();
+  // The middle of the window at its normal height, which placement puts in the middle of the screen;
+  // "Results to screen bottom" stretches the window further down, and the middle of all of it is
+  // well below the screen's.
+  const zs = typeof tpScreenScale === "function" ? tpScreenScale() : 1;
+  const mid = Math.min(H, mainLogicalH / zs) / 2;
   let lift, room;
   if (h > 0) {
     lift = mid - (pfWrapper.offsetTop + h / 2);
@@ -63,7 +63,7 @@ function syncPinsFold() {
   lift = Math.max(0, Math.min(lift, room));
   // The theme panel hangs from the top of the column down to the bottom of the window, which grows
   // to fit it (themepanel.js); moved down it would be cut off.
-  if (document.documentElement.dataset.tp) lift = 0;
+  if (document.documentElement.dataset.tp || !pfCentred()) lift = 0;
   appContainer.style.setProperty("--lift", Math.round(lift) + "px");
   // The blur under the cards makes the same move (blur.js).
   if (typeof blurLift === "function") blurLift(Math.round(lift));
@@ -83,12 +83,8 @@ const pfObserver = new ResizeObserver(pfQueue);
 for (const el of resultsContainer.children) pfObserver.observe(el);
 pfObserver.observe(appContainer);
 searchInput.addEventListener("input", pfQueue);
-// The window glides into place on a summon; the middle is measured again once it has stopped.
-let pfMoveTimer = null;
-window.__TAURI__.window.getCurrentWindow().onMoved(() => {
-  clearTimeout(pfMoveTimer);
-  pfMoveTimer = setTimeout(pfQueue, 120);
-});
+// The page only reads the placement when the settings open; the centring needs it from the start.
+invoke("get_placement").then((p) => { placement = p; pfQueue(); }).catch(() => {});
 
 // The arrow is in the list's flow, under the favourites; when they open or fold it would jump, so
 // it is moved back to where it was and glides from there (the stylesheet animates `translate`).

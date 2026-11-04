@@ -106,8 +106,16 @@ fn handle_action(app: &tauri::AppHandle, id: &str) {
             refresh(app);
         }
         "restart" => {
-            crate::storage::flush_pending();
-            app.restart();
+            // Not app.restart(): it starts the new copy while this one still runs, and the new one
+            // hands itself over to it (single instance) and exits, so Restart only closed Umbra.
+            let relaunched = std::env::current_exe()
+                .map_err(|e| e.to_string())
+                .and_then(|exe| crate::updater::start_after_exit(app.clone(), &exe));
+            if let Err(e) = relaunched {
+                eprintln!("restart: {e}");
+                crate::storage::flush_pending();
+                app.restart();
+            }
         }
         "quit" => {
             crate::storage::flush_pending();

@@ -20,15 +20,17 @@ pub type Shape = [f64; 7];
 
 static SHAPES: Mutex<Vec<Shape>> = Mutex::new(Vec::new());
 
+// Fields drop in the order they are declared: the visuals first, the compositor after them, and the
+// dispatcher queue they all run on last of all.
 struct Host {
-    _queue: Option<windows::System::DispatcherQueueController>,
-    compositor: Compositor,
-    _target: windows::UI::Composition::Desktop::DesktopWindowTarget,
-    root: ContainerVisual,
     brush: CompositionBrush,
+    root: ContainerVisual,
+    _target: windows::UI::Composition::Desktop::DesktopWindowTarget,
+    compositor: Compositor,
     strength: u32,
     /// Builds the squircle clips.
     d2d: windows::Win32::Graphics::Direct2D::ID2D1Factory,
+    _queue: Option<windows::System::DispatcherQueueController>,
 }
 
 thread_local! {

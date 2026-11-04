@@ -1894,6 +1894,8 @@ function savePlacement() {
     .then((p) => {
       placement = p;
       updatePlacementUI();
+      // A position at the top or bottom of the screen turns the centring of the box off (pinsfold.js).
+      if (typeof syncPinsFold === "function") syncPinsFold();
     })
     .catch((err) => setSettingsStatus(String(err), true));
 }
@@ -2116,24 +2118,71 @@ function createResultItem(item, index, query) {
 }
 // Set when the window opens, so that render animates every row again.
 let animateAllRows = true;
+// Rows that leave the list fade out where they were, in a layer of their own over it: in the list
+// they would still count for the numbering, the keyboard and the layout while they go.
+const resultsGhosts = document.createElement("div");
+resultsGhosts.id = "results-ghosts";
+resultsContainer.appendChild(resultsGhosts);
+const ROW_GLIDE = { duration: 420, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
+// A row that stays from one search to the next is the same element, brought up to date: rebuilt,
+// the opened card in it (the preview, a playing video) started over on every letter.
+function updateResultItem(el, item, index, query) {
+  el.dataset.index = index;
+  el.classList.toggle("selected", index === selectedIndex);
+  el.querySelector(".result-num").textContent = index < 9 ? index + 1 : "";
+  el.querySelector(".result-name").innerHTML = highlightMatch(item.name, query);
+  el.querySelector(".result-pin").classList.toggle("pinned", !!item.pinned);
+  el.style.animation = "none";
+}
 function renderResults(results, query) {
-  // Rows that were already on screen keep still; only new ones play the enter animation.
-  const shown = animateAllRows || resultsSection.classList.contains("hidden")
-    ? new Set()
-    : new Set([...resultsList.children].map(el => el.dataset.path));
+  // A new letter changes only some rows: those that stay are kept and glide from where they were to
+  // where they are now, new ones play the enter animation, and the ones that went fade out in place.
+  const keep = !(animateAllRows || resultsSection.classList.contains("hidden"));
   animateAllRows = false;
-  resultsList.innerHTML = "";
+  const before = new Map();
+  for (const el of resultsList.children) {
+    before.set(el.dataset.path, { el, top: el.getBoundingClientRect().top, y: el.offsetTop, x: el.offsetLeft, w: el.offsetWidth });
+  }
   const hasPins = currentPins.length > 0;
   const hasSpecial = !specialSection.classList.contains("hidden");
   const showEmpty = results.length === 0 && query.trim() && !hasPins && !hasSpecial;
   emptyState.classList.toggle("hidden", !showEmpty);
   // Rows are numbered after the pin list only when that list is shown above them.
   let globalIndex = query.trim() || !pinsInList() ? 0 : currentPins.length;
+  // Rows already in place are not touched at all: moving an element in the page reloads a PDF
+  // preview's frame and stops a video, so only the rows out of place are moved.
+  const placed = new Set();
+  let cursor = resultsList.firstElementChild;
   for (const item of results) {
-    const el = createResultItem(item, globalIndex, query);
-    if (shown.has(item.path)) el.style.animation = "none";
-    resultsList.appendChild(el);
+    const was = keep ? before.get(item.path) : null;
+    let el;
+    if (was && !placed.has(was.el)) {
+      el = was.el;
+      updateResultItem(el, item, globalIndex, query);
+    } else {
+      el = createResultItem(item, globalIndex, query);
+    }
+    placed.add(el);
+    if (el === cursor) cursor = cursor.nextElementSibling;
+    else resultsList.insertBefore(el, cursor);
     globalIndex++;
+  }
+  const gone = [...resultsList.children].filter((el) => !placed.has(el));
+  gone.forEach((el) => el.remove());
+  if (!keep || motionOff()) return;
+  for (const el of resultsList.children) {
+    const was = before.get(el.dataset.path);
+    if (!was || was.el !== el) continue;
+    const dy = was.top - el.getBoundingClientRect().top;
+    if (Math.abs(dy) >= 1) el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], ROW_GLIDE);
+  }
+  for (const el of gone) {
+    const { y, x, w } = before.get(el.dataset.path);
+    el.classList.remove("sp-open");
+    el.style.cssText += `;position:absolute;top:${y}px;left:${x}px;width:${w}px;animation:none`;
+    resultsGhosts.appendChild(el);
+    el.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.97 }], { duration: 200, easing: "ease", fill: "forwards" })
+      .finished.then(() => el.remove(), () => el.remove());
   }
 }
 function renderPins(pins) {

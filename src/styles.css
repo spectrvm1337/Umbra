@@ -129,8 +129,12 @@
   --result-icon: 36px;
   --glow-size: 0px;
   --glow-alpha: rgba(80, 112, 144, 0.4);
-  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 var(--glow-size) var(--glow-alpha);
-  --bar-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 var(--glow-size) var(--glow-alpha);
+  /* Enough shadow to lift the cards off whatever is behind the window (text in another app read
+     straight through a see-through card). A soft wide layer, pulled in by its negative spread so it
+     reaches 18px down, 12px to the sides (the window keeps --pad-x, 20px) and only 6px up, and a
+     tight one that draws the edge. */
+  --card-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 var(--glow-size) var(--glow-alpha);
+  --bar-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 var(--glow-size) var(--glow-alpha);
   --tile-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   --card-border: rgba(255, 255, 255, 0.08);
   --card-border-w: 1px;
@@ -311,7 +315,8 @@ body {
   padding: 0;
   border: 1px solid transparent;
   border-radius: 100px;
-  background-color: rgba(178, 178, 178, 0.5);
+  /* White over a dark wallpaper, dark over a light one: contrast.js reads what is behind the window. */
+  background-color: rgba(255, 255, 255, 0.75);
   box-shadow: 0 0 0 0 transparent;
   overflow: hidden;
   opacity: 1;
@@ -327,7 +332,7 @@ body {
 .drag-bar:hover:not(.notify):not(.active) .db-rect {
   width: 40px;
   height: 6px;
-  background-color: rgba(178, 178, 178, 0.5);
+  background-color: rgba(255, 255, 255, 0.95);
   opacity: 1;
   transition:  width var(--t-size, 0.38s) var(--ease-spring),
     height var(--t-size, 0.38s) var(--ease-spring),
@@ -1890,7 +1895,9 @@ body > .result-item.sortable-fallback {
   flex: 1;
   overflow: hidden;
   position: relative;
-  margin-top: var(--gap);
+  /* 6px of the gap moved inside the list (padding-top below): the list clips what leaves it, and
+     the first row's shadow reaches 6px up. */
+  margin-top: max(0px, calc(var(--gap) - 6px));
   --mask-top: 0px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
@@ -1904,7 +1911,7 @@ body > .result-item.sortable-fallback {
   inset: 0;
   width: 100%;
   overflow-y: scroll;
-  padding: 0 var(--pad-x) var(--gap);
+  padding: 6px var(--pad-x) var(--gap);
 }
 #results-container::-webkit-scrollbar {
   display: none;
@@ -3020,6 +3027,11 @@ html[data-anim-move="off"] #app-container.window-hidden {
 :is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > :not(.sp-body):not(.result-pin) {
   display: none;
 }
+/* The opened card is the selected row and says so by its size; a darker card on top of that only
+   muddies the preview. */
+:is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open:is(.selected, :hover) {
+  background: var(--card-bg);
+}
 :is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > .result-pin {
   position: absolute;
   top: 10px;
@@ -3859,7 +3871,7 @@ video.sp-photo {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text-dim);
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   transition: translate var(--t-move, 0.55s) var(--ease-glide), color var(--t-color, 0.2s) ease;
 }
@@ -3877,7 +3889,7 @@ video.sp-photo {
   }
 }
 #pins-toggle:hover {
-  color: var(--text);
+  color: #fff;
 }
 #pins-toggle svg {
   width: 16px;
@@ -3907,4 +3919,31 @@ video.sp-photo {
       .sp-photo, .sp-pdf, .sp-content, .su-row, .su-opt, .su-mock, .su-mock-bar) {
     corner-shape: squircle;
   }
+}
+
+/* Rows leaving the list fade out where they were (renderResults in main.js). */
+#results-ghosts {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+#results-ghosts .sp-body {
+  display: none;
+}
+
+/* Over a light wallpaper the drag bar and the favourites arrow turn dark (contrast.js reads the
+   brightness behind each of them). The pinned bar keeps its own colour. */
+.drag-bar.on-light:not(.pinned) .db-rect {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+.drag-bar.on-light:not(.pinned):hover:not(.notify):not(.active) .db-rect {
+  background-color: rgba(0, 0, 0, 0.75);
+}
+#pins-toggle.on-light {
+  color: rgba(0, 0, 0, 0.6);
+}
+#pins-toggle.on-light:hover {
+  color: rgba(0, 0, 0, 0.85);
 }

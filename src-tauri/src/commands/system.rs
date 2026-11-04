@@ -10,8 +10,60 @@ pub async fn launch_item(path: String) -> Result<String, String> {
         }
     }
     frecency::record_usage(&path);
+    #[cfg(target_os = "windows")]
+    shell_execute(&path, "open").map_err(|e| format!("Failed to open: {}", e))?;
+    #[cfg(not(target_os = "windows"))]
     open::that_detached(&path).map_err(|e| format!("Failed to open: {}", e))?;
     Ok(path)
+}
+/// The folder a program starts in, the one Explorer would give it: the folder of the file opened,
+/// or for a shortcut, of what it points at (a shortcut's own "Start in" still wins). Opened without
+/// one, everything ran in Umbra's own folder (System32 when started with Windows), and whatever a
+/// program looks for beside itself was not found: gradlew.bat next to a batch file, an app's files.
+#[cfg(target_os = "windows")]
+fn start_folder(path: &str) -> Option<String> {
+    if path.starts_with("http://") || path.starts_with("https://") || std::path::Path::new(path).is_dir() {
+        return None;
+    }
+    let target = if path.to_lowercase().ends_with(".lnk") {
+        crate::icons::resolve_lnk_target(path)?
+    } else {
+        path.to_string()
+    };
+    std::path::Path::new(&target)
+        .parent()
+        .filter(|d| d.is_dir())
+        .map(|d| d.to_string_lossy().into_owned())
+}
+/// Opens `path` with the shell `verb` ("open", "runas") the way Explorer does, in its own folder.
+#[cfg(target_os = "windows")]
+fn shell_execute(path: &str, verb: &str) -> Result<(), String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let folder = start_folder(path).map(|d| HSTRING::from(d.as_str()));
+    let (verb, file) = (HSTRING::from(verb), HSTRING::from(path));
+    unsafe {
+        // The shell asks for COM on the calling thread (shell extensions, shortcuts).
+        let init = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        let result = ShellExecuteW(
+            None,
+            &verb,
+            &file,
+            windows::core::PCWSTR::null(),
+            folder.as_ref().map_or(windows::core::PCWSTR::null(), |d| windows::core::PCWSTR(d.as_ptr())),
+            SW_SHOWNORMAL,
+        );
+        if init.is_ok() {
+            CoUninitialize();
+        }
+        if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!("ShellExecuteW failed with code {:?}", result))
+        }
+    }
 }
 /// Remembers which result was opened for the typed query (picks.rs).
 #[tauri::command]
@@ -43,36 +95,9 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn launch_admin(path: String) -> Result<String, String> {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    let wide_path: Vec<u16> = OsStr::new(&path)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let verb: Vec<u16> = OsStr::new("runas")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        let result = ShellExecuteW(
-            None,
-            PCWSTR::from_raw(verb.as_ptr()),
-            PCWSTR::from_raw(wide_path.as_ptr()),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        );
-        if result.0 as isize > 32 {
-            frecency::record_usage(&path);
-            Ok(path)
-        } else {
-
-            Err(format!("ShellExecuteW failed with code {:?}", result))
-        }
-    }
+    shell_execute(&path, "runas")?;
+    frecency::record_usage(&path);
+    Ok(path)
 }
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
@@ -249,5 +274,17 @@ mod tests {
         assert!(found.count >= 1);
         assert!(found.path.unwrap().eq_ignore_ascii_case(&me.to_string_lossy()));
         assert_eq!(running_processes("umbra-no-such-process.exe").count, 0);
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_file_starts_in_its_own_folder_and_folders_and_links_in_none() {
+        let dir = std::env::temp_dir().join(format!("umbra-start-folder-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bat = dir.join("start.bat");
+        std::fs::write(&bat, b"@echo off").unwrap();
+        assert_eq!(start_folder(&bat.to_string_lossy()).as_deref(), Some(dir.to_string_lossy().as_ref()));
+        assert_eq!(start_folder(&dir.to_string_lossy()), None);
+        assert_eq!(start_folder("https://example.com/"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -443,6 +443,7 @@ function colorCopy(text) {
 }
 
 // What !picker opens on: the last colour in History, or the accent before anything was picked.
+// !color does the same: the setup tour taught it before !picker existed, and it led to a web search.
 function colorPickerStart() {
   const last = colorReadHistory()[0];
   const accent = typeof theme !== "undefined" && theme && theme.accent;
@@ -450,7 +451,7 @@ function colorPickerStart() {
 }
 
 function handleColorCommand(query) {
-  const c = parseColorQuery(query) || (/^!picker\s*$/i.test(query.trim()) ? colorPickerStart() : null);
+  const c = parseColorQuery(query) || (/^!(picker|color)\s*$/i.test(query.trim()) ? colorPickerStart() : null);
   if (!c) return false;
   specialSection.classList.remove("hidden");
   resultsSection.classList.add("hidden");

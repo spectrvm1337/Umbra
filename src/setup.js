@@ -333,7 +333,7 @@ const SU_SCENES = [
   ] },
   { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4", calc: ["(1280 - 340) / 4", "235"] },
   { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats", link: ["openIn", { site: "YouTube", query: "lofi beats" }] },
-  { label: "setupScColor", text: "setupScColorT", query: "!color", color: { r: 229, g: 83, b: 61 } },
+  { label: "setupScColor", text: "setupScColorT", query: "!picker", color: { r: 229, g: 83, b: 61 } },
 ];
 let suTourTimers = [];
 

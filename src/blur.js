@@ -1,8 +1,8 @@
 // Background blur under the cards (theme.blurOn; drawn by blur.rs). Every frame the visible cards
 // are measured and, when they moved, sent to Rust, which keeps one blurred sprite under each.
 
-const BLUR_CARDS = "#search-box, .result-item, .special-card, #hint, #context-menu, #content-menu, #anim-menu, " +
-  "#color-picker, #cc-pill, .cc-tool, .dock-tile, #setup";
+// The menus and the colour picker are left out: they are opaque (styles.css), nothing shows through.
+const BLUR_CARDS = "#search-box, .result-item, .special-card, #hint, #cc-pill, .cc-tool, .dock-tile, #setup";
 const blurList = document.getElementById("results-wrapper");
 
 let blurOn = false;
@@ -84,27 +84,59 @@ function blurShapes() {
 // The cards measured in one frame are sent in the next: the page reaches the screen through
 // WebView2's renderer a frame later than the blur through DWM, so sent at once the blur ran ahead.
 let blurPending = null;
-// Measuring walks every card's parents through getComputedStyle, so it is skipped while nothing can
-// have moved: no change to the page, no scroll or resize, and no animation or transition running.
+// The loop runs only while something can move: it is woken by a change to the page, a scroll or
+// resize, or a transition or animation starting or ending, and goes back to sleep once nothing is
+// running. Running every frame for good kept the renderer at a quarter of a core with the window
+// open and idle (the blinking caret is an endless animation, so "no animations" was never true).
 let blurDirty = true;
-const blurMarkDirty = () => { blurDirty = true; };
-new MutationObserver(blurMarkDirty).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
-addEventListener("scroll", blurMarkDirty, true);
-addEventListener("resize", blurMarkDirty);
+let blurLoop = false;
+// Frames still measured after the last animation stops: animations started from script (the rows'
+// glide) end without an event, and their last frame has to be caught.
+let blurTail = 0;
+function blurWake() {
+  blurDirty = true;
+  if (blurOn && !blurLoop) {
+    blurLoop = true;
+    requestAnimationFrame(blurFrame);
+  }
+}
+// The typing examples in the empty box change its placeholder many times a second and move nothing.
+new MutationObserver((records) => {
+  if (records.some((r) => r.attributeName !== "placeholder")) blurWake();
+}).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+// Pointer moves too: with Animations off a hover that resizes a card starts no transition at all.
+for (const ev of ["scroll", "transitionrun", "transitionend", "transitioncancel", "animationstart", "animationend",
+  "pointerover", "pointerout"]) {
+  addEventListener(ev, blurWake, true);
+}
+addEventListener("resize", blurWake);
+// Endless animations (the caret's blink, pulses) never move a card, so only ones that end count.
+function blurMoving() {
+  return document.getAnimations().some((a) => a.playState === "running" && a.effect
+    && a.effect.getComputedTiming().endTime !== Infinity);
+}
 function blurFrame() {
-  if (!blurOn) return; // applyBlur starts the loop again
-  requestAnimationFrame(blurFrame);
+  blurLoop = false;
+  if (!blurOn) return; // applyBlur wakes the loop again
   if (blurPending) {
     invoke("set_blur_shapes", { shapes: blurPending }).catch((err) => console.warn("blur:", err));
     blurPending = null;
   }
-  if (!blurDirty && document.getAnimations().length === 0) return;
-  blurDirty = false;
-  const shapes = blurShapes();
-  const key = JSON.stringify(shapes);
-  if (key === blurSent) return;
-  blurSent = key;
-  blurPending = shapes;
+  if (blurMoving()) blurTail = 3;
+  if (blurDirty || blurTail > 0) {
+    if (blurTail > 0) blurTail--;
+    blurDirty = false;
+    const shapes = blurShapes();
+    const key = JSON.stringify(shapes);
+    if (key !== blurSent) {
+      blurSent = key;
+      blurPending = shapes;
+    }
+  }
+  if (blurPending || blurTail > 0) {
+    blurLoop = true;
+    requestAnimationFrame(blurFrame);
+  }
 }
 
 // The blur is drawn by Windows, outside the page, so it does not fade with #app-container on its own:
@@ -125,10 +157,9 @@ function applyBlur(on) {
   const was = blurOn;
   blurOn = !!on;
   blurSent = ""; // a fresh blur gets the cards again
-  blurDirty = true;
   blurLiftSent = null; // and the column's place
+  blurWake();
   if (!was && blurOn) {
-    requestAnimationFrame(blurFrame);
     const lift = parseFloat(appContainer.style.getPropertyValue("--lift")) || 0;
     blurLift(lift);
   }

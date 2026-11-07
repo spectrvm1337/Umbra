@@ -251,7 +251,9 @@ function colorStartSkeleton(card) {
   const blob = (t, a, b, phase) => [0.5 + 0.38 * Math.sin(t * a + phase), 0.5 + 0.38 * Math.cos(t * b + phase * 1.7)];
   const start = performance.now();
   const frame = (now) => {
-    if (!canvas.isConnected || loupe.classList.contains("has-capture")) {
+    // Hidden counts as gone: the card stays in the page after the search moves on, and the
+    // loop kept drawing into it every frame. renderColorCard starts it again when it is back.
+    if (!canvas.isConnected || !canvas.checkVisibility() || loupe.classList.contains("has-capture")) {
       delete canvas.dataset.running;
       return;
     }
@@ -425,6 +427,7 @@ function renderColorCard(c) {
     colorStartSkeleton(card);
   }
   card.classList.toggle("picking", colorPicking);
+  colorStartSkeleton(card); // a reused card's loop may have stopped while it was hidden
   return card;
 }
 

@@ -144,7 +144,7 @@ function spRefresh(live) {
       const to = spStage.getBoundingClientRect();
       const dx = from.left + from.width / 2 - (to.left + to.height / 2);
       seed.animate([{ transform: "translateX(" + dx + "px)" }, { transform: "none" }], {
-        duration: spDuration(), easing: "cubic-bezier(0.2, 1, 0.3, 1)",
+        duration: spDuration(), easing: motionEase(),
       });
     }
     if (live) {
@@ -305,7 +305,8 @@ async function spPaint(item) {
   spStage.appendChild(fresh);
   olds.forEach((old) => {
     old.classList.add("sp-leaving");
-    setTimeout(() => old.remove(), 220);
+    // As long as its fade (sp-out, --t-fade) lasts, and at once with Fade off in the animations.
+    setTimeout(() => old.remove(), motionMs("fade", 200) + 20);
   });
 
   // ---- what it is ----

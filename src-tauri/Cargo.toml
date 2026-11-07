@@ -1,6 +1,6 @@
 [package]
 name = "umbra"
-version = "0.2.6"
+version = "0.2.7"
 description = "Lightning fast system search tool"
 edition = "2021"
 
@@ -61,6 +61,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
     "Win32_System_Memory",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 windows = { version = "0.61", features = [
     "Win32_Foundation",

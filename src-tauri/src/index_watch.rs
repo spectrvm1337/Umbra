@@ -155,8 +155,22 @@ pub(crate) fn commit(entries: &mut Vec<SearchEntry>, batch: &Batch) {
         // matched by prefix in a second one that is skipped when there are none.
         // (Walking every entry's chain of parent folders here took seconds on a
         // large index, for a batch of a dozen changes.)
+        // Even that lookup hashes the whole path, and doing it for every one of ~800k entries on
+        // each batch kept this thread at 3-4% of a core while browsers and games write files. A
+        // path can only be one of the changed ones if it has the same length, so the lengths are
+        // checked first and only the few entries that match one are hashed.
+        let mut lens: Vec<bool> = Vec::new();
+        for len in removed.iter().map(|p| p.len()).chain(added_paths.iter().map(|p| p.len())) {
+            if len >= lens.len() {
+                lens.resize(len + 1, false);
+            }
+            lens[len] = true;
+        }
         let mut removed_dirs: Vec<String> = Vec::new();
         entries.retain(|e| {
+            if !lens.get(e.path.len()).copied().unwrap_or(false) {
+                return true;
+            }
             if added_paths.contains(e.path.as_str()) {
                 return false; // replaced by the fresh entry below
             }

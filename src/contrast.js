@@ -36,8 +36,11 @@ function ctBrightness(el) {
 function ctPaint(el, host) {
   const b = ctBrightness(el);
   if (b === null) return;
-  if (b > 0.62) host.classList.add("on-light");
-  else if (b < 0.55) host.classList.remove("on-light");
+  // Only on a change: add/remove rewrite the class attribute even when nothing changes, and this
+  // runs five times a second, so the bar's styles were recomputed for nothing.
+  const light = host.classList.contains("on-light");
+  if (!light && b > 0.62) host.classList.add("on-light");
+  else if (light && b < 0.55) host.classList.remove("on-light");
 }
 
 function ctUpdate() {

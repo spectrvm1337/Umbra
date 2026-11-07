@@ -159,7 +159,7 @@ function ensureDock() {
   const dockSortable = Sortable.create(dockEl, {
     group: { name: "umbra-dock", pull: true, put: ["umbra-results"] },
     animation: motionOff() ? 0 : 200,
-    easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+    easing: motionEase(),
     forceFallback: true,
     fallbackTolerance: 4,
     filter: ".dock-empty",

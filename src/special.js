@@ -146,10 +146,17 @@ function handleSpecialCommand(query) {
     `;
     const action = specialContent.querySelector(".special-action");
     if (invalid) return true;
-    // Show what would be killed: the program's icon and how many are running.
+    // Show what would be killed: the program's icon and how many are running. A partial name is
+    // taken to mean the running program it matches ("kill spot" -> Spotify.exe), which the card
+    // then names, and that is what the click kills.
+    let target = procName;
     invoke("find_process", { name: procName })
       .then(async (found) => {
         if (!action.isConnected) return;
+        if (found.exe) {
+          target = found.exe;
+          action.querySelector("span").textContent = t("killLabel", { name: found.exe });
+        }
         action.querySelector(".special-hint").textContent =
           found.count === 0 ? t("procNotRunning") : found.count === 1 ? t("procRunning") : t("procRunningN", { n: found.count });
         if (!found.path) return;
@@ -163,7 +170,7 @@ function handleSpecialCommand(query) {
       .catch(() => {});
     action.addEventListener("click", async () => {
       try {
-        const result = await invoke("kill_process", { name: procName });
+        const result = await invoke("kill_process", { name: target });
         const el = specialContent.querySelector(".special-action span");
         el.textContent = result;
         action.querySelector(".special-hint").textContent = "";
@@ -266,26 +273,33 @@ function handleSpecialCommand(query) {
   if (quickMatch) {
     const site = quickMatch[1].toLowerCase();
     const query = quickMatch[2];
+    // [search url, the name the row shows]: "open in Google", not "open in g".
     const sites = {
-      yt: "https://www.youtube.com/results?search_query=",
-      y: "https://www.youtube.com/results?search_query=",
-      gh: "https://github.com/search?q=",
-      g: "https://www.google.com/search?q=",
-      google: "https://www.google.com/search?q=",
-      ru: "https://www.google.ru/search?q=",
+      yt: ["https://www.youtube.com/results?search_query=", "YouTube"],
+      y: ["https://www.youtube.com/results?search_query=", "YouTube"],
+      gh: ["https://github.com/search?q=", "GitHub"],
+      g: ["https://www.google.com/search?q=", "Google"],
+      google: ["https://www.google.com/search?q=", "Google"],
+      ru: ["https://www.google.ru/search?q=", "Google.ru"],
       // The Wikipedia of the interface language.
-      wiki: `https://${WIKI_LANGS.has(window.i18n.getLang()) ? window.i18n.getLang() : "en"}.wikipedia.org/w/index.php?search=`,
-      w: "https://en.wikipedia.org/w/index.php?search=",
-      translate: "https://translate.google.com/?sl=auto&tl=en&text=",
-      so: "https://stackoverflow.com/search?q=",
-      npm: "https://www.npmjs.com/search?q=",
-      py: "https://pypi.org/search/?q=",
-      red: "https://www.reddit.com/search/?q=",
-      tw: "https://twitter.com/search?q=",
-      d: "https://duckduckgo.com/?q=",
+      wiki: [`https://${WIKI_LANGS.has(window.i18n.getLang()) ? window.i18n.getLang() : "en"}.wikipedia.org/w/index.php?search=`, "Wikipedia"],
+      w: ["https://en.wikipedia.org/w/index.php?search=", "Wikipedia"],
+      translate: ["https://translate.google.com/?sl=auto&tl=en&text=", "Google Translate"],
+      so: ["https://stackoverflow.com/search?q=", "Stack Overflow"],
+      npm: ["https://www.npmjs.com/search?q=", "npm"],
+      py: ["https://pypi.org/search/?q=", "PyPI"],
+      red: ["https://www.reddit.com/search/?q=", "Reddit"],
+      tw: ["https://twitter.com/search?q=", "X"],
+      d: ["https://duckduckgo.com/?q=", "DuckDuckGo"],
     };
-    const url = sites[site] || `https://www.google.com/search?q=${site}+`;
-    showOpenCard(`${url}${encodeURIComponent(query)}`, t("openIn", { site, query }));
+    if (sites[site]) {
+      const [url, name] = sites[site];
+      showOpenCard(`${url}${encodeURIComponent(query)}`, t("openIn", { site: name, query }));
+    } else {
+      // An unknown !word is searched for on Google together with the rest, and says so.
+      const all = `${quickMatch[1]} ${query}`;
+      showOpenCard(`https://www.google.com/search?q=${encodeURIComponent(all)}`, t("openIn", { site: "Google", query: all }));
+    }
     return true;
   }
   const target = parseOpenTarget(q);

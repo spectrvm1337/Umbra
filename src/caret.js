@@ -15,6 +15,10 @@
   field.append(sel, caret);
   const ctx = document.createElement("canvas").getContext("2d");
   let steadyTimer = 0;
+  // Like Windows' own caret, it stops blinking after a while without input and stays lit: an
+  // endless blink makes the compositor draw every frame, about 13% of a core with the window idle.
+  const CARET_REST_MS = 8000;
+  let restTimer = 0;
   let caretX = null;
   let selShown = false;
   function xAt(pos, cs) {
@@ -28,6 +32,9 @@
     sel.style.width = `${width}px`;
   }
   function update() {
+    caret.classList.remove("rest");
+    clearTimeout(restTimer);
+    restTimer = setTimeout(() => caret.classList.add("rest"), CARET_REST_MS);
     const focused = document.activeElement === input;
     const collapsed = input.selectionStart === input.selectionEnd;
     const cs = getComputedStyle(input);

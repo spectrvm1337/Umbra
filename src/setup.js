@@ -32,7 +32,8 @@ let suActive = false;
 let suFirst = true;
 let suHookOk = true;
 let suPoll = 0;
-const suState = { autostart: true };
+// autostartTouched: a repeat run only writes the autostart entry when the toggle was clicked.
+const suState = { autostart: true, autostartTouched: false };
 
 const suT = (key, vars) => window.i18n.t(key, vars);
 const suIco = (name, size) =>
@@ -247,6 +248,7 @@ function suBind(name, root) {
     const tog = root.querySelector("#su-autostart");
     root.querySelector("#su-autostart-row").addEventListener("click", () => {
       suState.autostart = !suState.autostart;
+      suState.autostartTouched = true;
       tog.classList.toggle("on", suState.autostart);
     });
     const keys = root.querySelector("#su-hotkey");
@@ -330,7 +332,7 @@ const SU_SCENES = [
     { kind: "app", name: "Notepad", path: "C:\\Windows\\System32\\notepad.exe" },
   ] },
   { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4", calc: ["(1280 - 340) / 4", "235"] },
-  { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats", link: "open in youtube: lofi beats" },
+  { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats", link: ["openIn", { site: "YouTube", query: "lofi beats" }] },
   { label: "setupScColor", text: "setupScColorT", query: "!color", color: { r: 229, g: 83, b: 61 } },
 ];
 let suTourTimers = [];
@@ -377,7 +379,7 @@ function suSceneHtml(scene) {
       " = <b>" + escapeHtml(scene.calc[1]) + '</b></span><span class="special-hint">' + escapeHtml(suT("calcCopy")) + "</span></div></div>";
   }
   if (scene.link) {
-    return '<div class="special-card"><div class="special-action">' + SU_LINK_ICON + "<span>" + escapeHtml(scene.link) + "</span></div></div>";
+    return '<div class="special-card"><div class="special-action">' + SU_LINK_ICON + "<span>" + escapeHtml(Array.isArray(scene.link) ? suT(...scene.link) : scene.link) + "</span></div></div>";
   }
   return scene.items.map((it, i) => suResultRow(it, i, scene.query)).join("");
 }
@@ -487,7 +489,10 @@ async function suFinish(applyDefaults) {
   suTourStop();
   // Skipping the first run keeps what is recommended; closing a repeat run changes nothing more.
   const wantAutostart = applyDefaults && suFirst ? true : suState.autostart;
-  if (suStep >= SU_STEPS.length - 1 || (applyDefaults && suFirst)) {
+  // A repeat run (from Settings) leaves autostart alone unless the toggle was clicked: the toggle
+  // shows OFF when the entry belongs to another copy of Umbra, and paging through must not delete it.
+  const writeAutostart = suFirst ? suStep >= SU_STEPS.length - 1 || applyDefaults : suState.autostartTouched;
+  if (writeAutostart) {
     await invoke("set_autostart", { enable: wantAutostart }).catch(() => {});
   }
   await invoke("finish_setup").catch(() => {});
@@ -507,6 +512,7 @@ async function suOpen(opts) {
   suStep = 0;
   suActive = true;
   suState.autostart = suFirst ? true : await invoke("get_autostart").catch(() => true);
+  suState.autostartTouched = false;
   try {
     indexOpts = await invoke("get_index_options");
   } catch {}

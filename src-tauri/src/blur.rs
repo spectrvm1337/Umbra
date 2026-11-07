@@ -193,9 +193,8 @@ pub fn set_blur_lift(app: AppHandle, y: f64, ms: f64) {
     let _ = app.run_on_main_thread(move || {
         HOST.with(|h| {
             if let Some(host) = h.borrow().as_ref() {
-                // The column's curve: --ease-glide, cubic-bezier(0.32, 0.72, 0, 1). Even a jump is an
-                // animation (1ms), so that it waits for the page the same way.
-                if let Err(e) = animate(host, "Offset.Y", y as f32, ms.max(1.0), [0.32, 0.72, 0.0, 1.0], PAGE_LAG_MS) {
+                // Even a jump is an animation (1ms), so that it waits for the page the same way.
+                if let Err(e) = animate(host, "Offset.Y", y as f32, ms.max(1.0), PAGE_EASE, PAGE_LAG_MS) {
                     eprintln!("blur lift: {e}");
                 }
             }
@@ -209,9 +208,12 @@ pub fn set_blur_lift(app: AppHandle, y: f64, ms: f64) {
 /// shortcut: a fixed two frames at 60Hz, estimated rather than measured; tune it if the blur still leads or trails.
 const PAGE_LAG_MS: f64 = 33.0;
 
+/// The page's one easing curve, --ease-out-apple in styles.css: the window's fade and the column's
+/// glide run on it, and the blur moves with them.
+const PAGE_EASE: [f32; 4] = [0.32, 0.72, 0.0, 1.0];
+
 fn host_fade(host: &Host, to: f32, ms: f64) -> windows::core::Result<()> {
-    // The page's fade curve: cubic-bezier(0.16, 1, 0.3, 1).
-    animate(host, "Opacity", to, ms, [0.16, 1.0, 0.3, 1.0], 0.0)
+    animate(host, "Opacity", to, ms, PAGE_EASE, 0.0)
 }
 
 /// Runs the root's `property` to `to` over `ms` on a CSS-style cubic bezier after `delay_ms`, or

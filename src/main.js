@@ -428,6 +428,7 @@ function applyZoom(z, save) {
   document.documentElement.style.zoom = z;
   document.body.style.zoom = z;
   setVal(settingZoomVal, z.toFixed(2));
+  syncWindowMotion();
   if (typeof refreshThemePanelRoom === "function") refreshThemePanelRoom();
   if (save) {
     invoke("set_zoom", { zoom: z }).catch(err => console.warn("zoom save failed:", err));
@@ -776,6 +777,13 @@ function applyAnimSettings() {
     }
   }
   applySortableMotion();
+  syncWindowMotion();
+}
+// The show and hide slide is the window's own move (commands/window.rs), so the blur Windows draws
+// under the cards goes with it: it is told how far (24px, the zoom included) and for how long
+// (Movement's length, 0 when Movement is off).
+function syncWindowMotion() {
+  invoke("set_window_motion", { px: 24 * uiZoom(), ms: Math.round(motionMs("move", 320)) }).catch(() => {});
 }
 // data-anim-<Kind> drives the keyframe animations the stylesheet cannot zero
 // through a duration; the variables drive the transitions.
@@ -1908,15 +1916,18 @@ function wheelStepPx() {
   return card + gap;
 }
 let isHiding = false;
+let hideSeq = 0; // bumped by every hide and every way back; a hide that finds it moved on is stale
 let hideTimer = null;
-// A long path keeps its end: the last two segments never shrink and the front gives way with an
-// ellipsis, so "C:UsersFre…RoamingHelium" and not "C:UsersFreezxAppDataR…".
+// A long path keeps its end: the last two segments shrink last and the front gives way with an
+// ellipsis, so "C:UsersFre…RoamingHelium" and not "C:UsersFreezxAppDataR…". When even those two do
+// not fit they are cut from the front too (.rp-tail), so the file and its folder stay readable.
 function pathHtml(path) {
   const parts = path.split("\\");
-  if (parts.length < 4) return escapeHtml(path);
-  const head = parts.slice(0, -2).join("\\");
-  const tail = parts.slice(-2).join("\\");
-  return `<span class="rp-head">${escapeHtml(head)}</span><span class="rp-tail">\\${escapeHtml(tail)}</span>`;
+  const cut = parts.length < 4 ? 0 : parts.length - 2;
+  const head = parts.slice(0, cut).join("\\");
+  const tail = (cut ? "\\" : "") + parts.slice(cut).join("\\");
+  return (head ? `<span class="rp-head">${escapeHtml(head)}</span>` : "") +
+    `<span class="rp-tail"><bdi>${escapeHtml(tail)}</bdi></span>`;
 }
 function hideWindow() {
   if (isHiding) return;
@@ -1926,6 +1937,8 @@ function hideWindow() {
   contextMenu.classList.remove("visible");
   appContainer.classList.remove("window-showing");
   appContainer.classList.add("window-hidden");
+  // The window rises as the page fades out (the slide is the window's own, see syncWindowMotion).
+  invoke("window_slide_out").catch(() => {});
   // The timer is cleared but the variable was left pointing at a dead id, so
   // the next time the window opened the check below found it set and the
   // placeholder never started again -- the typing examples were gone for good
@@ -1934,9 +1947,12 @@ function hideWindow() {
   placeholderTimer = null;
 
   clearTimeout(hideTimer);
+  const seq = ++hideSeq;
   hideTimer = setTimeout(async () => {
     // The theme panel goes with the window, so it is not there for a moment on the next summon.
     if (typeof resetThemePanelNow === "function") await resetThemePanelNow();
+    // Called back (cancelHide or a summon) while the panel was closing: the window stays.
+    if (seq !== hideSeq) return;
     invoke("hide_window");
     // Only now, with the window gone and its fade finished, take the list off
     // screen: the rows stay put while the app is still fading out, so nothing
@@ -1944,7 +1960,21 @@ function hideWindow() {
     // list from flashing before the staggered animation.
     appContainer.classList.add("content-stale");
     isHiding = false;
-  }, 280);
+  }, motionMs("fade", 280)); // with Fade off the card is already gone, so there is nothing to wait for
+}
+// The hotkey pressed again while the window is still fading out: it comes back with what it had,
+// instead of the press being lost (the window was still up, so the backend asked to hide it, and
+// hideWindow ignored that as already under way -- the reopen took a second press).
+function cancelHide() {
+  if (!isHiding) return;
+  clearTimeout(hideTimer);
+  hideSeq++;
+  isHiding = false;
+  appContainer.classList.remove("window-hidden");
+  appContainer.classList.add("window-showing");
+  invoke("window_slide_in").catch(() => {});
+  schedulePlaceholder(animatePlaceholder, 600);
+  searchInput.focus();
 }
 // False while pins live in the side dock (dock.js) instead of under the empty search box.
 function pinsInList() {
@@ -1985,15 +2015,16 @@ function setPinsOpen(open) {
     layoutCustomScrollbar();
     if (typeof syncPinsFold === "function") syncPinsFold();
   };
-  if (open || pinsSection.classList.contains("hidden") || motionOff()) return apply();
-  // Folding: the rows fade out while the box already glides back to the middle (pins-closing in
-  // the stylesheet; same length).
+  // Folding: the rows fade out while the box already glides back to the middle (pins-closing in the
+  // stylesheet, --t-fade long; with Fade off in the animations they go at once).
+  const fade = motionMs("fade", 220);
+  if (open || pinsSection.classList.contains("hidden") || fade <= 0) return apply();
   pinsSection.classList.add("pins-closing");
   if (typeof syncPinsFold === "function") syncPinsFold();
   pinsCloseTimer = setTimeout(() => {
     pinsSection.classList.remove("pins-closing");
     apply();
-  }, 220);
+  }, fade);
 }
 function updateSelectableItems() {
   if (lastQuery.trim() || !pinsInList() || pinsFolded()) {
@@ -2123,7 +2154,18 @@ let animateAllRows = true;
 const resultsGhosts = document.createElement("div");
 resultsGhosts.id = "results-ghosts";
 resultsContainer.appendChild(resultsGhosts);
-const ROW_GLIDE = { duration: 420, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
+// Motion started from script follows the same settings as the stylesheet's: the length of a kind of
+// motion is its --t-<kind> (set to 0s while Settings → Animations has that kind off, unset
+// otherwise, and then `ms`), and every animation uses the one curve, --ease-out-apple.
+function motionMs(kind, ms) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--t-" + kind).trim();
+  if (!v) return ms;
+  const n = parseFloat(v) || 0;
+  return v.endsWith("ms") ? n : n * 1000;
+}
+function motionEase() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--ease-out-apple").trim() || "ease-out";
+}
 // A row that stays from one search to the next is the same element, brought up to date: rebuilt,
 // the opened card in it (the preview, a playing video) started over on every letter.
 function updateResultItem(el, item, index, query) {
@@ -2143,9 +2185,8 @@ function renderResults(results, query) {
   for (const el of resultsList.children) {
     before.set(el.dataset.path, { el, top: el.getBoundingClientRect().top, y: el.offsetTop, x: el.offsetLeft, w: el.offsetWidth });
   }
-  const hasPins = currentPins.length > 0;
   const hasSpecial = !specialSection.classList.contains("hidden");
-  const showEmpty = results.length === 0 && query.trim() && !hasPins && !hasSpecial;
+  const showEmpty = results.length === 0 && query.trim() && !hasSpecial; // pins are not shown for a query, so they never stand in for results
   emptyState.classList.toggle("hidden", !showEmpty);
   // Rows are numbered after the pin list only when that list is shown above them.
   let globalIndex = query.trim() || !pinsInList() ? 0 : currentPins.length;
@@ -2169,19 +2210,27 @@ function renderResults(results, query) {
   }
   const gone = [...resultsList.children].filter((el) => !placed.has(el));
   gone.forEach((el) => el.remove());
-  if (!keep || motionOff()) return;
-  for (const el of resultsList.children) {
-    const was = before.get(el.dataset.path);
-    if (!was || was.el !== el) continue;
-    const dy = was.top - el.getBoundingClientRect().top;
-    if (Math.abs(dy) >= 1) el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], ROW_GLIDE);
+  if (!keep) return;
+  // Same length and curve as the column's glide, so rows and column move as one.
+  const glide = { duration: motionMs("move", 550), easing: motionEase() };
+  if (glide.duration > 0) {
+    for (const el of resultsList.children) {
+      const was = before.get(el.dataset.path);
+      if (!was || was.el !== el) continue;
+      const dy = was.top - el.getBoundingClientRect().top;
+      if (Math.abs(dy) >= 1) el.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], glide);
+    }
   }
+  const fade = { duration: motionMs("fade", 200), easing: motionEase(), fill: "forwards" };
+  if (fade.duration <= 0) return;
   for (const el of gone) {
     const { y, x, w } = before.get(el.dataset.path);
     el.classList.remove("sp-open");
     el.style.cssText += `;position:absolute;top:${y}px;left:${x}px;width:${w}px;animation:none`;
     resultsGhosts.appendChild(el);
-    el.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.97 }], { duration: 200, easing: "ease", fill: "forwards" })
+    // The shrink is a size change: with Size off in the animations it only fades.
+    const shrink = motionMs("size", 1) > 0 ? 0.97 : 1;
+    el.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: shrink }], fade)
       .finished.then(() => el.remove(), () => el.remove());
   }
 }
@@ -2211,7 +2260,7 @@ function endRowDrag() {
 }
 const pinsSortable = Sortable.create(pinsList, {
         animation: animOff.includes("move") ? 0 : 250,
-        easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+        easing: motionEase(),
         ghostClass: "sortable-ghost",
         dragClass: "sortable-drag",
   delay: 50,
@@ -2759,8 +2808,16 @@ async function togglePin(btn) {
 }
 // The hints come from the language file as one "|"-separated string, and are shown in a random
 // order: a different one each time, never the same one twice running.
+// A {id} in a hint is a key from Keybinds (keybinds.js), shown as it is bound now: a hint naming the
+// default key told the wrong thing once it was rebound. A hint whose key is unbound is left out.
 function placeholderList() {
-  const list = window.i18n.t("placeholderWords").split("|").filter(Boolean);
+  const list = window.i18n.t("placeholderWords").split("|").filter(Boolean)
+    .map((hint) => hint.replace(/\{(\w+)\}/g, (_, id) => {
+      let combo = "";
+      try { combo = kbCombo(id); } catch {} // keybinds.js not loaded yet
+      return combo ? kbDisplay(combo) : "\u0000";
+    }))
+    .filter((hint) => !hint.includes("\u0000"));
   return list.length ? list : ["type to search"];
 }
 let placeholderIndex = 0;
@@ -2919,6 +2976,17 @@ document.addEventListener("keydown", (e) => {
   }
 });
 const indexSpinner = document.getElementById("index-spinner");
+// The spinner's SVG animations run on the page's main thread every frame, shown or hidden: left
+// running they kept the renderer at ~18% of a core with the window open and idle. They play only
+// while the spinner is on screen.
+const indexSpinnerSvg = indexSpinner.querySelector("svg");
+function syncSpinnerMotion() {
+  const on = indexSpinner.classList.contains("visible") && !indexSpinner.classList.contains("suppressed");
+  if (on) indexSpinnerSvg.unpauseAnimations();
+  else indexSpinnerSvg.pauseAnimations();
+}
+new MutationObserver(syncSpinnerMotion).observe(indexSpinner, { attributes: true, attributeFilter: ["class"] });
+syncSpinnerMotion();
 let indexingActive = false;
 let indexRan = false;
 let idxPct = 0;
@@ -3303,6 +3371,8 @@ window.addEventListener("mousemove", (e) => {
   dragPressOrigin = null;
   nativeDragActive = true;
   appContainer.classList.add("dragging");
+  // A slide still under way would pull the window back from under the cursor.
+  invoke("stop_window_motion").catch(() => {});
   getCurrentWindow().startDragging().then(() => {
     appContainer.classList.remove("dragging");
   }).catch(() => {
@@ -3485,9 +3555,11 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
       const zoom = await invoke("get_zoom");
       document.documentElement.style.zoom = zoom;
       document.body.style.zoom = zoom;
+      syncWindowMotion();
     } catch (e) { console.warn("zoom load failed:", e); }
   }
   clearTimeout(hideTimer);
+  hideSeq++;
   isHiding = false;
   pointerGuard = true;
   searchInput.value = "";
@@ -3522,6 +3594,8 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   pinsOpen = false;
   appContainer.classList.remove("window-hidden", "window-hiding");
   appContainer.classList.add("window-showing");
+  // The window, placed a little higher, comes down now, as the page starts fading in.
+  invoke("window_slide_in").catch(() => {});
   animateAllRows = true;
   if (theme && theme.followSystem) refreshSystemTheme();
   performSearch("").finally(() => appContainer.classList.remove("content-stale"));
@@ -3543,13 +3617,18 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
 window.__TAURI__.event.listen("alt-space-key", (e) => {
   const { combo, hotkey } = e.payload || {};
   if (hotkeyCapturing) applyHotkey(combo);
-  else if (hotkey && !(window.UmbraSetup && window.UmbraSetup.active())) hideWindow();
+  else if (hotkey && !(window.UmbraSetup && window.UmbraSetup.active())) {
+    if (isHiding) cancelHide();
+    else hideWindow();
+  }
 });
-window.__TAURI__.event.listen("window-hide-requested", () => {
+window.__TAURI__.event.listen("window-hide-requested", (event) => {
   if (hotkeyCapturing) return;
   // The first-run setup holds the window up until it is finished.
   if (window.UmbraSetup && window.UmbraSetup.active()) return;
-  hideWindow();
+  // The hotkey while the window fades out reopens it; a click elsewhere just lets it go.
+  if (isHiding && event.payload && event.payload.hotkey) cancelHide();
+  else hideWindow();
 });
 document.getElementById("setting-setup-btn").addEventListener("click", (e) => {
   e.stopPropagation();

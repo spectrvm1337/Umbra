@@ -36,12 +36,22 @@ test("the top hint has no glow", () => {
   // The window gives this hint only a few pixels above the drag bar -- in the
   // compact densities --pad-y is 6, so a vertical pad pushes the box out of
   // the window and the hint vanishes. It must stay on the original anchor.
-  assert.match(ntf, /bottom:\s*18px/, "the anchor is unchanged");
+  // 0.2.4 moved the box 4px down and gave it 4px of padding below for the text shadow, so the
+  // text itself still sits 18px up.
+  assert.match(ntf, /bottom:\s*14px/, "the box sits 4px lower");
+  assert.match(ntf, /padding:\s*0 6px 4px/, "and the 4px below puts the text back on the anchor");
   assert.ok(!/padding:\s*7px/.test(ntf), "no vertical padding: there is no room for it");
-  // No halo around the text.
-  assert.ok(!/text-shadow/.test(ntf), "no shadow, no glow");
+  // A drop shadow for legibility on any wallpaper (0.2.4), but no halo: every layer is offset
+  // down at least as far as it blurs, so nothing reaches above the letters, where the window ends.
+  const shadow = /text-shadow:\s*([^;]+)/.exec(ntf);
+  assert.ok(shadow, "the hint has a drop shadow");
+  for (const layer of shadow[1].split(/,(?![^(]*\))/)) {
+    const [x, y, blur] = layer.trim().split(/\s+/).map(parseFloat);
+    assert.equal(x, 0, "no sideways shadow");
+    assert.ok(y >= blur, `the layer "${layer.trim()}" falls down, not around`);
+  }
   const notify = rule(".drag-bar.notify .ntf-short,");
-  assert.ok(!/text-shadow/.test(notify), "and none on the shown state either");
+  assert.ok(!/text-shadow/.test(notify), "the shown state adds no glow of its own");
   // The type still tells them apart, just with colour rather than a halo.
   assert.match(rule(".drag-bar.error .ntf-short,"), /--ntf-tint/, "errors have their own colour");
 
@@ -138,12 +148,10 @@ test("the grips and the dock tiles ease into hover", () => {
 });
 
 test("every small surface changes colour smoothly", () => {
-  // The controls that used to snap: the colour swatches, the monitor buttons
+  // The controls that used to snap: the colour swatches
   // and the zoom value all changed appearance in one step.
   assert.match(rule(".swatch {"), /transition:[\s\S]*?box-shadow/, "the swatch ring eases in");
   assert.match(rule(".swatch:hover {"), /transform:\s*scale/, "and the swatch grows");
-  assert.match(rule(".monitor-btn {"), /transition:[\s\S]*?color/, "the monitor button eases");
-  assert.match(rule(".monitor-btn:hover {"), /color:/, "and lightens on hover");
   assert.match(rule(".zoom-stepper span {"), /transition:[\s*]color/, "the zoom value eases");
   // The ones that already had one must keep it.
   for (const sel of [".seg-btn {", ".stepper-btn {", ".toggle {", ".settings-text-btn {", ".ctx-item {"]) {
@@ -198,8 +206,9 @@ test("the hint is hidden by opacity, never by visibility", () => {
   );
   assert.match(body, /void ntfShort\.offsetWidth/, "the flush is deliberate");
 
-  // Nothing should be driving the motion from JS any more.
-  assert.ok(!/\.animate\(/.test(MAIN), "the motion is CSS, not scripted");
+  // Nothing should be driving the hint's motion from JS (the result rows do glide through
+  // .animate(), which is why only the hint's own code is checked).
+  assert.ok(!/\.animate\(/.test(body), "the motion is CSS, not scripted");
 });
 
 test("hints are trimmed instead of running off the box", () => {

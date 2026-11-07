@@ -128,6 +128,30 @@ pub struct RunningProcess {
     /// Full path of the first one we may query (None for elevated or
     /// protected processes), used for the icon on the kill card.
     pub path: Option<String>,
+    /// The image name the typed one was taken to mean ("spot" -> "Spotify.exe"); what the card
+    /// shows and what `kill_process` is then given. None when nothing running matches.
+    pub exe: Option<String>,
+}
+/// Which running image `typed` means: the exact name, else the shortest one starting with it, else
+/// the shortest one containing it. Partial matches need three letters, so "kill a" does not pick
+/// some random program. The kill still waits for a click on a card that names the program.
+pub(crate) fn pick_exe<'a>(running: &[&'a str], typed: &str) -> Option<&'a str> {
+    let typed = typed.to_ascii_lowercase();
+    if let Some(exact) = running.iter().find(|r| r.eq_ignore_ascii_case(&typed)) {
+        return Some(exact);
+    }
+    let stem = typed.strip_suffix(".exe").unwrap_or(&typed);
+    if stem.chars().count() < 3 {
+        return None;
+    }
+    let shortest = |pred: &dyn Fn(&str) -> bool| {
+        running
+            .iter()
+            .copied()
+            .filter(|r| pred(&r.to_ascii_lowercase()))
+            .min_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)))
+    };
+    shortest(&|r| r.starts_with(stem)).or_else(|| shortest(&|r| r.contains(stem)))
 }
 #[cfg(target_os = "windows")]
 fn running_processes(exe_name: &str) -> RunningProcess {
@@ -140,7 +164,9 @@ fn running_processes(exe_name: &str) -> RunningProcess {
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
-    let mut found = RunningProcess { count: 0, path: None };
+    let mut found = RunningProcess { count: 0, path: None, exe: None };
+    // Every running image and its process id, then the one the typed name means.
+    let mut all: Vec<(String, u32)> = Vec::new();
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot == INVALID_HANDLE_VALUE {
@@ -151,30 +177,40 @@ fn running_processes(exe_name: &str) -> RunningProcess {
         let mut ok = Process32FirstW(snapshot, &mut entry);
         while ok != 0 {
             let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
-            let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
-            if exe.eq_ignore_ascii_case(exe_name) {
-                found.count += 1;
-                if found.path.is_none() {
-                    let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
-                    if !process.is_null() {
-                        let mut buf = [0u16; 1024];
-                        let mut size = buf.len() as u32;
-                        if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size) != 0 {
-                            found.path = Some(String::from_utf16_lossy(&buf[..size as usize]));
-                        }
-                        CloseHandle(process);
-                    }
-                }
-            }
+            all.push((String::from_utf16_lossy(&entry.szExeFile[..len]), entry.th32ProcessID));
             ok = Process32NextW(snapshot, &mut entry);
         }
         CloseHandle(snapshot);
     }
+    let names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
+    let Some(exe) = pick_exe(&names, exe_name).map(str::to_string) else {
+        return found;
+    };
+    for (name, pid) in &all {
+        if !name.eq_ignore_ascii_case(&exe) {
+            continue;
+        }
+        found.count += 1;
+        if found.path.is_none() {
+            unsafe {
+                let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, *pid);
+                if !process.is_null() {
+                    let mut buf = [0u16; 1024];
+                    let mut size = buf.len() as u32;
+                    if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size) != 0 {
+                        found.path = Some(String::from_utf16_lossy(&buf[..size as usize]));
+                    }
+                    CloseHandle(process);
+                }
+            }
+        }
+    }
+    found.exe = Some(exe);
     found
 }
 #[cfg(not(target_os = "windows"))]
 fn running_processes(_exe_name: &str) -> RunningProcess {
-    RunningProcess { count: 0, path: None }
+    RunningProcess { count: 0, path: None, exe: None }
 }
 /// What the `kill` card shows before the user confirms.
 #[tauri::command]
@@ -257,6 +293,18 @@ pub fn exec_power_command(command: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_partial_process_name_finds_the_program() {
+        let running = ["svchost.exe", "Spotify.exe", "SpotifyWebHelper.exe", "chrome.exe", "Discord.exe"];
+        assert_eq!(pick_exe(&running, "chrome.exe"), Some("chrome.exe"));
+        assert_eq!(pick_exe(&running, "CHROME.EXE"), Some("chrome.exe"));
+        // the shortest name that starts with it, then one that contains it
+        assert_eq!(pick_exe(&running, "spot.exe"), Some("Spotify.exe"));
+        assert_eq!(pick_exe(&running, "cord.exe"), Some("Discord.exe"));
+        // too short to guess, or nothing like it
+        assert_eq!(pick_exe(&running, "sp.exe"), None);
+        assert_eq!(pick_exe(&running, "firefox.exe"), None);
+    }
     #[test]
     fn process_names_without_wildcards_get_an_exe_suffix() {
         assert_eq!(process_exe_name(" chrome ").unwrap(), "chrome.exe");

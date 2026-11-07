@@ -1,13 +1,14 @@
 {
   "name": "umbra",
   "private": true,
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Lightning fast system search tool",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "build:fast": "tauri build --debug"
+    "build:fast": "tauri build --debug",
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

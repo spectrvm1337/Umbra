@@ -1,10 +1,37 @@
 use crate::sync::LockExt;
 use tauri::Manager;
+/// Counts hides and wakes, so a sleep scheduled by a hide knows whether the window came back since.
+static AWAKE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// How long the page stays awake after the window is hidden. Asleep at once, a summon right after a
+/// close found it trimmed to the bone and the window came up with a stutter.
+const SLEEP_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 #[tauri::command]
 pub fn hide_window(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
-        set_webview_awake(&w, false);
+        // The slide out stops, and the window goes back to where it rests, out of sight. A moment
+        // later, not here: the slide's thread may be waiting on this very thread to apply its last
+        // step, which then landed after the window had been put back and left it raised.
+        stop_window_motion();
+        let stopped = MOVE_GEN.load(std::sync::atomic::Ordering::SeqCst);
+        if let Some(rest) = *REST.lock_or_recover() {
+            let back = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                // Not if it was summoned again meanwhile (that starts a move of its own).
+                if MOVE_GEN.load(std::sync::atomic::Ordering::SeqCst) == stopped && !back.is_visible().unwrap_or(true) {
+                    set_window_xy(&back, rest.0, rest.1);
+                }
+            });
+        }
+        let gen = AWAKE_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let later = w.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(SLEEP_AFTER);
+            if AWAKE_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen && !later.is_visible().unwrap_or(true) {
+                set_webview_awake(&later, false);
+            }
+        });
         // The screen behind it, for the next summon, once DWM has taken the window off.
         crate::backdrop::refresh_later(&w, 300);
     }
@@ -16,6 +43,10 @@ pub fn hide_window(app: tauri::AppHandle) {
 /// back that the summon showed an empty window, the next press of the hotkey hid it again, and Umbra
 /// seemed to open only at the fifth try. A hidden page does nothing anyway.
 pub fn set_webview_awake(window: &tauri::WebviewWindow, awake: bool) {
+    if awake {
+        // A sleep a recent hide scheduled no longer applies.
+        AWAKE_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     #[cfg(target_os = "windows")]
     let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -76,88 +107,195 @@ pub fn refit_window(app: &tauri::AppHandle) {
 /// so two summons in a row (or the eyedropper's dock while the window is still
 /// gliding in) never have two threads pulling the window different ways.
 static MOVE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Moves the window to a monitor's spot (placement, the eyedropper's dock, recentring).
 fn animate_window_to(window: tauri::WebviewWindow, target_x: i32, target_y: i32) {
+    animate_window(window, (target_x, target_y), 320, [0.16, 1.0, 0.3, 1.0], (target_x, target_y));
+}
+/// Where the window comes to rest when the move under way ends, while one runs: for the slide out
+/// on hide that is where it started, not where it is going (see window_slide_out).
+static ANIM_REST: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+/// Where the window rests while it is up; it goes back there, hidden, after the slide out.
+static REST: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+/// The point on a CSS cubic-bezier(x1, y1, x2, y2) curve at progress `p` (0..1).
+fn cubic_bezier(p: f64, [x1, y1, x2, y2]: [f64; 4]) -> f64 {
+    if p <= 0.0 {
+        return 0.0;
+    }
+    if p >= 1.0 {
+        return 1.0;
+    }
+    let bez = |t: f64, a: f64, b: f64| {
+        let u = 1.0 - t;
+        3.0 * u * u * t * a + 3.0 * u * t * t * b + t * t * t
+    };
+    // t for which the curve's x is p, by bisection (x grows with t for every curve used here).
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if bez(mid, x1, x2) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    bez((lo + hi) / 2.0, y1, y2)
+}
+/// Puts the window at `(x, y)` (physical px) at once, keeping its size and place in the z-order.
+/// Synchronous on purpose: posted (SWP_ASYNCWINDOWPOS), steps of a slide still queued behind a busy
+/// window thread were applied after the window had been put back in place on hide, and left it raised.
+/// Waiting for each step instead, the next one is taken from the clock, so a late frame is skipped,
+/// not replayed.
+fn set_window_xy(window: &tauri::WebviewWindow, x: i32, y: i32) {
+    #[cfg(target_os = "windows")]
+    if let Ok(h) = window.hwnd() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER};
+        unsafe { SetWindowPos(h.0 as _, std::ptr::null_mut(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) };
+        return;
+    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+/// Animates the window to `target` over `ms` along a CSS cubic-bezier curve, one step per
+/// frame of the desktop compositor (DwmFlush), so it moves as evenly as a CSS transition.
+/// `rest` is where it rests once done (see ANIM_REST).
+fn animate_window(window: tauri::WebviewWindow, target: (i32, i32), ms: u64, curve: [f64; 4], rest: (i32, i32)) {
     use std::sync::atomic::Ordering;
     let gen = MOVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    *ANIM_REST.lock_or_recover() = Some(rest);
     std::thread::spawn(move || {
-        let start = window.outer_position().ok();
-        let (from_x, from_y) = match start {
-            Some(p) => (p.x, p.y),
-            None => return,
+        let done = |gen: u64| {
+            if MOVE_GEN.load(Ordering::SeqCst) == gen {
+                *ANIM_REST.lock_or_recover() = None;
+            }
         };
-        if (from_x - target_x).abs() < 2 && (from_y - target_y).abs() < 2 {
-            return;
+        let Ok(from) = window.outer_position() else { return done(gen) };
+        let (from_x, from_y) = (from.x, from.y);
+        if (from_x - target.0).abs() < 1 && (from_y - target.1).abs() < 1 || ms == 0 {
+            set_window_xy(&window, target.0, target.1);
+            return done(gen);
         }
-        const BX1: f64 = 0.16;
-        const BY1: f64 = 1.0;
-        const BX2: f64 = 0.3;
-        const BY2: f64 = 1.0;
-        fn bez(t: f64, p1: f64, p2: f64) -> f64 {
-
-            let u = 1.0 - t;
-            3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t
-        }
-        fn bez_deriv_x(t: f64) -> f64 {
-            let u = 1.0 - t;
-            3.0 * u * u * BX1 + 6.0 * u * t * (BX2 - BX1) + 3.0 * t * t * (1.0 - BX2)
-        }
-        let ease = |p: f64| -> f64 {
-            if p <= 0.0 {
-                return 0.0;
-            }
-            if p >= 1.0 {
-                return 1.0;
-            }
-
-            let mut t = p;
-            for _ in 0..8 {
-                let x = bez(t, BX1, BX2) - p;
-                if x.abs() < 1e-6 {
-                    return bez(t, BY1, BY2);
-                }
-                let d = bez_deriv_x(t);
-                if d.abs() < 1e-6 {
-                    break;
-                }
-                t -= x / d;
-                if t < 0.0 {
-                    t = 0.0;
-                }
-                if t > 1.0 {
-                    t = 1.0;
-                }
-            }
-            let (mut lo, mut hi) = (0.0f64, 1.0f64);
-            for _ in 0..24 {
-                let mid = (lo + hi) / 2.0;
-                if bez(mid, BX1, BX2) < p {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            bez((lo + hi) / 2.0, BY1, BY2)
-        };
-        let duration_ms = 320u64;
         let started = std::time::Instant::now();
         loop {
             if MOVE_GEN.load(Ordering::SeqCst) != gen {
                 return;
             }
-            let p = (started.elapsed().as_millis() as f64 / duration_ms as f64).min(1.0);
-            let e = ease(p);
-            let x = from_x as f64 + (target_x - from_x) as f64 * e;
-            let y = from_y as f64 + (target_y - from_y) as f64 * e;
-            let _ = window.set_position(tauri::PhysicalPosition::new(
-                x.round() as i32,
-                y.round() as i32,
-            ));
+            let p = (started.elapsed().as_secs_f64() * 1000.0 / ms as f64).min(1.0);
+            let e = cubic_bezier(p, curve);
+            let x = from_x as f64 + (target.0 - from_x) as f64 * e;
+            let y = from_y as f64 + (target.1 - from_y) as f64 * e;
+            set_window_xy(&window, x.round() as i32, y.round() as i32);
             if p >= 1.0 {
-                break;
+                return done(gen);
             }
+            #[cfg(target_os = "windows")]
+            {
+                if unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() } < 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(8));
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
             std::thread::sleep(std::time::Duration::from_millis(8));
         }
     });
+}
+/// The show and hide slide, from Settings → Animations (set_window_motion): how far the window
+/// travels (logical px with the zoom in) and for how long (Movement's length, 0 when it is off).
+/// The whole window moves rather than the page inside it, so the blur under the cards -- drawn
+/// in the window by Windows, not by the page -- moves with it instead of a frame or two behind.
+static SLIDE: std::sync::Mutex<(f64, u64)> = std::sync::Mutex::new((24.0, 320));
+/// The page's own curve for it (--ease-out-apple in styles.css).
+const SLIDE_EASE: [f64; 4] = [0.32, 0.72, 0.0, 1.0];
+#[tauri::command]
+pub fn set_window_motion(px: f64, ms: u64) {
+    *SLIDE.lock_or_recover() = (px.clamp(0.0, 200.0), ms.min(2000));
+}
+/// The slide's distance in physical px, and its length; (0, 0) when Movement is off.
+fn slide(window: &tauri::WebviewWindow) -> (i32, u64) {
+    let (px, ms) = *SLIDE.lock_or_recover();
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let off = (px * scale).round() as i32;
+    if off == 0 || ms == 0 { (0, 0) } else { (off, ms) }
+}
+/// Where the window belongs on this summon, its height fitted there: the pinned spot, or the
+/// placement from Settings on the active monitor.
+pub fn resting_place(window: &tauri::WebviewWindow) -> Option<(i32, i32)> {
+    if config::is_pinned() {
+        let pos = window.outer_position().ok()?;
+        if let Ok(Some(mon)) = window.current_monitor() {
+            fit_height(window, pos.y, work_bottom(&mon));
+        }
+        return Some((pos.x, pos.y));
+    }
+    if let Some((tx, ty, bottom)) = placement_target(window) {
+        fit_height(window, ty, bottom);
+        return Some((tx, ty));
+    }
+    let mon = window.current_monitor().ok().flatten()?;
+    let (mon_pos, mon_size) = (mon.position(), mon.size());
+    let (w, h) = base_size_physical(window);
+    let (left, right) = side_extents(window);
+    let tx = window_left("c", mon_pos.x, mon_size.width as i32, w, left, right);
+    let ty = mon_pos.y + ((mon_size.height as i32) - h) / 2;
+    fit_height(window, ty, work_bottom(&mon));
+    Some((tx, ty))
+}
+/// A slide in waiting for the page to start its fade (window_slide_in).
+static SLIDE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Before the window is shown: it goes to `rest`, raised by the slide. It comes down when the page
+/// starts fading in (window_slide_in from the "window-shown" handler), so the two begin together as
+/// the old transform did; if the page does not say so in time, it comes down anyway.
+pub fn slide_in_start(window: &tauri::WebviewWindow, rest: (i32, i32)) {
+    use std::sync::atomic::Ordering;
+    MOVE_GEN.fetch_add(1, Ordering::SeqCst);
+    *ANIM_REST.lock_or_recover() = None;
+    *REST.lock_or_recover() = Some(rest);
+    let (off, _) = slide(window);
+    set_window_xy(window, rest.0, rest.1 - off);
+    SLIDE_PENDING.store(true, Ordering::SeqCst);
+    let later = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if SLIDE_PENDING.load(Ordering::SeqCst) {
+            slide_in_finish(&later);
+        }
+    });
+}
+/// Down into the resting place, as the page fades in (or comes back from a fade out).
+pub fn slide_in_finish(window: &tauri::WebviewWindow) {
+    SLIDE_PENDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    let Some(rest) = *REST.lock_or_recover() else { return };
+    let (_, ms) = slide(window);
+    animate_window(window.clone(), rest, ms, SLIDE_EASE, rest);
+}
+/// The page starts hiding: up by the slide while it fades out. Where the window rests is taken now,
+/// so a drag since the summon is kept (and a move still under way counts by where it ends).
+#[tauri::command]
+pub fn window_slide_out(app: tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let rest = ANIM_REST.lock_or_recover().or_else(|| window.outer_position().ok().map(|p| (p.x, p.y)));
+    let Some(rest) = rest else { return };
+    *REST.lock_or_recover() = Some(rest);
+    let (off, ms) = slide(&window);
+    if ms > 0 {
+        animate_window(window, (rest.0, rest.1 - off), ms, SLIDE_EASE, rest);
+    }
+}
+/// A summon while the window is already up: it glides to where it belongs, no slide.
+pub fn glide_to(window: &tauri::WebviewWindow, rest: (i32, i32)) {
+    *REST.lock_or_recover() = Some(rest);
+    animate_window_to(window.clone(), rest.0, rest.1);
+}
+/// The page starts fading in (the "window-shown" handler), or the hotkey came while it was fading
+/// out (cancelHide in main.js): down into place.
+#[tauri::command]
+pub fn window_slide_in(app: tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    slide_in_finish(&window);
+}
+/// A drag of the window starts: whatever move is under way stops, so the two do not pull at it.
+#[tauri::command]
+pub fn stop_window_motion() {
+    MOVE_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    *ANIM_REST.lock_or_recover() = None;
 }
 /// Logical width the pinned-apps dock adds to the window (DOCK_RESERVE in dock.js).
 const DOCK_RESERVE: f64 = 168.0;
@@ -220,17 +358,6 @@ fn placement_target(window: &tauri::WebviewWindow) -> Option<(i32, i32, i32)> {
         _ => my + (mh - h) / 2,
     };
     Some((tx, ty, work_bottom(&mon)))
-}
-pub fn place_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        match placement_target(&window) {
-            Some((tx, ty, bottom)) => {
-                fit_height(&window, ty, bottom);
-                animate_window_to(window, tx, ty)
-            }
-            None => animate_recenter(app),
-        }
-    }
 }
 static DOCK_RETURN: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
 
@@ -348,7 +475,22 @@ pub fn get_window_pin() -> bool {
 }
 #[cfg(test)]
 mod tests {
-    use super::{fitted_height, window_left};
+    use super::{cubic_bezier, fitted_height, window_left, SLIDE_EASE};
+    #[test]
+    fn the_window_slide_follows_the_pages_curve() {
+        // cubic-bezier(0.32, 0.72, 0, 1): starts at 0, ends at 1, never goes back, and is an ease-out
+        // (most of the way done by the middle), like the CSS transition it replaces.
+        assert_eq!(cubic_bezier(0.0, SLIDE_EASE), 0.0);
+        assert_eq!(cubic_bezier(1.0, SLIDE_EASE), 1.0);
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let v = cubic_bezier(i as f64 / 100.0, SLIDE_EASE);
+            assert!(v >= last - 1e-9, "monotonic at {i}");
+            last = v;
+        }
+        let mid = cubic_bezier(0.5, SLIDE_EASE);
+        assert!((0.94..0.97).contains(&mid), "ease-out, as the CSS one: {mid}");
+    }
     // 1920px monitor at x=0, a 660px panel, a 168px dock or a 380px theme panel.
     #[test]
     fn centres_the_window_when_there_is_no_dock() {

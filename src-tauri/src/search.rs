@@ -215,10 +215,11 @@ fn match_score(
     variants: &[Variant],
     frec: &std::collections::HashMap<String, f64>,
     picks: &std::collections::HashMap<String, f64>,
+    pinned: &std::collections::HashSet<String>,
     fuzzy_deadline: std::time::Instant,
 ) -> Option<ScoreKey> {
     let name = e.name_lower.as_ref();
-    let primary = if name == q {
+    let by_name = (|| Some(if name == q {
         0u32
     } else if variants.iter().any(|v| name == v.text) {
         1
@@ -254,6 +255,12 @@ fn match_score(
         } else {
             return None;
         }
+    }))();
+    // A program's name in the index is the one Windows shows ("Google Chrome" for chrome.exe), so
+    // "chrome" met it only inside a word and chrome_proxy.exe ranked above it. Its file name counts too.
+    let primary = match (by_name, exe_stem_primary(&e.path, q, variants)) {
+        (Some(a), Some(b)) => a.min(b),
+        (a, b) => a.or(b)?,
     };
     let class = match primary {
         0..=4 => 0,
@@ -269,7 +276,7 @@ fn match_score(
     let is_program = e.kind == KIND_APP || e.kind == KIND_SHORTCUT;
     // Installers and uninstallers are programs nobody is looking for when they
     // type the program's name; they go with the plain files.
-    let tier: u32 = if is_program && is_setup_or_uninstaller(&e.path) {
+    let tier: u32 = if (is_program && is_setup_or_uninstaller(&e.path)) || is_helper_exe(&e.path) {
         2
     } else if is_program && !is_exe {
         0
@@ -283,6 +290,9 @@ fn match_score(
 
     let pick_inv = match picks.get(&e.path) {
         Some(&w) => (1000.0 - (w * 100.0).clamp(1.0, 999.0)) as u32,
+        // A favourite whose name starts with the query (or a word in it does) is what the user
+        // chose to keep: above every other match, below only what was opened for this very query.
+        None if class == 0 && pinned.contains(&e.path) => 999,
         None => 1000,
     };
     let len = (e.name_lower.chars().count() as u32).min(9999);
@@ -296,6 +306,32 @@ fn contains_at_word_start(name: &str, needle: &str) -> bool {
         && name
             .match_indices(needle)
             .any(|(i, _)| name[..i].chars().next_back().map_or(true, |c| !c.is_alphanumeric()))
+}
+/// How well an .exe's own file name matches, by the first steps of the name match (exact, a
+/// variant, starts with); None for other files or no such match.
+fn exe_stem_primary(path: &str, q: &str, variants: &[Variant]) -> Option<u32> {
+    let b = path.as_bytes();
+    if b.len() < 5 || !b[b.len() - 4..].eq_ignore_ascii_case(b".exe") {
+        return None;
+    }
+    let file = path.rsplit(['\\', '/']).next()?;
+    let stem = file.get(..file.len().checked_sub(4)?)?.to_lowercase();
+    if stem == q {
+        Some(0)
+    } else if variants.iter().any(|v| stem == v.text) {
+        Some(1)
+    } else if stem.starts_with(q) {
+        Some(2)
+    } else {
+        None
+    }
+}
+/// The helpers a program ships next to its exe (`chrome_proxy.exe`, `chrome_pwa_launcher.exe`,
+/// `notification_helper.exe`, `crashpad_handler.exe`): nobody types the name for those.
+pub(crate) fn is_helper_exe(path: &str) -> bool {
+    let file = path.rsplit(['\\', '/']).next().unwrap_or(path).to_lowercase();
+    let Some(stem) = file.strip_suffix(".exe") else { return false };
+    ["_proxy", "_pwa_launcher", "_helper", "crashpad_handler", "elevation_service"].iter().any(|s| stem.ends_with(s))
 }
 /// `unins000.exe`, `Uninstall Foo.lnk`, `FooSetup-x64.exe`, `installer.exe`.
 pub(crate) fn is_setup_or_uninstaller(path: &str) -> bool {
@@ -362,6 +398,7 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
 
     let frec = frecency::scores_snapshot();
     let picks = crate::picks::for_query(query);
+    let pinned: std::collections::HashSet<String> = crate::pins::load_pins().into_iter().map(|p| p.path).collect();
     let fuzzy_deadline = std::time::Instant::now() + std::time::Duration::from_millis(FUZZY_BUDGET_MS);
 
     let disabled_kinds = config::get_disabled_kinds();
@@ -376,7 +413,7 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
                 if !is_current(version) {
                     return None;
                 }
-                match_score(e, &q, &variants, &frec, &picks, fuzzy_deadline).map(|score| (score, i))
+                match_score(e, &q, &variants, &frec, &picks, &pinned, fuzzy_deadline).map(|score| (score, i))
             })
             .collect();
         if !is_current(version) {
@@ -460,12 +497,16 @@ mod tests {
     }
     /// Ranks `entries` for `q` the way search_index does, without the shared index.
     fn ranked(q: &str, entries: &[SearchEntry]) -> Vec<String> {
+        ranked_pinned(q, entries, &[])
+    }
+    fn ranked_pinned(q: &str, entries: &[SearchEntry], pins: &[&str]) -> Vec<String> {
         let variants = bench_variants(q);
         let none = std::collections::HashMap::new();
+        let pinned: std::collections::HashSet<String> = pins.iter().map(|p| p.to_string()).collect();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut scored: Vec<(ScoreKey, &str)> = entries
             .iter()
-            .filter_map(|e| match_score(e, q, &variants, &none, &none, deadline).map(|s| (s, e.path.as_str())))
+            .filter_map(|e| match_score(e, q, &variants, &none, &none, &pinned, deadline).map(|s| (s, e.path.as_str())))
             .collect();
         scored.sort();
         scored.into_iter().map(|(_, p)| p.to_string()).collect()
@@ -579,5 +620,33 @@ mod tests {
         let stale = search_index("chrome", 99, None);
         assert!(stale.is_empty(), "stale scan must abort immediately");
         SEARCH_VERSION.store(101, Ordering::SeqCst);
+    }
+    #[test]
+    fn a_program_is_found_by_its_file_name_and_its_helpers_come_after() {
+        // The index names chrome.exe after its description, "Google Chrome".
+        let entries = vec![
+            entry("chrome_proxy", r"C:\G\Application\chrome_proxy.exe", KIND_APP),
+            entry("chrome_pwa_launcher", r"C:\G\Application\1.0\chrome_pwa_launcher.exe", KIND_APP),
+            entry("google chrome", r"C:\G\Application\chrome.exe", KIND_APP),
+            entry("chrome", r"D:\Photoshop\google\chrome", KIND_FOLDER),
+        ];
+        let order = ranked("chrome", &entries);
+        assert_eq!(order[0], r"C:\G\Application\chrome.exe", "{order:?}");
+        let folder = order.iter().position(|p| p.ends_with(r"google\chrome")).unwrap();
+        let proxy = order.iter().position(|p| p.ends_with("chrome_proxy.exe")).unwrap();
+        assert!(proxy > 0 && folder > 0, "the helpers no longer sit above the program: {order:?}");
+        assert!(is_helper_exe(r"C:\x\notification_helper.exe") && !is_helper_exe(r"C:\x\EpicGamesLauncher.exe"));
+    }
+    #[test]
+    fn a_favourite_that_matches_well_comes_first() {
+        let entries = vec![
+            entry("notes", r"C:\a\notes.txt", KIND_DOCUMENT),
+            entry("notes", r"D:\b\notes.txt", KIND_DOCUMENT),
+            entry("my notes", r"D:\c\my notes.txt", KIND_DOCUMENT),
+        ];
+        assert_eq!(ranked_pinned("notes", &entries, &[r"D:\b\notes.txt"])[0], r"D:\b\notes.txt");
+        assert_eq!(ranked_pinned("notes", &entries, &[r"D:\c\my notes.txt"])[0], r"D:\c\my notes.txt");
+        // only when it matches by a word start: a typo match of a favourite stays where it was
+        assert_eq!(ranked_pinned("notess", &entries, &[r"D:\c\my notes.txt"])[0], r"C:\a\notes.txt");
     }
 }

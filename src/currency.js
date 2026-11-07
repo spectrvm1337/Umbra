@@ -16,6 +16,8 @@ const FX_ALIASES = {
 
 const FX_DEFAULT_PAIRS = ["USD-UAH", "USD-BYN", "JPY-UAH", "EUR-USD", "USD-EUR"];
 const FX_RECENT_KEY = "umbra.fx.recent";
+// Chips offered under the sum; three fit the usual column, a fourth when a long sum widens it.
+const FX_CHIPS_MAX = 4;
 const FX_HISTORY_DAYS = 7;
 const FX_LATEST_TTL = 30 * 60 * 1000;
 
@@ -23,7 +25,7 @@ const FX_LATEST_TTL = 30 * 60 * 1000;
 const FX_CHART = { w: 238, h: 122, left: 13, right: 225, top: 38, bottom: 76, base: 108, cursorTop: 32 };
 
 function fxChartBox(width) {
-  const w = Math.max(FX_CHART.w, Math.round(width) || 0);
+  const w = Math.max(FX_GRAPH_MIN, Math.round(width) || FX_CHART.w);
   return { ...FX_CHART, w, right: w - (FX_CHART.w - FX_CHART.right) };
 }
 
@@ -95,11 +97,12 @@ function fxCopyText(v) {
   return (v < 0 ? "-" : "") + s;
 }
 
-function fxChipPairs(current, recent) {
+// Up to `max` pairs to offer; the card shows as many as fit in one row (fxFitChips).
+function fxChipPairs(current, recent, max = 3) {
   const out = [];
   for (const p of [...recent, ...FX_DEFAULT_PAIRS]) {
     if (p !== current && !out.includes(p)) out.push(p);
-    if (out.length === 3) break;
+    if (out.length === max) break;
   }
   return out;
 }
@@ -299,6 +302,29 @@ function fxApplyShape(card, svg, pts, C) {
   card._fxShown = { pts, w: C.w };
 }
 
+// The chart following its box while the column eases to a new width: the same drawing with its
+// points moved to the new width. Building it again on every frame (as fxDrawChart does) made the
+// resize stutter. Once the box settles it is drawn afresh (fxWatchCard), hover tip and all.
+function fxResizeChart(card, width) {
+  const svg = card.querySelector(".fx-chart");
+  const series = card._fxSeries;
+  if (!svg || !series || !svg.dataset.drawnW) return false;
+  cancelAnimationFrame(card._fxRaf); // a morph in progress would draw over this with the old width
+  const C = fxChartBox(width);
+  const pts = fxChartPoints(series.map((v) => v.value), C);
+  svg.setAttribute("width", C.w);
+  svg.setAttribute("viewBox", `0 0 ${C.w} ${C.h}`);
+  fxApplyShape(card, svg, pts, C);
+  svg.querySelectorAll("line.fx-grid").forEach((l) => {
+    l.setAttribute("x1", pts[l.dataset.i].x);
+    l.setAttribute("x2", pts[l.dataset.i].x);
+  });
+  svg.querySelector(":scope > .fx-dot").setAttribute("cx", pts[pts.length - 1].x);
+  // The change badge hangs off the right edge.
+  svg.querySelector(".fx-change").setAttribute("transform", `translate(${C.w - parseFloat(svg.dataset.drawnW)} 0)`);
+  return true;
+}
+
 // Brings a previous set of points to the length of the new one, so a 7-day and a
 // 3-day history can still be morphed into each other.
 function fxResample(from, to) {
@@ -316,6 +342,7 @@ function fxDrawChart(card, series, from) {
   const C = fxChartBox(graph.clientWidth);
   graph.innerHTML = fxChartHtml(series, C);
   const svg = graph.querySelector(".fx-chart");
+  svg.dataset.drawnW = C.w;
   const pts = fxChartPoints(series.map((s) => s.value), C);
   card._fxShown = { pts, w: C.w };
   if (from && from.w === C.w && fxMotionOn()) {
@@ -393,19 +420,102 @@ function fxDrawChart(card, series, from) {
   });
 }
 
-// Shrink the big numbers until the whole "amount → result" line fits next to the graph.
-function fxFitSum(card) {
-  const sum = card.querySelector(".fx-sum");
-  if (!sum || !sum.clientWidth) return;
-  for (let size = 36; size >= 16; size -= 2) {
-    sum.style.fontSize = `${size}px`;
-    if (sum.scrollWidth <= sum.clientWidth) break;
+// The smallest the big numbers get before the graph gives up width to them, the least the graph
+// keeps, and the column's usual width (three chips: 3 x 80 + 2 x 10).
+const FX_SUM_MIN_FIT = 24;
+const FX_GRAPH_MIN = 160;
+const FX_MAIN_W = 264;
+// An off-screen place in the card to measure in: the sum line and the chips are tried at the width
+// the column is going to have, so the fit is right while the column is still easing to it.
+function fxProbe(card) {
+  if (!card._fxProbe || !card._fxProbe.isConnected) {
+    card._fxProbe = document.createElement("div");
+    card._fxProbe.className = "fx-probe";
+    card._fxProbe.setAttribute("aria-hidden", "true");
+    card.appendChild(card._fxProbe);
   }
+  return card._fxProbe;
+}
+// Sizes the "amount → result" line and its column. The numbers shrink from 36px to FX_SUM_MIN_FIT
+// in the usual column; past that the column widens into the graph (which keeps FX_GRAPH_MIN) and
+// only then do they shrink further, to 16px. Column and type ease to their new sizes (styles.css);
+// the graph redraws as it narrows or widens (fxWatchCard). `instant` skips the easing (a new card).
+function fxFitSum(card, instant = false) {
+  const sum = card.querySelector(".fx-sum");
+  if (!sum || !card.clientWidth) return;
+  const cs = getComputedStyle(card);
+  const inner = card.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const room = Math.max(0, inner - (parseFloat(cs.columnGap) || 0) - FX_GRAPH_MIN);
+  // A copy with the final numbers, also while the drums are still turning (fxRoll).
+  const copy = sum.cloneNode(true);
+  const vals = sum.querySelectorAll(".fx-val");
+  copy.querySelectorAll(".fx-val").forEach((v, i) => { v.textContent = vals[i]._fxFinal || vals[i].textContent; });
+  copy.style.transition = "none";
+  const probe = fxProbe(card);
+  probe.replaceChildren(copy);
+  let width = Math.min(FX_MAIN_W, room);
+  copy.style.width = `${width}px`;
+  let size = fxShrinkToFit(copy, 36, FX_SUM_MIN_FIT);
+  if (!size) {
+    copy.style.fontSize = `${FX_SUM_MIN_FIT}px`;
+    width = Math.min(Math.ceil(copy.scrollWidth) + 1, room);
+    copy.style.width = `${width}px`;
+    size = fxShrinkToFit(copy, FX_SUM_MIN_FIT, 16) || 16;
+  }
+  probe.replaceChildren();
+  if (instant) card.classList.add("fx-still");
+  sum.style.fontSize = `${size}px`;
+  card.style.setProperty("--fx-main-w", `${width}px`);
+  card._fxMainW = width;
+  fxFitChips(card, width);
+  if (instant) {
+    void card.offsetWidth;
+    card.classList.remove("fx-still");
+  }
+  // The graph now in the card is the one watched for redrawing.
+  const graph = card.querySelector(".fx-graph");
+  if (fxResizeObs && graph) fxResizeObs.observe(graph);
+}
+// The largest size from `from` down to `to` at which the line fits, or 0.
+function fxShrinkToFit(el, from, to) {
+  for (let size = from; size >= to; size -= 2) {
+    el.style.fontSize = `${size}px`;
+    if (el.scrollWidth <= el.clientWidth) return size;
+  }
+  return 0;
+}
+// As many chips as fit in one row of the column's coming width, the rest collapsed rather than
+// squeezed until a name wraps at its hyphen.
+function fxFitChips(card, width = card._fxMainW || FX_MAIN_W) {
+  const row = card.querySelector(".fx-chips");
+  if (!row) return;
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  const probe = fxProbe(card);
+  let used = 0;
+  [...row.children].forEach((chip, i) => {
+    const copy = chip.cloneNode(true);
+    copy.classList.remove("fx-chip-off");
+    copy.style.cssText = "display: inline-block; flex: none; max-width: none; transition: none";
+    probe.replaceChildren(copy);
+    used += copy.offsetWidth + (i ? gap : 0);
+    const fits = i === 0 || used <= width;
+    // Collapsed rather than removed, so it grows into the row (and the others make room) as the
+    // column widens, and shrinks away as it narrows -- from the width it has now, not from its
+    // 160px cap, so it goes in step with the column and the others never get squeezed.
+    if (!fits && !chip.classList.contains("fx-chip-off")) {
+      chip.style.maxWidth = `${chip.offsetWidth}px`;
+      void chip.offsetWidth;
+      chip.style.maxWidth = "";
+    }
+    chip.classList.toggle("fx-chip-off", !fits);
+    chip.tabIndex = fits ? 0 : -1;
+  });
+  probe.replaceChildren();
 }
 
 function fxCardHtml(p, state) {
   const pair = `${p.from}-${p.to}`;
-  const chips = fxChipPairs(pair, fxReadRecent())
+  const chips = fxChipPairs(pair, fxReadRecent(), FX_CHIPS_MAX)
     .map((c) => `<button class="fx-chip" data-pair="${c}">${c}</button>`)
     .join("");
 
@@ -445,7 +555,9 @@ function fxStateFromBundle(p, bundle) {
   return { rate, series };
 }
 
-// The window can be resized (and the dock widens it), so refit the sum and redraw the chart whenever the card's width changes.
+// The window can be resized (and the dock widens it): the sum is refitted when the card's width
+// changes, and the chart redrawn whenever the graph's does -- also frame by frame while the column
+// eases to a new width, so the curve always fits its box.
 let fxResizeObs = null;
 let fxObserved = null;
 function fxWatchCard(card) {
@@ -457,38 +569,112 @@ function fxWatchCard(card) {
     const graph = card.querySelector(".fx-graph");
     const w = card.clientWidth;
     const gw = graph ? graph.clientWidth : 0;
-    if (w === lastW && gw === lastGraphW) return;
-    lastW = w;
-    lastGraphW = gw;
-    fxFitSum(card);
-    if (card._fxSeries && gw) fxDrawChart(card, card._fxSeries);
+    if (w !== lastW) {
+      lastW = w;
+      fxFitSum(card);
+    }
+    if (gw !== lastGraphW) {
+      lastGraphW = gw;
+      if (card._fxSeries && gw) {
+        if (!fxResizeChart(card, gw)) fxDrawChart(card, card._fxSeries);
+        clearTimeout(card._fxSettle);
+        card._fxSettle = setTimeout(() => {
+          if (card._fxSeries) fxDrawChart(card, card._fxSeries);
+        }, 160);
+      }
+    }
   });
   fxResizeObs.observe(card);
+  const graph = card.querySelector(".fx-graph");
+  if (graph) fxResizeObs.observe(graph);
   fxObserved = card;
 }
 
-// A number that runs from what is on screen to its new value instead of jumping.
+// A number shown as drums of digits that turn to the new value, blurred while they move, like a
+// counter's; separators and words stay put. Lined up from the right, so units stay units, and a
+// digit that is new (the number got longer) turns up from 0.
 function fxCountTo(card, key, el, to, format) {
-  cancelAnimationFrame(card["_fxN" + key]);
-  const from = typeof el._fxV === "number" ? el._fxV : to;
-  if (!fxMotionOn() || from === to) {
-    el._fxV = to;
-    el.textContent = format(to);
+  const text = format(to);
+  el._fxFinal = text; // what fxFitSum sizes the line for
+  const animate = typeof el._fxV === "number" && el._fxV !== to && fxMotionOn();
+  el._fxV = to;
+  fxRoll(el, text, animate);
+}
+const FX_DIGITS = /^\d$/;
+function fxCell(ch) {
+  const cell = document.createElement("span");
+  if (!FX_DIGITS.test(ch)) {
+    cell.className = "fx-tc";
+    cell.textContent = ch;
+    return cell;
+  }
+  cell.className = "fx-dg";
+  cell.style.setProperty("--d", ch);
+  // The hidden copy gives the cell its width and baseline; the drum turns above it, clipped to a line.
+  cell.innerHTML = `<span class="fx-dg-ghost">${ch}</span><span class="fx-reel"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span>`;
+  return cell;
+}
+function fxTokens(text) {
+  return text.match(/\d|\D+/g) || [];
+}
+function fxSetDigit(cell, ch) {
+  cell.style.setProperty("--d", ch);
+  cell.firstChild.textContent = ch;
+}
+function fxRoll(el, text, animate) {
+  let cells = el._fxCells;
+  if (!cells || cells.some((c) => c.parentNode !== el)) {
+    // Plain text so far (a new card, a placeholder): made into cells as it stands, to turn from.
+    cells = fxTokens(el.textContent).map(fxCell);
+    el.replaceChildren(...cells);
+  }
+  if (!animate) el.classList.add("fx-still");
+  // Each digit is a cell; a run of anything else is one, so words keep their kerning.
+  const chars = fxTokens(text);
+  const next = [];
+  const turned = [];
+  const fresh = [];
+  for (let k = 1; k <= chars.length; k++) {
+    const ch = chars[chars.length - k];
+    const old = cells[cells.length - k];
+    const digit = FX_DIGITS.test(ch);
+    let cell;
+    if (old && digit && old.classList.contains("fx-dg")) {
+      cell = old;
+      if (old.style.getPropertyValue("--d") !== ch) {
+        fxSetDigit(old, ch);
+        turned.push(old);
+      }
+    } else if (old && !digit && old.classList.contains("fx-tc") && old.textContent === ch) {
+      cell = old;
+    } else {
+      cell = fxCell(digit && animate ? "0" : ch);
+      if (digit && animate) fresh.push([cell, ch]);
+    }
+    next[chars.length - k] = cell;
+  }
+  const keep = new Set(next);
+  for (const c of cells) if (!keep.has(c)) c.remove();
+  // Into place from the right; cells already in place are not touched, so their drums keep turning.
+  let after = null;
+  for (let i = next.length - 1; i >= 0; i--) {
+    const c = next[i];
+    if (c.parentNode !== el || c.nextSibling !== after) el.insertBefore(c, after);
+    after = c;
+  }
+  el._fxCells = next;
+  if (fresh.length || turned.length || !animate) void el.offsetWidth;
+  for (const [cell, ch] of fresh) {
+    fxSetDigit(cell, ch);
+    turned.push(cell);
+  }
+  if (!animate) {
+    el.classList.remove("fx-still");
     return;
   }
-  el.textContent = format(from);
-  // Between 0.45s and 1s, longer the further the number has to travel.
-  const rel = Math.abs(to - from) / Math.max(Math.abs(to), Math.abs(from), 1e-9);
-  const dur = 450 + 550 * Math.sqrt(Math.min(1, rel));
-  const t0 = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / dur);
-    const e = 1 - Math.pow(1 - k, 4);
-    el._fxV = k < 1 ? from + (to - from) * e : to;
-    el.textContent = format(el._fxV);
-    if (k < 1) card["_fxN" + key] = requestAnimationFrame(step);
-  };
-  card["_fxN" + key] = requestAnimationFrame(step);
+  for (const c of turned) c.classList.remove("rolling");
+  void el.offsetWidth;
+  for (const c of turned) c.classList.add("rolling");
 }
 
 // Text that changes under the eye eases in rather than being swapped.
@@ -505,7 +691,7 @@ function fxRateText(p, rate, decimals) {
 
 function fxUpdateChips(card, p) {
   const wrap = card.querySelector(".fx-chips");
-  const pairs = fxChipPairs(`${p.from}-${p.to}`, fxReadRecent());
+  const pairs = fxChipPairs(`${p.from}-${p.to}`, fxReadRecent(), FX_CHIPS_MAX);
   const buttons = [...wrap.children];
   pairs.forEach((pair, i) => {
     let b = buttons[i];
@@ -519,6 +705,7 @@ function fxUpdateChips(card, p) {
     fxSwap(b);
   });
   buttons.slice(pairs.length).forEach((b) => b.remove());
+  fxFitChips(card);
 }
 
 // The numbers, codes, chips and graph of the card that is already on screen
@@ -536,9 +723,11 @@ function fxUpdateCard(card, p, state) {
       fxSwap(codes[i]);
     }
   });
-  // Fit the line for the final numbers first; the count then runs inside that size.
-  vals[0].textContent = formatFxNumber(p.amount);
-  vals[1].textContent = formatFxNumber(result);
+  // Fit the line for the final numbers first; the count then runs inside that size. _fxFinal is what
+  // fxFitSum measures, so it is set here too: left from the last count, a longer new number (typing
+  // more digits) was sized as the shorter old one.
+  vals[0]._fxFinal = formatFxNumber(p.amount);
+  vals[1]._fxFinal = formatFxNumber(result);
   fxFitSum(card);
   vals[1].classList.remove("fx-pending");
   fxCountTo(card, "A", vals[0], p.amount, formatFxNumber);
@@ -585,7 +774,7 @@ function renderFxCard(p, state) {
     cancelAnimationFrame(card._fxRaf);
     ["A", "B", "R"].forEach((k) => cancelAnimationFrame(card["_fxN" + k]));
     card.innerHTML = fxCardHtml(p, state);
-    fxFitSum(card);
+    fxFitSum(card, true);
     if (document.fonts) document.fonts.ready.then(() => fxFitSum(card));
     card._fxP = p;
     card._fxResult = result;

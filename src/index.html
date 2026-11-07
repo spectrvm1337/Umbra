@@ -13,7 +13,7 @@
 <body>
   <div id="app-container">
 
-    <div class="drag-bar" id="drag-bar" data-i18n-tip="dragTip" data-tip="Drag to move · Double-click to center · Right-click to pin" aria-live="polite">
+    <div class="drag-bar" id="drag-bar" data-i18n-tip="dragTip" data-tip="Drag to move · Double-click: center · Right-click: pin" aria-live="polite">
       <div class="db-rect"></div>
   <span class="ntf-short" id="ntf-short" aria-hidden="true"></span>
   <span class="ntf-detail" id="ntf-detail" aria-hidden="true"></span>
@@ -25,6 +25,7 @@
       </svg>
       <div id="input-field">
         <div id="ghost" aria-hidden="true"><span id="ghost-typed"></span><span id="ghost-rest"></span></div>
+        <div id="ph-roll" aria-hidden="true"></div>
         <input type="text" id="search-input" placeholder="" autocomplete="off" spellcheck="false">
       </div>
       <button id="clear-btn" data-i18n-tip="clearTip" data-tip="Clear">
@@ -66,11 +67,11 @@
         </div>
         <div id="settings-section" class="section hidden">
           <div class="special-card settings-card">
-            <div class="settings-row interactive" id="setting-theme-row" data-i18n-tip="appearanceTip" data-tip="Colours, shape, font and motion open in a panel beside the window">
+            <div class="settings-row interactive" id="setting-theme-row" data-i18n-tip="appearanceTip" data-tip="Colours, shape, font and motion, in a side panel">
               <span class="settings-label" data-i18n="lblAppearance">Appearance</span>
               <span class="exclude-chevron">›</span>
             </div>
-            <div class="settings-row interactive" id="setting-keys-row" data-i18n-tip="keybindsTip" data-tip="Every key Umbra answers to, in a panel beside the window">
+            <div class="settings-row interactive" id="setting-keys-row" data-i18n-tip="keybindsTip" data-tip="Every Umbra key, in a side panel">
               <span class="settings-label" data-i18n="lblKeybinds">Keybinds</span>
               <span class="exclude-chevron">›</span>
             </div>
@@ -107,7 +108,7 @@
                 <button class="seg-btn" data-pins="right" data-i18n-tip="pinsRightTip" data-i18n="pinsRight">Right</button>
               </div>
             </div>
-            <div class="settings-row interactive" id="setting-pinsfold-row" data-i18n-tip="pinsFoldTip" data-tip="Favorites in the list stay folded until ↓ or the arrow under the search box opens them, and the search box waits in the middle of the window">
+            <div class="settings-row interactive" id="setting-pinsfold-row" data-i18n-tip="pinsFoldTip" data-tip="Favorites stay folded until ↓ or the arrow opens them">
               <span class="settings-label" data-i18n="lblPinsFold">Fold favorites</span>
               <span class="toggle" id="setting-pinsfold"><span class="toggle-knob"></span></span>
             </div>
@@ -161,7 +162,7 @@
   <div id="theme-panel" aria-label="Appearance" data-view="theme">
     <div class="special-card settings-card" id="keys-card"></div>
     <div class="special-card settings-card" id="theme-card">
-                <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent colour come from Windows">
+                <div class="settings-row interactive" id="setting-system-row" data-i18n-tip="followSystemTip" data-tip="Light or dark and the accent come from Windows">
                   <span class="settings-label" data-i18n="lblFollowSystem">Match Windows</span>
                   <span class="toggle" id="setting-system"><span class="toggle-knob"></span></span>
                 </div>
@@ -187,7 +188,7 @@
                     <button id="setting-alpha-plus" class="stepper-btn">+</button>
                   </div>
                 </div>
-                <div class="settings-row interactive" id="setting-blur-row" data-i18n-tip="blurTip" data-tip="What is behind the window shows blurred through the cards. The number adds blur on top of the system's">
+                <div class="settings-row interactive" id="setting-blur-row" data-i18n-tip="blurTip" data-tip="Cards blur what is behind the window; the number adds more">
                   <span class="settings-label" data-i18n="lblBlur">Blur</span>
                   <div class="row-extras dep-extras" id="blur-extras">
                     <div class="zoom-stepper">
@@ -240,6 +241,10 @@
                   </div>
                   <span class="toggle" id="setting-glow"><span class="toggle-knob"></span></span>
                 </div>
+                <div class="settings-row interactive" id="setting-searchgrad-row" data-i18n-tip="searchGradTip" data-tip="The search bar lightens towards its start">
+                  <span class="settings-label" data-i18n="lblSearchGrad">Search bar gradient</span>
+                  <span class="toggle" id="setting-searchgrad"><span class="toggle-knob"></span></span>
+                </div>
                 <div class="settings-row interactive" id="setting-anim-row" data-i18n-tip="animTip" data-tip="Pick what moves. Everything stays where it is; only the motion is dropped">
                   <span class="settings-label" data-i18n="lblAnim">Animations</span>
                   <span class="settings-value" id="setting-anim-count">…</span>
@@ -281,7 +286,7 @@
                     <button id="setting-zoom-plus" class="stepper-btn">+</button>
                   </div>
                 </div>
-                <div class="settings-row interactive" id="setting-tall-row" data-i18n-tip="tallResultsTip" data-tip="The list runs down to the bottom of the screen instead of stopping at the window's height">
+                <div class="settings-row interactive" id="setting-tall-row" data-i18n-tip="tallResultsTip" data-tip="The list runs to the bottom of the screen">
                   <span class="settings-label" data-i18n="lblTallResults">Results to screen bottom (experimental)</span>
                   <span class="toggle" id="setting-tall"><span class="toggle-knob"></span></span>
                 </div>
@@ -321,6 +326,7 @@
   </div>
   <script src="color.js?v=48"></script>
   <script src="i18n.js?v=48"></script>
+  <script src="roll.js?v=48"></script>
   <script src="currency.js?v=48"></script>
   <script src="calc.js?v=48"></script>
   <script src="special.js?v=48"></script>

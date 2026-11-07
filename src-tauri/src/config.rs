@@ -184,6 +184,9 @@ pub struct ThemeConfig {
     /// The selected result is always opened up into a large preview card.
     #[serde(default)]
     pub side_preview: bool,
+    /// The search bar lightens a little towards its start.
+    #[serde(default = "default_true")]
+    pub search_gradient: bool,
     /// Blur what is behind the window under the cards (blur.rs).
     #[serde(default)]
     pub blur_on: bool,
@@ -270,6 +273,7 @@ impl Default for ThemeConfig {
             gap: default_gap(),
             tall_results: false,
             side_preview: false,
+            search_gradient: true,
             blur_on: false,
             blur_strength: 0,
             text: "#e3e3e3".into(),

@@ -248,6 +248,7 @@ fn main() {
             commands::get_index_status,
             commands::hide_window,
             commands::set_window_motion,
+            commands::set_window_lift,
             commands::window_slide_out,
             commands::window_slide_in,
             commands::stop_window_motion,

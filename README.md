@@ -43,7 +43,7 @@ Type, and the answer is already there:
 
 - **Calculator**: `(2+3)*4`, `200+10%`
 - **Currency converter**: `100 usd to eur`, with a rate chart and one-click alternatives
-- **Color picker**: `#507090`, or pick any color on the screen; values in RGB and HSL, with history
+- **Color picker**: `#507090` or `!picker`, or pick any color on the screen; values in RGB and HSL, with history
 - **Power commands**: `shutdown`, `restart`, `sleep`
 - **Process killing**: `kill spot` finds Spotify, and nothing dies until you click
 - **Web search**: `!g`, `!yt`, `!gh`, `!wiki` and more; type `!help` for the list

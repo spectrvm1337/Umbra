@@ -36,6 +36,7 @@ body.tray-menu-page {
   border-radius: calc(var(--card-radius) - 5px);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .tm-item.active {
   background: var(--card-hover);
@@ -61,5 +62,12 @@ body.tray-menu-page {
 @media (prefers-reduced-motion: reduce) {
   #tray-menu.shown {
     transition: none;
+  }
+}
+/* Appearance → Corner Radius: the menu and its rows follow the squircle setting like the main
+   window's cards (styles.css). */
+@supports (corner-shape: squircle) {
+  html[data-corners="squircle"] :is(#tray-menu, .tm-item) {
+    corner-shape: squircle;
   }
 }

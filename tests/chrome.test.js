@@ -152,7 +152,7 @@ test("every small surface changes colour smoothly", () => {
   // and the zoom value all changed appearance in one step.
   assert.match(rule(".swatch {"), /transition:[\s\S]*?box-shadow/, "the swatch ring eases in");
   assert.match(rule(".swatch:hover {"), /transform:\s*scale/, "and the swatch grows");
-  assert.match(rule(".zoom-stepper span {"), /transition:[\s*]color/, "the zoom value eases");
+  assert.match(rule(".zoom-stepper > span {"), /transition:[\s*]color/, "the zoom value eases");
   // The ones that already had one must keep it.
   for (const sel of [".seg-btn {", ".stepper-btn {", ".toggle {", ".settings-text-btn {", ".ctx-item {"]) {
     const r = rule(sel);

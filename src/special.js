@@ -218,6 +218,7 @@ function handleSpecialCommand(query) {
     const cmds = [
       { name: "!help", desc: t("helpHelp"), fill: "" },
       { name: "#c83939", desc: t("helpColor"), fill: "#" },
+      { name: "!picker", desc: t("helpPicker"), fill: "!picker" },
       { name: "!yt <query>", desc: t("helpYt"), fill: "!yt " },
       { name: "!g <query>", desc: t("helpG"), fill: "!g " },
       { name: "!gh <query>", desc: t("helpGh"), fill: "!gh " },

@@ -114,8 +114,15 @@ fn animate_window_to(window: tauri::WebviewWindow, target_x: i32, target_y: i32)
 /// Where the window comes to rest when the move under way ends, while one runs: for the slide out
 /// on hide that is where it started, not where it is going (see window_slide_out).
 static ANIM_REST: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
-/// Where the window rests while it is up; it goes back there, hidden, after the slide out.
+/// Where the window rests while it is up, before the column's lift (LIFT); it goes back there,
+/// hidden, after the slide out.
 static REST: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+/// How far the window sits below REST, in physical px: the page's column lifted to the middle of the
+/// window (pinsfold.js), done by moving the whole window so the blur under the cards moves with it.
+static LIFT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+fn lift() -> i32 {
+    LIFT.load(std::sync::atomic::Ordering::SeqCst)
+}
 /// The point on a CSS cubic-bezier(x1, y1, x2, y2) curve at progress `p` (0..1).
 fn cubic_bezier(p: f64, [x1, y1, x2, y2]: [f64; 4]) -> f64 {
     if p <= 0.0 {
@@ -249,7 +256,7 @@ pub fn slide_in_start(window: &tauri::WebviewWindow, rest: (i32, i32)) {
     *ANIM_REST.lock_or_recover() = None;
     *REST.lock_or_recover() = Some(rest);
     let (off, _) = slide(window);
-    set_window_xy(window, rest.0, rest.1 - off);
+    set_window_xy(window, rest.0, rest.1 + lift() - off);
     SLIDE_PENDING.store(true, Ordering::SeqCst);
     let later = window.clone();
     std::thread::spawn(move || {
@@ -264,7 +271,8 @@ pub fn slide_in_finish(window: &tauri::WebviewWindow) {
     SLIDE_PENDING.store(false, std::sync::atomic::Ordering::SeqCst);
     let Some(rest) = *REST.lock_or_recover() else { return };
     let (_, ms) = slide(window);
-    animate_window(window.clone(), rest, ms, SLIDE_EASE, rest);
+    let to = (rest.0, rest.1 + lift());
+    animate_window(window.clone(), to, ms, SLIDE_EASE, to);
 }
 /// The page starts hiding: up by the slide while it fades out. Where the window rests is taken now,
 /// so a drag since the summon is kept (and a move still under way counts by where it ends).
@@ -273,7 +281,7 @@ pub fn window_slide_out(app: tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else { return };
     let rest = ANIM_REST.lock_or_recover().or_else(|| window.outer_position().ok().map(|p| (p.x, p.y)));
     let Some(rest) = rest else { return };
-    *REST.lock_or_recover() = Some(rest);
+    *REST.lock_or_recover() = Some((rest.0, rest.1 - lift()));
     let (off, ms) = slide(&window);
     if ms > 0 {
         animate_window(window, (rest.0, rest.1 - off), ms, SLIDE_EASE, rest);
@@ -282,7 +290,40 @@ pub fn window_slide_out(app: tauri::AppHandle) {
 /// A summon while the window is already up: it glides to where it belongs, no slide.
 pub fn glide_to(window: &tauri::WebviewWindow, rest: (i32, i32)) {
     *REST.lock_or_recover() = Some(rest);
-    animate_window_to(window.clone(), rest.0, rest.1);
+    animate_window_to(window.clone(), rest.0, rest.1 + lift());
+}
+/// The page's column moves to `y` physical px below where the window rests (the middle of the
+/// window for what is under the search box, pinsfold.js): the window itself moves there, over `ms`
+/// on the page's curve. Moving the column inside the page left the blur, which Windows draws under
+/// the window, a frame or two behind it. Taken from where the window is now, so a drag is kept.
+#[tauri::command]
+pub fn set_window_lift(app: tauri::AppHandle, y: f64, ms: u64) {
+    use std::sync::atomic::Ordering;
+    if !y.is_finite() {
+        return;
+    }
+    let y = y.round() as i32;
+    let old = LIFT.swap(y, Ordering::SeqCst);
+    if old == y {
+        return;
+    }
+    // Raised for a summon and not yet coming down: it comes down to the new place (slide_in_finish).
+    if SLIDE_PENDING.load(Ordering::SeqCst) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else { return };
+    let at = ANIM_REST.lock_or_recover().or_else(|| window.outer_position().ok().map(|p| (p.x, p.y)));
+    let Some(at) = at else { return };
+    let rest = (at.0, at.1 - old);
+    *REST.lock_or_recover() = Some(rest);
+    let to = (rest.0, rest.1 + y);
+    if !window.is_visible().unwrap_or(false) {
+        set_window_xy(&window, to.0, to.1);
+        return;
+    }
+    // A jump during a summon's slide would cut the slide off: it goes on to the new place instead.
+    let ms = if ms == 0 && ANIM_REST.lock_or_recover().is_some() { slide(&window).1 } else { ms.min(2000) };
+    animate_window(window, to, ms, SLIDE_EASE, to);
 }
 /// The page starts fading in (the "window-shown" handler), or the hotkey came while it was fading
 /// out (cancelHide in main.js): down into place.
@@ -399,7 +440,8 @@ pub fn animate_recenter(app: &tauri::AppHandle) {
         });
         if let Some((tx, ty, bottom)) = target {
             fit_height(&window, ty, bottom);
-            animate_window_to(window, tx, ty);
+            *REST.lock_or_recover() = Some((tx, ty));
+            animate_window_to(window, tx, ty + lift());
         }
     }
 }

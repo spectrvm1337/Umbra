@@ -160,6 +160,9 @@
      value reaches the edge, where the window slices the haze off in a straight
      line. Keep it at about half the side margin or less. */
   --window-blur: 8px;
+  /* How blurred a card, row, menu or panel is as it comes in (Settings → Animations → Blur);
+     0 with Blur off (below), so the same animations run without it. */
+  --enter-blur: 6px;
   /* The one easing curve: every transition and one-shot animation uses it (loops keep their own).
      JS animations read it too (motionEase in main.js), and so does the blur in Rust (blur.rs). */
   --ease-out-apple: cubic-bezier(0.32, 0.72, 0, 1);
@@ -184,10 +187,24 @@ html[data-font="montserrat"] {
   grid-auto-flow: row;
   grid-template-columns: repeat(var(--font-cols, 3), minmax(0, 1fr));
 }
+#font-seg {
+  transition: grid-template-columns var(--t-size, 0.45s) var(--ease-out-apple);
+}
 #font-seg .seg-btn {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A custom font being dropped (right-click): folds to nothing while its column closes. */
+#font-seg .seg-btn.seg-leaving {
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  filter: blur(var(--enter-blur));
+  pointer-events: none;
+  transition: padding var(--t-size, 0.45s) var(--ease-out-apple), opacity var(--t-fade, 0.3s) var(--ease-out-apple),
+    filter var(--t-blur, 0.3s) var(--ease-out-apple);
 }
 #font-seg .seg-btn[data-font="wix"] { font-family: 'Wix Madefor Display', sans-serif; }
 #font-seg .seg-btn[data-font="sn-pro"] { font-family: 'SN Pro', sans-serif; }
@@ -230,6 +247,13 @@ html[data-density="compact-full"] {
     --card-line: color-mix(in srgb, var(--card-bg) 86%, var(--text));
   }
 }
+/* With Blur on the cards are see-through, and the deep shade above (the card mixed with opaque black)
+   came out denser and darker than the card around it: a dirty patch over the blur. The controls
+   drawn on it (steppers, segments, buttons, the picker's fields) take the card's own colour instead,
+   solid, so they read as plain surfaces over the blur. */
+html[data-blur="on"] {
+  --card-deep: rgb(from var(--card-bg) r g b / 1);
+}
 * {
   margin: 0;
   padding: 0;
@@ -267,9 +291,8 @@ body {
   /* The slide in and out on show and hide is the window's own (commands/window.rs), not a transform
      here: moved as a whole, the blur Windows draws under the cards goes with the page instead of a
      frame behind it. */
-  /* The column's place for "Fold favorites" (pinsfold.js); `translate`, so it adds to the show and
-     hide `transform`. */
-  translate: 0 var(--lift, 0px);
+  /* The column's place for "Fold favorites" (pinsfold.js) is the window's: set_window_lift moves the
+     whole window, so the blur goes with it. */
   transition:  opacity var(--t-fade, 320ms) var(--ease-out-apple),
     filter var(--t-blur, 380ms) var(--ease-out-apple),
     transform var(--t-move, 320ms) var(--ease-out-apple),
@@ -439,19 +462,6 @@ body {
   filter: blur(0);
   transform: translateX(-50%) translateY(2px);
 }
-/* The little jump a value makes when it changes. The class was being added for
-   a long time and there was no rule for it, so the motion never happened. */
-.pop {
-  animation: value-pop var(--t-size, 0.2s) var(--ease-out-apple);
-}
-@keyframes value-pop {
-  from {
-    transform: scale(1.12);
-  }
-  to {
-    transform: scale(1);
-  }
-}
 /* The resize handle: a vertical bar in the margin to the right of the search bar, drawn like
    the drag bar's rectangle. The hit area is a little taller than the bar, and the bar only
    shows while the pointer is in it, so it is there when you reach for it and gone otherwise. */
@@ -503,6 +513,14 @@ body {
   box-shadow: var(--bar-shadow);
   position: relative;
   z-index: 2;
+}
+/* Settings → Appearance → Search bar gradient: the bar lightens towards its start, 14% of the way
+   to white. The start is opaque, so the blur behind the window cannot wash it out on a light card;
+   it eases into the card's own see-through colour by 65% of the width. */
+html[data-search-grad="on"] #search-box {
+  background: linear-gradient(to right,
+    rgb(from var(--card-bg) calc(r + (255 - r) * 0.14) calc(g + (255 - g) * 0.14) calc(b + (255 - b) * 0.14) / 1),
+    var(--card-bg) 65%);
 }
 #search-icon {
   color: var(--icon);
@@ -609,6 +627,81 @@ body {
 #sel.on {
   opacity: 1;
 }
+/* The example queries in the empty box (animatePlaceholder in main.js): each turns over to the
+   next like a drum, letter after letter, the old one rolling up out of a blur and the new one in
+   from below. Laid over the input where its text starts, like the ghost. */
+#ph-roll {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text-dim);
+  font-size: 17px;
+  font-weight: var(--weight-regular);
+  letter-spacing: 0;
+  white-space: pre;
+}
+#ph-roll .cr-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+}
+/* Text that turns over letter by letter (charRollTo in roll.js). */
+.cr-line {
+  white-space: pre;
+}
+.cr-ch {
+  display: inline-block;
+  transition: transform var(--t-move, 0.5s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.35s) var(--ease-out-apple),
+    filter var(--t-blur, 0.5s) var(--ease-out-apple);
+}
+.cr-ch.below,
+.cr-ch.above {
+  opacity: 0;
+  filter: blur(var(--enter-blur));
+}
+.cr-ch.below {
+  transform: translateY(0.9em);
+}
+.cr-ch.above {
+  transform: translateY(-0.9em);
+}
+/* The hint over the drag bar turns over as one line (lineRollTo in roll.js): the new one comes up
+   from below, the old one is laid over it where it was, centred, and rolls up and away. */
+.lr-line {
+  display: inline-block;
+  transition: transform var(--t-move, 0.4s) var(--ease-out-apple),
+    opacity var(--t-fade, 0.3s) var(--ease-out-apple),
+    filter var(--t-blur, 0.4s) var(--ease-out-apple);
+}
+.lr-line.below {
+  transform: translateY(100%);
+  opacity: 0;
+  filter: blur(var(--enter-blur));
+}
+.lr-line.lr-out {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  animation: lr-out var(--t-move, 0.4s) var(--ease-out-apple) forwards;
+}
+/* Faded out within the first half and only half a line up: the window's top edge is a few pixels
+   above the hint, and a line rolling past it was cut off straight. */
+@keyframes lr-out {
+  50% {
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(-50%);
+    opacity: 0;
+    filter: blur(var(--enter-blur));
+  }
+}
 /* The animated example queries are the placeholder. Without this the input's
    -webkit-text-fill-color paints them exactly like typed text. */
 #search-input::placeholder {
@@ -673,7 +766,7 @@ body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition:  width var(--t-size, 0.2s) var(--ease-out-apple), margin var(--t-move, 0.2s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), visibility var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.12s) var(--ease-out-apple)
+  transition:  width var(--t-size, 0.2s) var(--ease-out-apple), margin var(--t-move, 0.2s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), visibility var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 #update-status svg {
   width: calc(var(--btn) * 0.58);
@@ -724,7 +817,7 @@ body {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition:  width var(--t-size, 0.2s) var(--ease-out-apple), margin var(--t-move, 0.2s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), visibility var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.15s) var(--ease-out-apple), color var(--t-color, 0.15s) var(--ease-out-apple)
+  transition:  width var(--t-size, 0.2s) var(--ease-out-apple), margin var(--t-move, 0.2s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), visibility var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple)
 }
 #clear-btn:hover {
   color: var(--text);
@@ -753,7 +846,7 @@ body {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
-  transition:  color var(--t-color, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.3s) var(--ease-out-apple), background var(--t-color, 0.12s) var(--ease-out-apple)
+  transition:  color var(--t-color, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.3s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 #settings-btn svg {
   /* Follows the search icon through the density modes (21px at its full 36px). */
@@ -794,7 +887,7 @@ body {
 }
 .settings-row.interactive {
   cursor: pointer;
-  transition:  background var(--t-color, 0.1s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .settings-row.interactive:hover {
   background: var(--card-hover);
@@ -849,13 +942,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition:  background var(--t-color, 0.12s) var(--ease-out-apple), color var(--t-color, 0.12s) var(--ease-out-apple), transform var(--t-move, 0.1s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.1s) var(--ease-out-apple)
 }
 .stepper-btn:hover {
   background: var(--card-hover);
   color: var(--text);
 }
-.zoom-stepper span {
+.zoom-stepper > span {
   min-width: 48px;
   text-align: center;
   color: var(--text-dim);
@@ -865,9 +958,9 @@ body {
   cursor: ew-resize;
   touch-action: none;
   padding: 4px 0;
-  transition: color var(--t-color, 0.12s) var(--ease-out-apple);
+  transition: color var(--t-color, 0.25s) var(--ease-out-apple);
 }
-.zoom-stepper span:hover {
+.zoom-stepper > span:hover {
   color: var(--text);
 }
 .toggle {
@@ -878,7 +971,7 @@ body {
   background: var(--card-hover);
   position: relative;
   flex-shrink: 0;
-  transition:  background var(--t-color, 0.15s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .toggle-knob {
   position: absolute;
@@ -897,18 +990,20 @@ body {
 .toggle.on .toggle-knob {
   transform: translateX(16px);
 }
-html[data-border-pos="inner"] :is(#search-box, .settings-card, #content-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card),
-html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
+html[data-border-pos="inner"] :is(#search-box, .settings-card, #content-menu, #anim-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card),
+html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #anim-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
   border-color: transparent;
   outline-style: solid;
   outline-color: var(--card-border);
   outline-width: var(--card-border-w);
 }
-html[data-border-pos="inner"] :is(#search-box, .settings-card, #content-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
+html[data-border-pos="inner"] :is(#search-box, .settings-card, #content-menu, #anim-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
   outline-offset: calc(-1 * var(--card-border-w));
 }
-html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
+html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #anim-menu, #color-picker, .cp-preview, #hint, .result-item, #context-menu, .special-card) {
   outline-offset: 0;
+  /* Outside means outside: no border in the layout, so a wider line does not push the content in. */
+  border-width: 0;
 }
 .seg-row {
   margin-left: auto;
@@ -932,7 +1027,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   padding: 5px 12px;
   border-radius: min(7px, var(--card-radius));
   cursor: pointer;
-  transition:  background var(--t-color, 0.12s) var(--ease-out-apple), color var(--t-color, 0.12s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .seg-btn:hover {
   color: var(--text);
@@ -952,7 +1047,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   font-weight: var(--weight-medium);
   cursor: pointer;
   padding: 6px 12px;
-  transition:  background var(--t-color, 0.12s) var(--ease-out-apple), opacity var(--t-fade, 0.1s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple), opacity var(--t-fade, 0.1s) var(--ease-out-apple)
 }
 .settings-text-btn:hover:not(:disabled) {
   background: var(--card-hover);
@@ -976,6 +1071,9 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 #content-menu,
 #anim-menu {
   position: absolute;
+  /* Until placed above its row (positionContentMenu / positionAnimMenu): left where it falls in the
+     flow, below that row, it counted in the card's height, which grew a scroll and an empty end. */
+  top: 0;
   right: 12px;
   width: 232px;
   z-index: 50;
@@ -993,15 +1091,17 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   visibility: hidden;
   opacity: 0;
   transform: scale(0.97) translateY(4px);
+  filter: blur(var(--enter-blur));
   transform-origin: bottom right;
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s)
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), filter var(--t-blur, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s)
 }
 #content-menu.visible,
 #anim-menu.visible {
   visibility: visible;
   opacity: 1;
   transform: scale(1) translateY(0);
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), visibility 0s linear 0s
+  filter: none;
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), filter var(--t-blur, 0.15s) var(--ease-out-apple), visibility 0s linear 0s
 }
 .exclude-chevron {
   display: inline-block;
@@ -1030,7 +1130,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   padding: 0 12px;
   border-radius: max(4px, calc(var(--card-radius) - 6px));
   cursor: pointer;
-  transition:  background var(--t-color, 0.1s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .ms-item:hover {
   background: var(--card-hover);
@@ -1044,7 +1144,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
     min-height var(--t-size, 0.24s) var(--ease-out-apple),
     margin var(--t-size, 0.24s) var(--ease-out-apple),
     opacity var(--t-fade, 0.18s) var(--ease-out-apple),
-    background var(--t-color, 0.1s) var(--ease-out-apple),
+    background var(--t-color, 0.25s) var(--ease-out-apple),
     visibility 0s linear 0s
 }
 .ms-folded .ms-item.ms-fold {
@@ -1057,7 +1157,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
     min-height var(--t-size, 0.24s) var(--ease-out-apple),
     margin var(--t-size, 0.24s) var(--ease-out-apple),
     opacity var(--t-fade, 0.18s) var(--ease-out-apple),
-    background var(--t-color, 0.1s) var(--ease-out-apple),
+    background var(--t-color, 0.25s) var(--ease-out-apple),
     visibility 0s linear var(--t-size, 0.24s)
 }
 /* Applied on first paint of a menu, so it opens already folded instead of
@@ -1127,7 +1227,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
 .cc-shade,
 .cc-swatch,
 .cc-chip {
-  transition: background-color var(--t-color, 0.28s) var(--ease-out-apple), box-shadow var(--t-color, 0.15s) var(--ease-out-apple);
+  transition: background-color var(--t-color, 0.28s) var(--ease-out-apple), box-shadow var(--t-color, 0.25s) var(--ease-out-apple);
 }
 /* Eyedropper frames come ~30 times a second; easing them would only lag behind the cursor. */
 .color-card.picking .cc-shade,
@@ -1287,7 +1387,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   color: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   cursor: pointer;
-  transition: background var(--t-color, 0.15s) var(--ease-out-apple), opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.12s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.12s) var(--ease-out-apple);
 }
 .cc-tool:hover:not(:disabled) {
   background: var(--card-hover);
@@ -1324,7 +1424,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
      to be a fixed grey that vanished into the light ones. */
   color: color-mix(in srgb, var(--text) 62%, transparent);
   cursor: pointer;
-  transition: color var(--t-color, 0.18s) var(--ease-out-apple);
+  transition: color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .cc-dropper:hover,
 .color-card.picking .cc-dropper {
@@ -1402,7 +1502,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   border-radius: min(8px, var(--card-radius));
   background: var(--card-deep);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  transition: background var(--t-color, 0.12s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .ccp-text {
   flex: 1;
@@ -1439,7 +1539,7 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #c
   background: none;
   color: var(--icon);
   cursor: pointer;
-  transition: background var(--t-color, 0.15s) var(--ease-out-apple), color var(--t-color, 0.15s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .ccp-btn:hover {
   background: var(--card-hover);
@@ -1539,7 +1639,8 @@ html[data-pins="right"] {
 }
 :root {
   /* The theme panel's card, and the room it takes beside the window (TP_RESERVE in themepanel.js). */
-  --tp-w: 484px;
+  /* The card fills the room but for Row Spacing, the gap it keeps from the column. */
+  --tp-w: calc(var(--tp-reserve) - var(--gap));
   --tp-reserve: 496px;
   --dock-l: 0px;
   --dock-r: 0px;
@@ -1604,7 +1705,13 @@ html[data-pins="right"] #pins-section {
   flex-direction: column;
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--t-fade, 0.2s) var(--ease-out-apple), transform var(--t-move, 0.32s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.2s);
+  filter: blur(var(--enter-blur));
+  transition: opacity var(--t-fade, 0.2s) var(--ease-out-apple), transform var(--t-move, 0.32s) var(--ease-out-apple), filter var(--t-blur, 0.32s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.2s);
+}
+/* Two cards in one panel, one shown at a time: the second is not a plate under the first, so the
+   gap .settings-card + .settings-card puts above it pushed Appearance below the search bar. */
+#theme-panel > .settings-card {
+  margin-top: 0;
 }
 html[data-tp="right"] #theme-panel {
   display: flex;
@@ -1620,7 +1727,8 @@ html[data-tp] #theme-panel.show {
   opacity: 1;
   visibility: visible;
   transform: none;
-  transition: opacity var(--t-fade, 0.2s) var(--ease-out-apple), transform var(--t-move, 0.32s) var(--ease-out-apple), visibility 0s;
+  filter: none;
+  transition: opacity var(--t-fade, 0.2s) var(--ease-out-apple), transform var(--t-move, 0.32s) var(--ease-out-apple), filter var(--t-blur, 0.32s) var(--ease-out-apple), visibility 0s;
 }
 #theme-card,
 #keys-card {
@@ -1671,7 +1779,7 @@ html[data-tp] #theme-panel.show {
   background: none;
   color: var(--text-dim);
   cursor: pointer;
-  transition: background var(--t-color, 0.14s) var(--ease-out-apple), color var(--t-color, 0.14s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .kb-row.changed .kb-reset {
   display: flex;
@@ -1738,7 +1846,7 @@ html[data-pins="right"] #pin-dock {
      library writes transform inline on every pointer move; transitioning it
      would make every one of those moves animate and the tile would trail behind
      the cursor. The hover lift is done with colour instead. */
-  transition:  background-color var(--t-color, 0.1s) var(--ease-out-apple),
+  transition:  background-color var(--t-color, 0.25s) var(--ease-out-apple),
     padding var(--t-move, 0.2s) var(--ease-out-apple),
     box-shadow var(--t-glow, 0.25s) var(--ease-out-apple)
 }
@@ -1849,7 +1957,7 @@ body > .result-item.sortable-fallback {
   background: transparent;
   opacity: 1;
   pointer-events: auto;
-  transition:  opacity var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.2s) var(--ease-out-apple);
+  transition:  opacity var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple);
   z-index: 5;
 }
 #custom-scrollbar.hidden {
@@ -1864,7 +1972,7 @@ body > .result-item.sortable-fallback {
   border-radius: 3px;
   background: rgba(178, 178, 178, 0.55);
   cursor: grab;
-  transition:  background var(--t-color, 0.15s) var(--ease-out-apple);
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple);
   will-change: transform, height;
 }
 #custom-scrollbar:hover #custom-thumb,
@@ -1889,6 +1997,9 @@ body > .result-item.sortable-fallback {
      the first row's shadow reaches 6px up. */
   margin-top: max(0px, calc(var(--gap) - 6px));
   --mask-top: 0px;
+  /* Over the search bar (z-index 2), so its shadow falls on the gap under it and not across the
+     first row -- the way each row covers the shadow of the one above. */
+  z-index: 3;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black var(--mask-top), black calc(100% - 12px), transparent 100%);
   transition:  --mask-top var(--t-fade, 0.2s) var(--ease-out-apple)
@@ -1948,7 +2059,7 @@ body > .result-item.sortable-fallback {
   border-radius: var(--card-radius);
   border: var(--card-border-w) solid var(--card-border);
   box-shadow: var(--card-shadow);
-  transition:  background-color var(--t-color, 0.1s) var(--ease-out-apple), box-shadow var(--t-glow, 0.1s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), margin-right var(--t-size, 0.26s) var(--ease-out-apple);
+  transition:  background-color var(--t-color, 0.25s) var(--ease-out-apple), box-shadow var(--t-glow, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), margin-right var(--t-size, 0.26s) var(--ease-out-apple);
   flex-shrink: 0;
   animation: result-enter var(--t-move, 0.55s) var(--ease-out-apple) both;
 }
@@ -1956,10 +2067,12 @@ body > .result-item.sortable-fallback {
   from {
     opacity: 0;
     transform: translateY(12px);
+    filter: blur(var(--enter-blur));
   }
   to {
     opacity: 1;
     transform: translateY(0);
+    filter: none;
   }
 }
 .result-item:hover {
@@ -2150,7 +2263,7 @@ body > .result-item.pin-drag-copy {
   flex-shrink: 0;
   padding: 0;
   opacity: 0;
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), width var(--t-move, 0.24s) var(--ease-out-apple), margin-left var(--t-move, 0.24s) var(--ease-out-apple), transform var(--t-move, 0.2s) var(--ease-out-apple), background var(--t-color, 0.12s) var(--ease-out-apple)
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), width var(--t-move, 0.24s) var(--ease-out-apple), margin-left var(--t-move, 0.24s) var(--ease-out-apple), transform var(--t-move, 0.2s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .result-pin svg {
   flex-shrink: 0;
@@ -2196,6 +2309,7 @@ body > .result-item.pin-drag-copy {
     min-height var(--t-size, 0.26s) var(--ease-out-apple),
     padding var(--t-size, 0.26s) var(--ease-out-apple),
     opacity var(--t-fade, 0.2s) var(--ease-out-apple),
+    background var(--t-color, 0.25s) var(--ease-out-apple),
     visibility 0s linear 0s
 }
 .settings-row.dep-row.dep-hidden {
@@ -2263,7 +2377,7 @@ body > .result-item.pin-drag-copy {
 }
 .result-pin .pin-fill {
   opacity: 0;
-  transition: opacity var(--t-color, 0.2s) var(--ease-out-apple)
+  transition: opacity var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .result-pin.pinned .pin-fill {
   opacity: 1;
@@ -2276,7 +2390,7 @@ body > .result-item.pin-drag-copy {
   /* 2px at 16px, in drawing units, so the line scales with the icon. */
   stroke-width: 3px;
   color: var(--icon);
-  transition:  color var(--t-color, 0.2s) var(--ease-out-apple)
+  transition:  color var(--t-color, 0.25s) var(--ease-out-apple)
 }
 #context-menu {
   position: fixed;
@@ -2297,14 +2411,16 @@ body > .result-item.pin-drag-copy {
   visibility: hidden;
   opacity: 0;
   transform: scale(0.97) translateY(-4px);
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s);
+  filter: blur(var(--enter-blur));
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), filter var(--t-blur, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s);
   transform-origin: top left;
 }
 #context-menu.visible {
   visibility: visible;
   opacity: 1;
   transform: scale(1) translateY(0);
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), visibility 0s linear 0s
+  filter: none;
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), filter var(--t-blur, 0.15s) var(--ease-out-apple), visibility 0s linear 0s
 }
 .ctx-item {
   height: 40px;
@@ -2316,7 +2432,7 @@ body > .result-item.pin-drag-copy {
   border-radius: max(4px, calc(var(--card-radius) - 4px));
   box-shadow: none;
   cursor: pointer;
-  transition:  background var(--t-color, 0.1s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .ctx-item:hover {
   background: var(--card-hover);
@@ -2368,7 +2484,7 @@ body > .result-item.pin-drag-copy {
   height: calc(var(--card-h) - 2 * var(--card-border-w));
   padding: 0 16px 0 8px;
   cursor: pointer;
-  transition:  background var(--t-color, 0.1s) var(--ease-out-apple);
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple);
   color: var(--text);
   font-size: 15px;
   font-weight: var(--weight-medium);
@@ -2537,7 +2653,7 @@ body > .result-item.pin-drag-copy {
   flex-shrink: 0;
   padding: 0;
   /* The ring that marks the chosen colour was appearing in one step. */
-  transition:  box-shadow var(--t-color, 0.16s) var(--ease-out-apple),
+  transition:  box-shadow var(--t-color, 0.25s) var(--ease-out-apple),
     transform var(--t-move, 0.16s) var(--ease-out-apple)
 }
 .swatch:hover {
@@ -2660,7 +2776,7 @@ body > .result-item.pin-drag-copy {
   font-weight: var(--weight-medium);
   line-height: 14px;
   cursor: pointer;
-  transition: background var(--t-color, 0.1s) var(--ease-out-apple),
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple),
     max-width var(--t-size, 0.45s) var(--ease-out-apple), padding var(--t-size, 0.45s) var(--ease-out-apple),
     margin var(--t-size, 0.45s) var(--ease-out-apple), opacity var(--t-fade, 0.3s) var(--ease-out-apple),
     visibility 0s;
@@ -2675,7 +2791,7 @@ body > .result-item.pin-drag-copy {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: background var(--t-color, 0.1s) var(--ease-out-apple),
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple),
     max-width var(--t-size, 0.45s) var(--ease-out-apple), padding var(--t-size, 0.45s) var(--ease-out-apple),
     margin var(--t-size, 0.45s) var(--ease-out-apple), opacity var(--t-fade, 0.3s) var(--ease-out-apple),
     visibility 0s linear var(--t-size, 0.45s);
@@ -2694,6 +2810,9 @@ body > .result-item.pin-drag-copy {
   position: relative;
   display: inline-block;
   clip-path: inset(0 -0.15em);
+  /* clip-path only hides the rest of the 0-9 column; it still counted in the scroll height of the
+     card around it (an empty strip under the last row of Appearance). This keeps it out. */
+  overflow-y: clip;
 }
 .fx-dg-ghost {
   visibility: hidden;
@@ -2726,8 +2845,18 @@ body > .result-item.pin-drag-copy {
 .fx-still .fx-chip,
 .fx-still .fx-reel,
 .fx-still.fx-val .fx-reel,
-.fx-still.fx-rate .fx-reel {
+.fx-still.fx-rate .fx-reel,
+.fx-still.roll-val .fx-reel {
   transition: none;
+}
+/* The numbers in Settings (rollSet in roll.js) roll the same way, but quickly: a drag or a held +
+   changes them every few frames, and a long turn would trail behind, a blur that never settles.
+   min() keeps Movement off at 0. */
+.roll-val .fx-reel {
+  transition-duration: min(var(--t-move, 0.18s), 0.18s);
+}
+.roll-val .fx-dg.rolling > .fx-reel {
+  animation-duration: min(var(--t-blur, 0.18s), 0.18s);
 }
 /* Where fxFitSum and fxFitChips measure: out of sight and out of the layout. */
 .fx-probe {
@@ -2880,13 +3009,14 @@ body > .result-item.pin-drag-copy {
   z-index: 1000;
   /* Grows out of the swatch it was opened from (transform-origin is set in openPicker). */
   transform-origin: top right;
-  transition:  opacity var(--t-fade, 0.18s) var(--ease-out-apple), transform var(--t-move, 0.22s) var(--ease-out-apple), visibility 0s linear 0s
+  transition:  opacity var(--t-fade, 0.18s) var(--ease-out-apple), transform var(--t-move, 0.22s) var(--ease-out-apple), filter var(--t-blur, 0.18s) var(--ease-out-apple), visibility 0s linear 0s
 }
 #color-picker.cp-hidden {
   visibility: hidden;
   opacity: 0;
   transform: scale(0.92);
-  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s)
+  filter: blur(var(--enter-blur));
+  transition:  opacity var(--t-fade, 0.15s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), filter var(--t-blur, 0.15s) var(--ease-out-apple), visibility 0s linear var(--t-fade, 0.15s)
 }
 .cp-sv {
   position: relative;
@@ -2935,6 +3065,10 @@ body > .result-item.pin-drag-copy {
   width: 14px;
   height: 14px;
 }
+/* Only left is set from script on the bars; without a top the knob centred on the bar's top edge. */
+:is(.cp-hue, .cp-alpha) > .cp-knob {
+  top: 50%;
+}
 .cp-row {
   display: flex;
   align-items: center;
@@ -2978,7 +3112,7 @@ body > .result-item.pin-drag-copy {
   border: none;
   border-radius: min(6px, var(--card-radius));
   cursor: pointer;
-  transition:  background var(--t-color, 0.12s) var(--ease-out-apple), color var(--t-color, 0.12s) var(--ease-out-apple)
+  transition:  background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple)
 }
 .align-cell:hover {
   background: var(--card-hover);
@@ -3090,6 +3224,9 @@ html[data-anim-size="off"] .result-pin.pin-pop {
    snap to blur(16px) and stay blurred for the whole fade, which is the opposite
    of what "no blur" should look like. Dropping the property instead leaves the
    hide/show as a plain opacity fade. */
+html[data-anim-blur="off"] {
+  --enter-blur: 0px;
+}
 html[data-anim-blur="off"] #app-container.window-hidden {
   filter: none;
 }
@@ -3112,7 +3249,7 @@ html[data-anim-blur="off"] .drag-bar .ntf-detail {
   cursor: pointer;
 }
 .result-item {
-  transition: background-color var(--t-color, 0.1s) var(--ease-out-apple), box-shadow var(--t-glow, 0.1s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), height var(--t-size, 0.26s) var(--ease-out-apple);
+  transition: background-color var(--t-color, 0.25s) var(--ease-out-apple), box-shadow var(--t-glow, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), height var(--t-size, 0.26s) var(--ease-out-apple);
 }
 :is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > :not(.sp-body):not(.result-pin) {
   display: none;
@@ -3166,8 +3303,8 @@ body > .result-item .sp-body {
   pointer-events: none;
 }
 @keyframes sp-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; filter: blur(var(--enter-blur)); }
+  to { opacity: 1; filter: none; }
 }
 @keyframes sp-out {
   from { opacity: 1; }
@@ -3437,7 +3574,7 @@ video.sp-photo {
   border-radius: 10px;
   outline: 2px solid transparent;
   outline-offset: 2px;
-  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.18s) var(--ease-out-apple);
+  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .su-theme-card i {
   display: block;
@@ -3459,7 +3596,7 @@ video.sp-photo {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color var(--t-color, 0.18s) var(--ease-out-apple);
+  transition: color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .su-theme.on .su-theme-name {
   color: var(--text);
@@ -3539,7 +3676,7 @@ video.sp-photo {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--t-color, 0.14s) var(--ease-out-apple), transform var(--t-move, 0.14s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), filter var(--t-color, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.14s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple);
 }
 .su-ghost {
   background: transparent;
@@ -3588,7 +3725,7 @@ video.sp-photo {
   cursor: pointer;
   outline: 2px solid transparent;
   outline-offset: -2px;
-  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.18s) var(--ease-out-apple), background var(--t-color, 0.18s) var(--ease-out-apple);
+  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.25s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .su-opt .su-ico {
   color: var(--accent);
@@ -3722,7 +3859,7 @@ video.sp-photo {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background var(--t-color, 0.18s) var(--ease-out-apple), color var(--t-color, 0.18s) var(--ease-out-apple), transform var(--t-move, 0.14s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.14s) var(--ease-out-apple);
 }
 .su-chip:hover {
   color: var(--text);
@@ -3790,7 +3927,7 @@ video.sp-photo {
   border-radius: 3px;
   background: var(--su-dim);
   opacity: 0.35;
-  transition: width var(--t-size, 0.3s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.2s) var(--ease-out-apple);
+  transition: width var(--t-size, 0.3s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple), background var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .su-dot.past {
   opacity: 0.7;
@@ -3840,7 +3977,7 @@ video.sp-photo {
   background: var(--su-panel);
   outline: 2px solid transparent;
   outline-offset: 2px;
-  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.18s) var(--ease-out-apple);
+  transition: transform var(--t-move, 0.22s) var(--ease-out-apple), outline-color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .su-dens-pic i {
   display: block;
@@ -3899,7 +4036,7 @@ video.sp-photo {
 }
 .su-hotkey .su-key,
 #setting-hotkey-value .su-key {
-  transition: background var(--t-color, 0.2s) var(--ease-out-apple), border-color var(--t-color, 0.2s) var(--ease-out-apple), box-shadow var(--t-glow, 0.2s) var(--ease-out-apple), color var(--t-color, 0.2s) var(--ease-out-apple);
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), border-color var(--t-color, 0.25s) var(--ease-out-apple), box-shadow var(--t-glow, 0.2s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 .hk-hint {
   color: var(--accent);
@@ -3958,7 +4095,7 @@ video.sp-photo {
   background: none;
   color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  transition: translate var(--t-move, 0.55s) var(--ease-out-apple), color var(--t-color, 0.2s) var(--ease-out-apple);
+  transition: translate var(--t-move, 0.55s) var(--ease-out-apple), color var(--t-color, 0.25s) var(--ease-out-apple);
 }
 #pins-toggle.available {
   display: flex;
@@ -4001,7 +4138,8 @@ video.sp-photo {
 @supports (corner-shape: squircle) {
   html[data-corners="squircle"] :is(#search-box, .result-item, .special-card, .settings-card, #hint,
       #context-menu, #content-menu, #anim-menu, #color-picker, #setup, .dock-tile, #pin-dock,
-      .sp-photo, .sp-pdf, .sp-content, .su-row, .su-opt, .su-mock, .su-mock-bar) {
+      .sp-photo, .sp-pdf, .sp-content, .su-row, .su-opt, .su-mock, .su-mock-bar, .ctx-item, .ms-item,
+      #cc-pill, .cc-tool) {
     corner-shape: squircle;
   }
 }
@@ -4031,4 +4169,13 @@ video.sp-photo {
 }
 #pins-toggle.on-light:hover {
   color: rgba(0, 0, 0, 0.85);
+}
+
+/* With Blur on (Appearance), the menus are frosted cards: the cards' colour and opacity over the
+   desktop's blur (blur.js). The desktop's blur is under the whole page, so the window's own rows
+   under a menu are blurred here; a wide radius turns their text into an even haze instead of soft
+   bright patches. Opaque with Blur off (their own rules). */
+html[data-blur="on"] :is(#context-menu, #content-menu, #anim-menu, #color-picker) {
+  background: var(--card-bg);
+  backdrop-filter: blur(28px);
 }

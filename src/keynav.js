@@ -77,8 +77,15 @@ function knSettingsKey(e) {
       return true;
     case "ArrowLeft":
     case "ArrowRight": {
+      const n = knRow < 0 ? 0 : knControls(rows[knRow]).length;
+      // ← with nothing in the row to step between closes the settings, as → in the empty box opened
+      // them. Not while there is text to filter by: there it moves the caret.
+      if (e.key === "ArrowLeft" && !n && !searchInput.value && !e.ctrlKey && !e.shiftKey) {
+        toggleSettings();
+        searchInput.focus();
+        return true;
+      }
       if (knRow < 0) return false;
-      const n = knControls(rows[knRow]).length;
       if (n) knCtrl = Math.max(0, Math.min(knCtrl + (e.key === "ArrowRight" ? 1 : -1), n - 1));
       knPaintSettings();
       return true;

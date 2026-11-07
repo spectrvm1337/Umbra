@@ -25,6 +25,7 @@ async function applyTheme() {
     root.setProperty("--card-bg", hexWithAlpha(cardBg, Math.max(theme.cardAlpha, 0.92)));
     root.setProperty("--text", text);
     root.setProperty("--card-radius", theme.radius + "px");
+    document.documentElement.dataset.corners = theme.squircle ? "squircle" : "round";
     root.setProperty("--card-border-w", (theme.borderOn ? theme.borderW : 0) + "px");
   } catch {}
 }

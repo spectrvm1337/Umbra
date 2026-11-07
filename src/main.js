@@ -261,7 +261,7 @@ async function refreshSettingsValues() {
     updateLanguageButtons(currentLang);
     currentHotkey = hk || "Alt+Space";
     paintHotkeyIdle();
-    settingZoomVal.textContent = Number(zoom || 1).toFixed(2);
+    rollSet(settingZoomVal, Number(zoom || 1).toFixed(2));
     settingAutostart.classList.toggle("on", !!as);
     const itemStr = window.i18n ? window.i18n.t("itemsCount") : "items";
     const indexingStr = window.i18n ? window.i18n.t("stillIndexing") : "still indexing";
@@ -427,7 +427,7 @@ function applyZoom(z, save) {
   z = Math.max(0.5, Math.min(2, Math.round(z * 100) / 100));
   document.documentElement.style.zoom = z;
   document.body.style.zoom = z;
-  setVal(settingZoomVal, z.toFixed(2));
+  rollSet(settingZoomVal, z.toFixed(2));
   syncWindowMotion();
   if (typeof refreshThemePanelRoom === "function") refreshThemePanelRoom();
   if (save) {
@@ -435,11 +435,11 @@ function applyZoom(z, save) {
   }
 }
 settingZoomMinus.addEventListener("click", () => {
-  applyZoom(parseFloat(settingZoomVal.textContent) - 0.05, true);
+  applyZoom(parseFloat(rollText(settingZoomVal)) - 0.05, true);
   settingZoomMinus.blur();
 });
 settingZoomPlus.addEventListener("click", () => {
-  applyZoom(parseFloat(settingZoomVal.textContent) + 0.05, true);
+  applyZoom(parseFloat(rollText(settingZoomVal)) + 0.05, true);
   settingZoomPlus.blur();
 });
 settingAutostartRow.addEventListener("click", async () => {
@@ -1148,6 +1148,8 @@ function effectiveColors() {
 }
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refreshSystemTheme);
 const tallToggle = document.getElementById("setting-tall");
+const searchGradRow = document.getElementById("setting-searchgrad-row");
+const searchGradToggle = document.getElementById("setting-searchgrad");
 const sidePreviewRow = document.getElementById("setting-sidepreview-row");
 const sidePreviewToggle = document.getElementById("setting-sidepreview");
 const pinsFoldRow = document.getElementById("setting-pinsfold-row");
@@ -1257,11 +1259,11 @@ function applyTheme() {
   if (theme.borderColor) root.style.setProperty("--card-border", theme.borderColor);
   else root.style.removeProperty("--card-border");
   if (typeof applyDock === "function") applyDock();
-  setVal(radiusVal, theme.radius);
-  setVal(gapVal, theme.gap ?? 12);
-  setVal(alphaVal, Math.round(theme.cardAlpha * 100) + "%");
-  setVal(borderWVal, theme.borderW);
-  setVal(glowVal, theme.glow ? theme.glowStrength : window.i18n.t("glowOff"));
+  rollSet(radiusVal, theme.radius);
+  rollSet(gapVal, theme.gap ?? 12);
+  rollSet(alphaVal, Math.round(theme.cardAlpha * 100) + "%");
+  rollSet(borderWVal, theme.borderW);
+  rollSet(glowVal, theme.glow ? theme.glowStrength : window.i18n.t("glowOff"));
   borderToggle.classList.toggle("on", !!theme.borderOn);
   glowToggle.classList.toggle("on", !!theme.glow);
   borderPosSeg.querySelectorAll(".seg-btn").forEach((b) =>
@@ -1273,7 +1275,10 @@ function applyTheme() {
     b.classList.toggle("active", b.dataset.corner === root.dataset.corners));
   blurToggle.classList.toggle("on", !!theme.blurOn);
   setDepHidden("blur-extras", !theme.blurOn);
-  setVal(blurVal, theme.blurStrength ?? 0);
+  rollSet(blurVal, theme.blurStrength ?? 0);
+  root.dataset.blur = theme.blurOn ? "on" : "off";
+  root.dataset.searchGrad = theme.searchGradient === false ? "off" : "on";
+  searchGradToggle.classList.toggle("on", theme.searchGradient !== false);
   if (typeof applyBlur === "function") applyBlur(theme.blurOn);
   fontSeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.font === font));
@@ -1675,7 +1680,7 @@ bindStepper("setting-glow-minus", "setting-glow-plus",
    it, so the cursor promised a drag that could not happen. */
 const clampStep = (min, max) => (v) => Math.max(min, Math.min(max, v));
 bindScrub(settingZoomVal,
-  () => parseFloat(settingZoomVal.textContent) || 1,
+  () => parseFloat(rollText(settingZoomVal)) || 1,
   (v) => applyZoom(v, true),
   3);
 bindScrub(alphaVal,
@@ -1760,15 +1765,33 @@ function addSystemFonts(names) {
 }
 fontSeg.addEventListener("contextmenu", (e) => {
   const btn = e.target.closest(".seg-btn[data-sys]");
-  if (!btn) return;
+  if (!btn || btn.classList.contains("seg-leaving")) return;
   e.preventDefault();
   const name = btn.dataset.font.slice(4);
-  theme = {
-    ...theme,
-    systemFonts: (theme.systemFonts || []).filter((n) => n !== name),
-    font: theme.font === btn.dataset.font ? "wix" : theme.font,
+  const drop = () => {
+    fontSeg.style.gridTemplateColumns = "";
+    theme = {
+      ...theme,
+      systemFonts: (theme.systemFonts || []).filter((n) => n !== name),
+      font: theme.font === btn.dataset.font ? "wix" : theme.font,
+    };
+    saveTheme();
   };
-  saveTheme();
+  // Like a currency chip that no longer fits: its column narrows to nothing while the others widen
+  // into the room, and it fades as it goes. Only within one line; fonts that wrap onto a second
+  // line would jump between lines anyway, so there it just fades.
+  const ms = motionMs("size", 450);
+  if (ms <= 0) return drop();
+  const btns = [...fontSeg.children];
+  const oneLine = btns.length <= 4;
+  if (oneLine) {
+    const col = (k) => (k === btns.indexOf(btn) ? "minmax(0, 0fr)" : "minmax(0, 1fr)");
+    fontSeg.style.gridTemplateColumns = btns.map(() => "minmax(0, 1fr)").join(" ");
+    void fontSeg.offsetWidth;
+    fontSeg.style.gridTemplateColumns = btns.map((_, k) => col(k)).join(" ");
+  }
+  btn.classList.add("seg-leaving");
+  setTimeout(drop, ms);
 });
 fontSeg.addEventListener("click", (e) => {
   const btn = e.target.closest(".seg-btn");
@@ -1797,6 +1820,10 @@ tallRow.addEventListener("click", () => {
   theme = { ...theme, tallResults: !theme.tallResults };
   saveTheme();
 });
+searchGradRow.addEventListener("click", () => {
+  theme = { ...theme, searchGradient: theme.searchGradient === false };
+  saveTheme();
+});
 async function loadTheme() {
   if (theme) return;
   try {
@@ -1822,17 +1849,6 @@ const ALIGN_GRID = [
 const alignTip = (c) => window.i18n.t({ t: "alignTop", c: "alignCenter", b: "alignBottom", l: "alignLeft", r: "alignRight" }[c]);
 let placement = { align: "cc", monitor: -1 };
 let lastMonitors = [];
-function pop(el) {
-  el.classList.remove("pop");
-  void el.offsetWidth;
-  el.classList.add("pop");
-}
-function setVal(el, text) {
-  if (el.textContent !== text) {
-    el.textContent = text;
-    pop(el);
-  }
-}
 function renderAlignGrid() {
   alignGridEl.innerHTML = "";
   ALIGN_GRID.forEach((row) => {
@@ -2694,28 +2710,47 @@ function uiZoom() {
   return r.width > 0 ? r.width / window.innerWidth : 1;
 }
 let tipTarget = null;
+// A hint stays a moment after the pointer leaves its control: reaching the next one in that time
+// (across the gap between two buttons, say) turns the line over to its hint instead of fading the
+// bar out and in again.
+const TIP_LINGER_MS = 350;
+let tipHideTimer = 0;
 function showBarTip(target) {
   if (!(target instanceof Element)) return;
   const text = target.dataset.tip;
   if (!text) return;
 
-  if (dragBar.classList.contains("shown")) return;
+  const lingering = dragBar.classList.contains("tip") && dragBar.classList.contains("shown");
+  if (dragBar.classList.contains("shown") && !lingering) return; // a notification is up
+  clearTimeout(tipHideTimer);
   tipTarget = target;
-  ntfShort.textContent = text;
+  lineRollTo(ntfShort, text, lingering && motionMs("move", 1) > 0);
+  if (lingering) {
+    ntfDetail.textContent = text;
+    return;
+  }
   ntfDetail.textContent = text;
   dragBar.classList.remove("success", "error", "warn", "info");
   dragBar.classList.add("notify", "tip");
   dragBar.removeAttribute("data-tip");
   dragBar.classList.add("shown");
 }
-function hideBarTip(target) {
+// `now`: gone at once (a click, a scroll) rather than after the linger.
+function hideBarTip(target, now) {
   if (!tipTarget) return;
   if (target && tipTarget !== target) return;
   tipTarget = null;
 
   if (!dragBar.classList.contains("tip")) return;
-  dragBar.classList.remove("shown", "notify", "tip");
-  syncDragTip();
+  clearTimeout(tipHideTimer);
+  const hide = () => {
+    // A notification may have taken the bar since; it is not this hint's to hide.
+    if (tipTarget || !dragBar.classList.contains("tip")) return;
+    dragBar.classList.remove("shown", "notify", "tip");
+    syncDragTip();
+  };
+  if (now) hide();
+  else tipHideTimer = setTimeout(hide, TIP_LINGER_MS);
 }
 document.addEventListener("mouseover", (e) => {
   const t = e.target instanceof Element ? e.target.closest("[data-tip]") : null;
@@ -2732,10 +2767,10 @@ document.addEventListener("mouseout", (e) => {
   }
 });
 document.addEventListener("pointerdown", () => {
-  hideBarTip();
+  hideBarTip(null, true);
 }, true);
 document.addEventListener("wheel", () => {
-  hideBarTip();
+  hideBarTip(null, true);
 }, { passive: true });
 // The bounce for a pin that was just pinned. Taken off again when it ends, so
 // the next time the row is drawn it is still.
@@ -2827,9 +2862,16 @@ function nextPlaceholder(count) {
   do { next = Math.floor(Math.random() * count); } while (next === placeholderIndex);
   return next;
 }
-let placeholderCharIndex = 0;
-let placeholderDeleting = false;
 let placeholderTimer = null;
+// How long a hint stays before the next one turns over (charRollTo in roll.js).
+const PH_HOLD_MS = 3000;
+const phRoll = document.getElementById("ph-roll");
+function phRollTo(text) {
+  charRollTo(phRoll, text, motionMs("move", 500) > 0);
+}
+function phClear() {
+  phRoll.replaceChildren();
+}
 // There is at most one typing loop: every step and every (re)start goes through
 // here, and each replaces whatever is pending instead of running beside it.
 // A start that kept no handle (the one at load did) left a second loop going
@@ -2840,35 +2882,14 @@ function schedulePlaceholder(fn, ms) {
 }
 function animatePlaceholder() {
   if (searchInput.value.length > 0 || appContainer.classList.contains("window-hidden")) {
-    searchInput.placeholder = "";
+    phClear();
     return;
   }
   const words = placeholderList();
   if (placeholderIndex >= words.length) placeholderIndex = 0;
-  const currentWord = words[placeholderIndex];
-  if (!placeholderDeleting) {
-    searchInput.placeholder = currentWord.substring(0, placeholderCharIndex + 1);
-    placeholderCharIndex++;
-    if (placeholderCharIndex >= currentWord.length) {
-      schedulePlaceholder(() => {
-        placeholderDeleting = true;
-        animatePlaceholder();
-      }, 1500);
-      return;
-    }
-    schedulePlaceholder(animatePlaceholder, 80);
-  } else {
-    searchInput.placeholder = currentWord.substring(0, placeholderCharIndex);
-    placeholderCharIndex--;
-    if (placeholderCharIndex < 0) {
-      placeholderDeleting = false;
-      placeholderCharIndex = 0;
-      placeholderIndex = nextPlaceholder(words.length);
-      schedulePlaceholder(animatePlaceholder, 400);
-      return;
-    }
-    schedulePlaceholder(animatePlaceholder, 50);
-  }
+  phRollTo(words[placeholderIndex]);
+  placeholderIndex = nextPlaceholder(words.length);
+  schedulePlaceholder(animatePlaceholder, PH_HOLD_MS);
 }
 document.addEventListener("mousemove", (e) => {
   if (document.body.classList.contains("is-dragging-pin")) return;
@@ -2902,10 +2923,15 @@ function openContextMenu(e, target) {
   const menuH = contextMenu.offsetHeight;
   const vw = window.innerWidth * z;
   const vh = window.innerHeight * z;
+  // Kept this far from the window's edges, which would cut its shadow (0 8px 24px) off straight.
+  const edge = 32 * z;
   let x = e.clientX;
   let y = e.clientY;
-  if (x + menuW > vw) x = vw - menuW - 8;
-  if (y + menuH > vh) y = vh - menuH - 8;
+  if (x + menuW > vw - edge) x = vw - menuW - edge;
+  // Near the bottom it opens upwards from the pointer when there is room above.
+  if (y + menuH > vh - edge) y = y - menuH >= edge ? y - menuH : vh - menuH - edge;
+  x = Math.max(edge, x);
+  y = Math.max(edge, y);
   contextMenu.style.left = x / z + "px";
   contextMenu.style.top = y / z + "px";
   contextMenu.classList.add("visible");
@@ -3481,13 +3507,11 @@ searchInput.addEventListener("input", () => {
   clearTimeout(debounceTimer);
 
   if (!hasText) {
-    placeholderDeleting = false;
-    placeholderCharIndex = 0;
     schedulePlaceholder(animatePlaceholder, 500);
   } else {
     if (placeholderTimer) clearTimeout(placeholderTimer);
     placeholderTimer = null;
-    searchInput.placeholder = "";
+    phClear();
   }
 
   if (settingsBtn.classList.contains("open")) {
@@ -3636,7 +3660,7 @@ document.getElementById("setting-setup-btn").addEventListener("click", (e) => {
   if (window.UmbraSetup) window.UmbraSetup.open({ first: false });
 });
 window.addEventListener("language-changed", () => {
-  if (theme && !theme.glow) setVal(glowVal, window.i18n.t("glowOff"));
+  if (theme && !theme.glow) rollSet(glowVal, window.i18n.t("glowOff"));
   if (!checkUpdateBtn.disabled && updateState.phase !== "checking") checkUpdateBtn.textContent = window.i18n.t("updCheck");
   syncDragTip();
   renderAlignGrid();

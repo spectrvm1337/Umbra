@@ -442,8 +442,15 @@ function colorCopy(text) {
   if (colorShown) colorRemember(colorToHex(colorShown));
 }
 
+// What !picker opens on: the last colour in History, or the accent before anything was picked.
+function colorPickerStart() {
+  const last = colorReadHistory()[0];
+  const accent = typeof theme !== "undefined" && theme && theme.accent;
+  return parseColorQuery(last || "") || parseColorQuery(accent || "") || { r: 80, g: 112, b: 144 };
+}
+
 function handleColorCommand(query) {
-  const c = parseColorQuery(query);
+  const c = parseColorQuery(query) || (/^!picker\s*$/i.test(query.trim()) ? colorPickerStart() : null);
   if (!c) return false;
   specialSection.classList.remove("hidden");
   resultsSection.classList.add("hidden");

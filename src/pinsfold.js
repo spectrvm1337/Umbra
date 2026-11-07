@@ -2,7 +2,8 @@
 // the arrow under the favourites and the layout that goes with the setting: while nothing is under
 // the search box, the box waits a little above the middle of the window; once something is (results, a card,
 // the settings, the opened favourites), that is centred and the box sits on top of it. This is done
-// by moving the whole column (--lift), so the page layout never changes and the stylesheet animates it.
+// by moving the whole window (set_window_lift), so the page layout never changes and the blur Windows
+// draws under the cards moves with it.
 
 const pinsToggle = document.getElementById("pins-toggle");
 const pfSearchBox = document.getElementById("search-box");
@@ -34,7 +35,7 @@ function syncPinsFold() {
   pinsToggle.classList.toggle("open", pinsOpen);
   if (!on) {
     appContainer.style.removeProperty("--lift");
-    if (typeof blurLift === "function") blurLift(0);
+    pfSendLift(0);
     return;
   }
   // The eyedropper has moved the window to put the bar at the top of the screen; it stays there.
@@ -65,8 +66,21 @@ function syncPinsFold() {
   // to fit it (themepanel.js); moved down it would be cut off.
   if (document.documentElement.dataset.tp || !pfCentred()) lift = 0;
   appContainer.style.setProperty("--lift", Math.round(lift) + "px");
-  // The blur under the cards makes the same move (blur.js).
-  if (typeof blurLift === "function") blurLift(Math.round(lift));
+  pfSendLift(lift);
+}
+
+// The window moves by the lift, in physical px, on the page's curve over Movement's length; at
+// once right after a summon (lift-instant), which joins the summon's slide. Not while the window
+// fades out: the slide up is under way, and the next summon sends the place again.
+let pfLiftSent = null;
+function pfSendLift(lift) {
+  if (typeof isHiding !== "undefined" && isHiding) return;
+  const zoom = appContainer.offsetHeight ? appContainer.getBoundingClientRect().height / appContainer.offsetHeight : 1;
+  const y = Math.round(lift * zoom * (window.devicePixelRatio || 1));
+  if (y === pfLiftSent) return;
+  pfLiftSent = y;
+  const ms = appContainer.classList.contains("lift-instant") ? 0 : Math.round(motionMs("move", 550));
+  invoke("set_window_lift", { y, ms }).catch(() => {});
 }
 
 let pfQueued = false;

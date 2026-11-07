@@ -1,8 +1,9 @@
 // Background blur under the cards (theme.blurOn; drawn by blur.rs). Every frame the visible cards
 // are measured and, when they moved, sent to Rust, which keeps one blurred sprite under each.
 
-// The menus and the colour picker are left out: they are opaque (styles.css), nothing shows through.
-const BLUR_CARDS = "#search-box, .result-item, .special-card, #hint, #cc-pill, .cc-tool, .dock-tile, #setup";
+// The menus and the colour picker too: with Blur on they are see-through cards (styles.css).
+const BLUR_CARDS = "#search-box, .result-item, .special-card, #hint, #context-menu, #content-menu, #anim-menu, " +
+  "#color-picker, #cc-pill, .cc-tool, .dock-tile, #setup";
 const blurList = document.getElementById("results-wrapper");
 
 let blurOn = false;
@@ -21,29 +22,14 @@ function blurScale() {
   return appContainer.offsetHeight ? appContainer.getBoundingClientRect().height / appContainer.offsetHeight : 1;
 }
 
-// The column's move (--lift, pinsfold.js) is left out of the cards and done in Rust as an animation
-// of its own (set_blur_lift), so the blur moves with the column instead of a frame or two behind it.
+// The column's move (--lift, pinsfold.js) is the window's own now (set_window_lift), so the blur
+// goes with it; nothing in the page is shifted. Kept for a translate a theme might add.
 function blurColumnShift() {
   const t = getComputedStyle(appContainer).translate;
   const y = t && t !== "none" ? parseFloat(t.split(" ")[1]) || 0 : 0;
   return y * blurScale();
 }
 
-let blurLiftSent = null;
-// Called by syncPinsFold with the column's new place, in #app-container px.
-function blurLift(lift) {
-  if (!blurOn) return;
-  const y = Math.round(lift * blurScale() * (window.devicePixelRatio || 1) * 10) / 10;
-  if (y === blurLiftSent) return;
-  blurLiftSent = y;
-  // The length the stylesheet gives `translate`: the fourth of #app-container's transitions.
-  let ms = 0;
-  if (!appContainer.classList.contains("lift-instant")) {
-    const dur = (getComputedStyle(appContainer).transitionDuration.split(",")[3] || "0s").trim();
-    ms = dur.endsWith("ms") ? parseFloat(dur) : parseFloat(dur) * 1000;
-  }
-  invoke("set_blur_lift", { y, ms: ms || 0 }).catch((err) => console.warn("blur lift:", err));
-}
 
 // The card's corner curve as the K of superellipse(K): 1 is a circular arc, 2 a squircle. Chromium
 // may hand the computed value back as the keyword or as superellipse(2), so both are read; Rust draws
@@ -101,13 +87,20 @@ function blurWake() {
   }
 }
 // The typing examples in the empty box change its placeholder many times a second and move nothing.
+// Neither do the rolling examples that replace it (#ph-roll), which turn over every few seconds.
+const blurIgnored = (node) => {
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return !!(el && el.closest && el.closest("#ph-roll"));
+};
 new MutationObserver((records) => {
-  if (records.some((r) => r.attributeName !== "placeholder")) blurWake();
+  if (records.some((r) => r.attributeName !== "placeholder" && !blurIgnored(r.target))) blurWake();
 }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 // Pointer moves too: with Animations off a hover that resizes a card starts no transition at all.
 for (const ev of ["scroll", "transitionrun", "transitionend", "transitioncancel", "animationstart", "animationend",
   "pointerover", "pointerout"]) {
-  addEventListener(ev, blurWake, true);
+  addEventListener(ev, (e) => {
+    if (!blurIgnored(e.target)) blurWake();
+  }, true);
 }
 addEventListener("resize", blurWake);
 // Endless animations (the caret's blink, pulses) never move a card, so only ones that end count.
@@ -154,15 +147,9 @@ new MutationObserver(() => {
 
 // Called by applyTheme (main.js).
 function applyBlur(on) {
-  const was = blurOn;
   blurOn = !!on;
   blurSent = ""; // a fresh blur gets the cards again
-  blurLiftSent = null; // and the column's place
   blurWake();
-  if (!was && blurOn) {
-    const lift = parseFloat(appContainer.style.getPropertyValue("--lift")) || 0;
-    blurLift(lift);
-  }
 }
 // The theme may have loaded before this file.
 if (typeof theme !== "undefined" && theme) applyBlur(theme.blurOn);

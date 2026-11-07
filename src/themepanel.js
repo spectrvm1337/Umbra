@@ -142,6 +142,7 @@ async function closeThemePanel() {
     appContainer.style.width = appContainer.offsetWidth - (side === "left" ? 0 : TP_RESERVE) + "px";
   }
   delete root.dataset.tp;
+  if (typeof pfQueue === "function") pfQueue(); // back to the middle (pinsfold.js)
   tpSide = null;
   await resizeWindowSides(before);
   tpApplied = 0;
@@ -163,6 +164,7 @@ function resetThemePanelNow() {
     const before = sidesLeftExtra();
     themePanel.classList.remove("show");
     delete document.documentElement.dataset.tp;
+    if (typeof pfQueue === "function") pfQueue(); // back to the middle (pinsfold.js)
     tpSide = null;
     appContainer.style.width = "";
     await resizeWindowSides(before);

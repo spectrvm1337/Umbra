@@ -590,9 +590,7 @@ function fxWatchCard(card) {
   fxObserved = card;
 }
 
-// A number shown as drums of digits that turn to the new value, blurred while they move, like a
-// counter's; separators and words stay put. Lined up from the right, so units stay units, and a
-// digit that is new (the number got longer) turns up from 0.
+// A number shown as drums of digits (roll.js) that turn to the new value.
 function fxCountTo(card, key, el, to, format) {
   const text = format(to);
   el._fxFinal = text; // what fxFitSum sizes the line for
@@ -600,83 +598,6 @@ function fxCountTo(card, key, el, to, format) {
   el._fxV = to;
   fxRoll(el, text, animate);
 }
-const FX_DIGITS = /^\d$/;
-function fxCell(ch) {
-  const cell = document.createElement("span");
-  if (!FX_DIGITS.test(ch)) {
-    cell.className = "fx-tc";
-    cell.textContent = ch;
-    return cell;
-  }
-  cell.className = "fx-dg";
-  cell.style.setProperty("--d", ch);
-  // The hidden copy gives the cell its width and baseline; the drum turns above it, clipped to a line.
-  cell.innerHTML = `<span class="fx-dg-ghost">${ch}</span><span class="fx-reel"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span>`;
-  return cell;
-}
-function fxTokens(text) {
-  return text.match(/\d|\D+/g) || [];
-}
-function fxSetDigit(cell, ch) {
-  cell.style.setProperty("--d", ch);
-  cell.firstChild.textContent = ch;
-}
-function fxRoll(el, text, animate) {
-  let cells = el._fxCells;
-  if (!cells || cells.some((c) => c.parentNode !== el)) {
-    // Plain text so far (a new card, a placeholder): made into cells as it stands, to turn from.
-    cells = fxTokens(el.textContent).map(fxCell);
-    el.replaceChildren(...cells);
-  }
-  if (!animate) el.classList.add("fx-still");
-  // Each digit is a cell; a run of anything else is one, so words keep their kerning.
-  const chars = fxTokens(text);
-  const next = [];
-  const turned = [];
-  const fresh = [];
-  for (let k = 1; k <= chars.length; k++) {
-    const ch = chars[chars.length - k];
-    const old = cells[cells.length - k];
-    const digit = FX_DIGITS.test(ch);
-    let cell;
-    if (old && digit && old.classList.contains("fx-dg")) {
-      cell = old;
-      if (old.style.getPropertyValue("--d") !== ch) {
-        fxSetDigit(old, ch);
-        turned.push(old);
-      }
-    } else if (old && !digit && old.classList.contains("fx-tc") && old.textContent === ch) {
-      cell = old;
-    } else {
-      cell = fxCell(digit && animate ? "0" : ch);
-      if (digit && animate) fresh.push([cell, ch]);
-    }
-    next[chars.length - k] = cell;
-  }
-  const keep = new Set(next);
-  for (const c of cells) if (!keep.has(c)) c.remove();
-  // Into place from the right; cells already in place are not touched, so their drums keep turning.
-  let after = null;
-  for (let i = next.length - 1; i >= 0; i--) {
-    const c = next[i];
-    if (c.parentNode !== el || c.nextSibling !== after) el.insertBefore(c, after);
-    after = c;
-  }
-  el._fxCells = next;
-  if (fresh.length || turned.length || !animate) void el.offsetWidth;
-  for (const [cell, ch] of fresh) {
-    fxSetDigit(cell, ch);
-    turned.push(cell);
-  }
-  if (!animate) {
-    el.classList.remove("fx-still");
-    return;
-  }
-  for (const c of turned) c.classList.remove("rolling");
-  void el.offsetWidth;
-  for (const c of turned) c.classList.add("rolling");
-}
-
 // Text that changes under the eye eases in rather than being swapped.
 function fxSwap(el) {
   if (!fxMotionOn()) return;

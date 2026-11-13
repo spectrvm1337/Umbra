@@ -307,8 +307,19 @@ pub fn init_index_with_progress(app: tauri::AppHandle) {
 // it still happens once at startup. Throttled to once per 5 minutes.
 static LAST_FAST_REFRESH: OnceLock<std::sync::Mutex<Option<std::time::Instant>>> = OnceLock::new();
 const FAST_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
-pub fn refresh_fast_index_async() {
-    std::thread::spawn(refresh_fast_index);
+/// Brings the index back into memory on a summon. After a long idle Windows has paged most of it
+/// out, and the first search, which reads every entry, stalled on that for a moment; touched here
+/// the reads start while the window is still coming up, before the first key is typed.
+pub fn warm_async() {
+    std::thread::spawn(|| {
+        let sum = with_entries(|r| {
+            r.iter().fold(0usize, |acc, e| {
+                acc.wrapping_add(e.name_lower.as_bytes().first().copied().unwrap_or(0) as usize)
+                    .wrapping_add(e.path.as_bytes().first().copied().unwrap_or(0) as usize)
+            })
+        });
+        std::hint::black_box(sum);
+    });
 }
 fn missing_paths(paths: Vec<String>) -> std::collections::HashSet<String> {
     paths.into_iter().filter(|p| !Path::new(p).exists()).collect()

@@ -87,6 +87,8 @@ windows = { version = "0.61", features = [
     "Win32_Graphics_Direct2D_Common",
 ] }
 windows-numerics = "0.2"
+# The blur under the cards (blur.rs). Pinned to a commit: 0.4 is not on crates.io yet.
+haze = { git = "https://github.com/spectrvm1337/Haze-blur", rev = "f1935808c290e2c41a2fa1dcf1f671b121aa4d1b", default-features = false }
 # The WebView2 interfaces Tauri's own webview is behind (already a dependency of wry, same version):
 # asleep while the window is hidden (commands/window.rs).
 webview2-com = "0.38"

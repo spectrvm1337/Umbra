@@ -27,7 +27,15 @@ pub fn hide_window(app: tauri::AppHandle) {
         let gen = AWAKE_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let later = w.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(SLEEP_AFTER);
+            // The Start Menu and the registry are looked at again while the window is away (at most
+            // every few minutes, refresh_fast_index). Done on the summon, as before, the walk, the
+            // disk checks and the write lock on the index fell on the window coming up and on the
+            // first search, and after a long idle the summon stuttered behind them.
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if AWAKE_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen && !later.is_visible().unwrap_or(true) {
+                crate::indexer::refresh_fast_index();
+            }
+            std::thread::sleep(SLEEP_AFTER.saturating_sub(std::time::Duration::from_secs(2)));
             if AWAKE_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen && !later.is_visible().unwrap_or(true) {
                 set_webview_awake(&later, false);
             }
@@ -36,12 +44,14 @@ pub fn hide_window(app: tauri::AppHandle) {
         crate::backdrop::refresh_later(&w, 300);
     }
 }
-/// The window is hidden nearly all the time, and a hidden WebView2 still holds its caches. Asleep it
-/// is told it is not on screen (hiding the window alone does not tell it) and to keep as little
-/// memory as it can; `SetIsVisible(true)` on the next summon wakes it before the window shows.
+/// The window is hidden nearly all the time. Asleep the page is told it is not on screen (hiding the
+/// window alone does not tell it), so it stops rendering; `SetIsVisible(true)` on the next summon
+/// wakes it before the window shows.
 /// It is not suspended (TrySuspend): after a long idle a suspended page took long enough to come
 /// back that the summon showed an empty window, the next press of the hotkey hid it again, and Umbra
-/// seemed to open only at the fifth try. A hidden page does nothing anyway.
+/// seemed to open only at the fifth try. Nor is it asked for the low memory target any more: that
+/// dropped its caches and let its memory go to the page file, and after a long idle every summon
+/// paid for rebuilding them, the slow first open after a while away.
 pub fn set_webview_awake(window: &tauri::WebviewWindow, awake: bool) {
     if awake {
         // A sleep a recent hide scheduled no longer applies.
@@ -49,18 +59,7 @@ pub fn set_webview_awake(window: &tauri::WebviewWindow, awake: bool) {
     }
     #[cfg(target_os = "windows")]
     let _ = window.with_webview(move |webview| unsafe {
-        use webview2_com::Microsoft::Web::WebView2::Win32::{
-            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-        };
-        use windows::core::Interface;
-        let controller = webview.controller();
-        let _ = controller.SetIsVisible(awake);
-        let Ok(core) = controller.CoreWebView2() else { return };
-        // A newer interface: an older WebView2 runtime simply skips it.
-        if let Ok(core) = core.cast::<ICoreWebView2_19>() {
-            let level = if awake { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW };
-            let _ = core.SetMemoryUsageTargetLevel(level);
-        }
+        let _ = webview.controller().SetIsVisible(awake);
     });
 }
 use crate::config;

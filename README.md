@@ -68,7 +68,7 @@ Few settings, each one meant: language (English, Russian, German, Japanese), the
 
 </div>
 
-Themes, colors, blur, fonts and animations, down to custom CSS ([THEMES.md](THEMES.md)). The cards are blurred over whatever is behind the window, with rounded corners, and the drag bar and the favorites arrow take their color from the wallpaper. A theme is a file in `%APPDATA%\.Umbra-config\themes`.
+Themes, colors, blur, fonts and animations, down to custom CSS ([THEMES.md](THEMES.md)). The cards are blurred over whatever is behind the window, with rounded or squircle corners, by [Haze](https://github.com/spectrvm1337/Haze-blur), and the drag bar and the favorites arrow take their color from the wallpaper. A theme is a file in `%APPDATA%\.Umbra-config\themes`.
 
 ## Keyboard shortcuts
 

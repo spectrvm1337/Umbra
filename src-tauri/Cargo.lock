@@ -1472,6 +1472,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
+name = "haze"
+version = "0.4.0"
+source = "git+https://github.com/spectrvm1337/Haze-blur?rev=f1935808c290e2c41a2fa1dcf1f671b121aa4d1b#f1935808c290e2c41a2fa1dcf1f671b121aa4d1b"
+dependencies = [
+ "windows",
+ "windows-collections",
+ "windows-core 0.61.2",
+ "windows-numerics",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4011,6 +4022,7 @@ dependencies = [
  "base64 0.22.1",
  "dirs",
  "encoding_rs",
+ "haze",
  "jwalk",
  "open",
  "png 0.17.16",

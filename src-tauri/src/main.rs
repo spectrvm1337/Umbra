@@ -132,7 +132,7 @@ pub fn show_window_with(window: &tauri::WebviewWindow, open_settings: bool) {
     *LAST_SHOWN.lock_or_recover() = Some(std::time::Instant::now());
     bring_to_front(window);
     let _ = window.emit("window-shown", serde_json::json!({ "openSettings": open_settings, "backdrop": backdrop }));
-    indexer::refresh_fast_index_async();
+    indexer::warm_async();
     // A hidden window comes down when the page starts its fade (commands::slide_in_start).
     if let (true, Some(rest)) = (was_visible, rest) {
         commands::glide_to(window, rest);
@@ -305,7 +305,6 @@ fn main() {
             preview::get_preview,
             blur::set_blur_shapes,
             blur::set_blur_fade,
-            blur::set_blur_lift,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

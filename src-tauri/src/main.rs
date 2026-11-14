@@ -18,6 +18,7 @@ mod program_version;
 mod preview;
 mod registry;
 mod search;
+mod shared;
 mod storage;
 mod sync;
 mod taskbar;
@@ -145,7 +146,12 @@ fn main() {
     std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
     preview::install_panic_hook();
     let _ = rayon::ThreadPoolBuilder::new().num_threads(3).build_global();
+    let context = tauri::generate_context!();
+    // The window's normal size is tauri.conf.json's; Rust and the page both start from it.
+    let size = context.config().app.windows.first().map(|w| (w.width, w.height)).expect("tauri.conf.json has the main window");
+    commands::set_default_size(size.0, size.1);
     tauri::Builder::default()
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("umbra-shared").js_init_script(shared::init_script(size)).build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 crate::show_window(&w);
@@ -253,6 +259,7 @@ fn main() {
             commands::window_slide_in,
             commands::stop_window_motion,
             commands::get_icons,
+            commands::list_folder,
             commands::recenter_window,
             commands::resize_main_window,
             commands::get_hotkey,
@@ -306,6 +313,6 @@ fn main() {
             blur::set_blur_shapes,
             blur::set_blur_fade,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

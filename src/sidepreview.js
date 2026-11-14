@@ -276,6 +276,9 @@ async function spPaint(item) {
   spBody.classList.toggle("sp-wide", !!(p && (kind === "text" || kind === "video" || pdfLive || (p.thumb && !iconish && kind !== "other"))));
   const fresh = document.createElement("div");
   fresh.className = "sp-content";
+  // What shows the file itself (not its program's icon or a placeholder) is what Settings → Blur
+  // previews keeps blurred (styles.css).
+  fresh.classList.toggle("sp-private", !!(p && (kind === "text" || kind === "video" || (p.thumb && !iconish))) || pdfLive);
   fresh.innerHTML = stage;
   const text = fresh.querySelector(".sp-text");
   if (text) text.textContent = p.text;

@@ -139,6 +139,7 @@ function knOpenMenuForSelection() {
   let el = null;
   let target = null;
   const tile = knDockTiles()[knDock];
+  if (!tile) keyboardTakesSelection(); // main.js
   if (tile) {
     el = tile;
     target = currentPins.find((p) => p.path === tile.dataset.path) || null;
@@ -246,7 +247,8 @@ function knInit() {
     } else if (!settingsSection.classList.contains("hidden")) {
       handled = knSettingsKey(e);
     } else {
-      handled = knDockKey(e);
+      // A row that opens (a group, a folder) takes → and ← first (main.js); otherwise → at the end of the text goes into the dock.
+      handled = (knDock < 0 && treeArrowKey(e)) || knDockKey(e);
       if (!handled && e.target !== searchInput && !knEditable(e.target) && ["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(e.key)) {
         // Focus left the search box (a button was clicked): the keys still drive the list.
         e.preventDefault();

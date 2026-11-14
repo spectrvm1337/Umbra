@@ -35,6 +35,13 @@ pub struct SearchResult {
     pub icon_data: Option<String>,
     #[serde(skip)]
     pub score: ScoreKey,
+    /// On the first result of a name and kind found more than once: how many copies there are in all,
+    /// sent or not (the "+N" on the page's row for them).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copies: Option<u32>,
+    /// `copies` is only "at least": the count stopped early (COUNT_BUDGET).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub copies_more: bool,
 }
 const EN_TO_RU: &[(char, char)] = &[
     ('q', '\u{0439}'), ('w', '\u{0446}'), ('e', '\u{0443}'), ('r', '\u{043A}'),
@@ -338,11 +345,83 @@ pub(crate) fn is_setup_or_uninstaller(path: &str) -> bool {
     let file = path.rsplit(['\\', '/']).next().unwrap_or(path).to_lowercase();
     file.starts_with("unins") || file.contains("uninstall") || file.contains("setup") || file.contains("installer")
 }
-/// Always this many results when there are that many matches...
+/// Always this many rows when there are that many matches...
 const MIN_RESULTS: usize = 30;
 /// ...and past that, more while they are real matches (the name contains the query), up to this
-/// many. Typo matches never extend the list.
+/// many. Typo matches never extend the list. A row is a name and kind: the page folds results with
+/// the same ones into one (tree.js), so a hundred README.md files no longer fill the whole list
+/// and keep every other match out of it.
 const MAX_RESULTS: usize = 120;
+/// Copies of one name and kind sent for its row, which the row opens into.
+const GROUP_MAX: usize = 50;
+/// All results sent, whatever the rows: they go to the page on every key.
+const MAX_ENTRIES: usize = 1000;
+/// Matches looked at past the point where the list is full, only to count the copies of its rows
+/// (the "+N" on a row). A query of a letter or two matches most of the index; past this the count is
+/// "at least" (`SearchResult::copies_more`).
+const COUNT_BUDGET: usize = 60_000;
+enum Take {
+    Yes,
+    Skip,
+    Stop,
+}
+/// A row's copies: sent to the page, and found in all.
+#[derive(Clone, Copy, Default)]
+struct RowCount {
+    sent: usize,
+    found: usize,
+}
+/// Decides, best match first, which results are sent: counted by row (name and kind), not by file,
+/// while the page folds same-named results into one row (Settings → group same names); one row per
+/// file otherwise. With rows, every copy of a row is counted, sent or not.
+struct RowLimit<'a> {
+    grouping: bool,
+    rows: std::collections::HashMap<(u8, &'a str), RowCount>,
+    sent: usize,
+}
+impl<'a> RowLimit<'a> {
+    fn new(grouping: bool) -> Self {
+        RowLimit { grouping, rows: std::collections::HashMap::new(), sent: 0 }
+    }
+    /// Nothing more will be sent; what is still looked at only counts copies.
+    fn full(&self) -> bool {
+        self.sent >= MAX_ENTRIES || (self.grouping && self.rows.len() >= MAX_RESULTS)
+    }
+    fn take(&mut self, kind: u8, name_lower: &'a str, fuzzy: bool) -> Take {
+        if !self.grouping {
+            if self.sent >= MAX_RESULTS {
+                return Take::Stop;
+            }
+            if self.sent >= MIN_RESULTS && fuzzy {
+                return Take::Skip;
+            }
+            self.sent += 1;
+            return Take::Yes;
+        }
+        let rows = self.rows.len();
+        let sent = self.sent;
+        if let Some(row) = self.rows.get_mut(&(kind, name_lower)) {
+            row.found += 1;
+            if row.sent >= GROUP_MAX || sent >= MAX_ENTRIES {
+                return Take::Skip;
+            }
+            row.sent += 1;
+            self.sent += 1;
+            return Take::Yes;
+        }
+        // A new row; once there is no room for one, copies of the rows there still count.
+        if rows >= MAX_RESULTS || sent >= MAX_ENTRIES || (rows >= MIN_RESULTS && fuzzy) {
+            return Take::Skip;
+        }
+        self.rows.insert((kind, name_lower), RowCount { sent: 1, found: 1 });
+        self.sent += 1;
+        Take::Yes
+    }
+    /// How many copies of the row were found (0 for a row not shown).
+    fn found(&self, kind: u8, name_lower: &str) -> usize {
+        self.rows.get(&(kind, name_lower)).map_or(0, |r| r.found)
+    }
+}
 /// `ScoreKey::primary` of a typo match; everything below it contains or starts with the query.
 const PRIMARY_FUZZY: u32 = 6;
 const FUZZY_BUDGET_MS: u64 = 250;
@@ -402,6 +481,7 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
     let fuzzy_deadline = std::time::Instant::now() + std::time::Duration::from_millis(FUZZY_BUDGET_MS);
 
     let disabled_kinds = config::get_disabled_kinds();
+    let grouping = config::get_theme().group_same;
 
     with_entries(|entries| {
         let mut picked: Vec<(ScoreKey, usize)> = entries
@@ -423,7 +503,22 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
         let newest = newest_copies(&picked, entries);
         let mut deduplicated = Vec::with_capacity(MAX_RESULTS);
         let mut seen_apps = std::collections::HashSet::new();
+        let mut rows = RowLimit::new(grouping);
+        // Each sent result's row, to put the count of its copies on the first one of it.
+        let mut row_of: Vec<(u8, &str)> = Vec::with_capacity(MAX_RESULTS);
+        let mut counted_past_full = 0usize;
+        let mut count_cut = false;
         for (score, i) in picked {
+            if rows.full() {
+                if !grouping {
+                    break;
+                }
+                counted_past_full += 1;
+                if counted_past_full > COUNT_BUDGET {
+                    count_cut = true;
+                    break;
+                }
+            }
             if let Some(mut e) = entries.get(i) {
                 if is_program(e) {
                     // One row per program as the user sees it. The internal name
@@ -442,15 +537,28 @@ pub fn search_index(query: &str, version: u32, prefix: Option<&str>) -> Vec<Sear
                     }
                 }
 
-                if deduplicated.len() >= MIN_RESULTS && score.primary >= PRIMARY_FUZZY {
-                    continue;
+                match rows.take(e.kind, &e.name_lower, score.primary >= PRIMARY_FUZZY) {
+                    Take::Skip => continue,
+                    Take::Stop => break,
+                    Take::Yes => {}
                 }
                 let mut r = crate::indexer::entry_to_result(e);
                 r.score = score;
                 deduplicated.push(r);
-                if deduplicated.len() >= MAX_RESULTS {
-                    break;
-                }
+                row_of.push((e.kind, &*e.name_lower));
+            }
+        }
+        // The first result of a row with copies says how many there are in all: only GROUP_MAX of
+        // them are sent, and the page's "+N" counted only those.
+        let mut first = std::collections::HashSet::new();
+        for (r, &(kind, name)) in deduplicated.iter_mut().zip(&row_of) {
+            if !first.insert((kind, name)) {
+                continue;
+            }
+            let found = rows.found(kind, name);
+            if found > 1 {
+                r.copies = Some(found as u32);
+                r.copies_more = count_cut;
             }
         }
         deduplicated
@@ -468,6 +576,46 @@ mod tests {
         assert_eq!(newest_of(&[0, 1, 2, 3], v), 1);
         assert_eq!(newest_of(&[3, 0], v), 0, "a shortcut to nothing loses");
         assert_eq!(newest_of(&[3, 3], |_| None), 3, "no versions: the best ranked stays");
+    }
+    #[test]
+    fn copies_of_one_name_take_one_row_and_leave_room_for_the_rest() {
+        let mut limit = RowLimit::new(true);
+        let taken = |t: Take| matches!(t, Take::Yes);
+        // 200 README.md first: 50 are sent for their row, the rest skipped, not the end of the list.
+        let readmes = (0..200).filter(|_| taken(limit.take(KIND_DOCUMENT, "readme.md", false))).count();
+        assert_eq!(readmes, GROUP_MAX);
+        assert_eq!(limit.found(KIND_DOCUMENT, "readme.md"), 200, "all copies count, sent or not");
+        // So other names still get their rows, up to MAX_RESULTS of them.
+        let names: Vec<String> = (0..MAX_RESULTS + 10).map(|i| format!("readme-{i}.txt")).collect();
+        let others = names.iter().filter(|n| taken(limit.take(KIND_DOCUMENT, n, false))).count();
+        assert_eq!(others, MAX_RESULTS - 1, "one row is README.md's");
+        assert!(limit.full());
+        // Full, a copy of a row that is there is still counted, and a new name is not a row.
+        assert!(!taken(limit.take(KIND_DOCUMENT, "readme.md", false)));
+        assert_eq!(limit.found(KIND_DOCUMENT, "readme.md"), 201);
+        assert_eq!(limit.found(KIND_DOCUMENT, "brand new"), 0);
+        assert!(!taken(limit.take(KIND_DOCUMENT, "brand new", false)));
+        // The same name as a folder is a row of its own.
+        let mut limit = RowLimit::new(true);
+        assert!(taken(limit.take(KIND_DOCUMENT, "umbra", false)));
+        assert!(taken(limit.take(KIND_FOLDER, "umbra", false)));
+        assert_eq!(limit.rows.len(), 2);
+    }
+    #[test]
+    fn without_grouping_every_file_is_a_row_as_before() {
+        let mut limit = RowLimit::new(false);
+        let sent = (0..500).filter(|_| matches!(limit.take(KIND_DOCUMENT, "readme.md", false), Take::Yes)).count();
+        assert_eq!(sent, MAX_RESULTS);
+    }
+    #[test]
+    fn typo_matches_add_no_rows_past_the_minimum_but_join_a_row_already_there() {
+        let names: Vec<String> = (0..MIN_RESULTS).map(|i| format!("hit{i}")).collect();
+        let mut limit = RowLimit::new(true);
+        for name in &names {
+            assert!(matches!(limit.take(KIND_FILE, name, false), Take::Yes));
+        }
+        assert!(matches!(limit.take(KIND_FILE, "new typo row", true), Take::Skip));
+        assert!(matches!(limit.take(KIND_FILE, "hit0", true), Take::Yes));
     }
     fn entry(name: &str, path: &str, kind: u8) -> SearchEntry {
         SearchEntry {

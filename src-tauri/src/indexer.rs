@@ -60,6 +60,8 @@ pub(crate) fn entry_to_result(e: &SearchEntry) -> SearchResult {
         pinned: false,
         icon_data: None,
         score: crate::search::ScoreKey::default(),
+        copies: None,
+        copies_more: false,
     }
 }
 /// A result for `path` if it is a file that still exists, whatever its type.

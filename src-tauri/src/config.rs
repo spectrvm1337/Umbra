@@ -101,7 +101,7 @@ fn default_preview_style() -> String {
 fn default_language() -> String {
     "en".into()
 }
-pub(crate) const DEFAULT_HOTKEY: &str = "Alt+Space";
+pub(crate) use crate::shared::DEFAULT_HOTKEY;
 fn default_hotkey() -> String {
     DEFAULT_HOTKEY.into()
 }
@@ -184,6 +184,14 @@ pub struct ThemeConfig {
     /// The selected result is always opened up into a large preview card.
     #[serde(default)]
     pub side_preview: bool,
+    /// Results with the same name and kind fold into one row (tree.js); the search then counts its
+    /// rows by name (search.rs).
+    #[serde(default = "default_true")]
+    pub group_same: bool,
+    /// What a card previews of a file (a photo, text, a video) is blurred until Alt is held or the
+    /// pointer is on it.
+    #[serde(default)]
+    pub preview_blur: bool,
     /// The search bar lightens a little towards its start.
     #[serde(default = "default_true")]
     pub search_gradient: bool,
@@ -245,7 +253,7 @@ fn default_density() -> String {
 fn default_font() -> String {
     "wix".into()
 }
-pub const MAX_BLUR_STRENGTH: u32 = 40;
+use crate::shared::MAX_BLUR_STRENGTH;
 /// How many fonts picked with `!font` are kept as choices.
 const MAX_SYSTEM_FONTS: usize = 6;
 /// A family name that is safe to put inside a CSS `font-family: '…'`: letters, digits, spaces
@@ -273,6 +281,8 @@ impl Default for ThemeConfig {
             gap: default_gap(),
             tall_results: false,
             side_preview: false,
+            group_same: true,
+            preview_blur: false,
             search_gradient: true,
             blur_on: false,
             blur_strength: 0,
@@ -473,7 +483,7 @@ pub fn set_placement(align: String, monitor: i32) {
 }
 pub fn get_language() -> String {
     read(|c| match c.language.as_str() {
-        "en" | "ru" | "ja" | "de" => c.language.clone(),
+        lang if crate::shared::is_language(lang) => lang.to_string(),
         _ => "en".to_string(),
     })
 }
@@ -827,6 +837,18 @@ mod tests {
         let on: ThemeConfig = serde_json::from_str(r#"{"sidePreview": true}"#).unwrap();
         assert!(on.side_preview);
         assert!(serde_json::to_string(&on).unwrap().contains(r#""sidePreview":true"#));
+    }
+    #[test]
+    fn grouping_is_on_unless_turned_off_even_for_a_config_from_before_it() {
+        let cfg: Config = serde_json::from_str("{}").unwrap();
+        assert!(cfg.theme.group_same);
+        let old: ThemeConfig = serde_json::from_str(r#"{"sidePreview": true}"#).unwrap();
+        assert!(old.group_same, "a saved theme without the field");
+        let off: ThemeConfig = serde_json::from_str(r#"{"groupSame": false}"#).unwrap();
+        assert!(!off.group_same);
+        assert!(!cfg.theme.preview_blur, "previews are not blurred unless asked");
+        let blur: ThemeConfig = serde_json::from_str(r#"{"previewBlur": true}"#).unwrap();
+        assert!(blur.preview_blur);
     }
     #[test]
     fn blur_defaults_off_and_clamps_its_strength() {

@@ -3,8 +3,10 @@
 // Drag a result row onto the dock to pin it, drag tiles to reorder, drag one out to unpin,
 // or drop an exe/shortcut from Explorer onto it.
 
-// Width added to the window on the dock side: the tile plus room for the hover label.
-const DOCK_RESERVE = 168;
+// Width added to the window on the dock side: the tile plus room for the hover label. Shared with
+// Rust (shared.rs) and handed to the stylesheet as --dock-reserve.
+const DOCK_RESERVE = window.UMBRA.dockReserve;
+document.documentElement.style.setProperty("--dock-reserve", DOCK_RESERVE + "px");
 
 // Settings > Animations > Movement, read from the same attribute the CSS uses,
 // so the dock and the results list agree without sharing any state.

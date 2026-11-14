@@ -11,7 +11,7 @@ use windows_sys::Win32::Networking::WinHttp::{
     WinHttpQueryHeaders, WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest,
     WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_FLAG_SECURE,
 };
-const USER_AGENT: &str = concat!("Umbra/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("Umbra/", env!("UMBRA_VERSION"));
 /// WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER — without the flag
 /// the code comes back as a string and does not fit in the u32 buffer.
 const QUERY_STATUS_CODE: u32 = 19 | 0x2000_0000;

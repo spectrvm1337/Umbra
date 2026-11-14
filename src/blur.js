@@ -46,8 +46,11 @@ function blurShapes() {
   const list = blurList.getBoundingClientRect();
   const shift = blurColumnShift();
   const out = [];
-  for (const el of document.querySelectorAll(BLUR_CARDS)) {
-    if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+  if (!blurCards) blurCards = [...document.querySelectorAll(BLUR_CARDS)];
+  for (const el of blurCards) {
+    if (!el.isConnected) continue;
+    // Where it is first, the cheap part: of a hundred rows a screenful is in view, and the rest are
+    // passed over before their styles are read (that was most of the work on every frame of a scroll).
     const r = el.getBoundingClientRect();
     let { top, bottom } = r;
     // Rows scrolled out of the list are cut at its edge.
@@ -57,6 +60,7 @@ function blurShapes() {
     }
     const w = r.width, h = bottom - top;
     if (w < 1 || h < 1) continue;
+    if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
     // The radius is in the card's own px; the rect is after zoom and transforms.
     const scale = el.offsetWidth ? r.width / el.offsetWidth : 1;
     const cs = getComputedStyle(el);
@@ -92,7 +96,11 @@ const blurIgnored = (node) => {
   const el = node && (node.nodeType === 1 ? node : node.parentElement);
   return !!(el && el.closest && el.closest("#ph-roll"));
 };
+// The cards are looked up again only when the page's elements or classes change, not on every frame
+// of a scroll (with a hundred rows the lookup alone was a millisecond a frame).
+let blurCards = null;
 new MutationObserver((records) => {
+  if (records.some((r) => r.type === "childList" || r.attributeName === "class" || r.attributeName === "id")) blurCards = null;
   if (records.some((r) => r.attributeName !== "placeholder" && !blurIgnored(r.target))) blurWake();
 }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 // Pointer moves too: with Animations off a hover that resizes a card starts no transition at all.
@@ -108,6 +116,9 @@ function blurMoving() {
   return document.getAnimations().some((a) => a.playState === "running" && a.effect
     && a.effect.getComputedTiming().endTime !== Infinity);
 }
+// Looked at every few frames, with the tail long enough to cover the gap: the page's animations,
+// finished ones included, are a long list to go through.
+let blurFrameN = 0;
 function blurFrame() {
   blurLoop = false;
   if (!blurOn) return; // applyBlur wakes the loop again
@@ -115,7 +126,7 @@ function blurFrame() {
     invoke("set_blur_shapes", { shapes: blurPending }).catch((err) => console.warn("blur:", err));
     blurPending = null;
   }
-  if (blurMoving()) blurTail = 3;
+  if (blurFrameN++ % 4 === 0 && blurMoving()) blurTail = 4;
   if (blurDirty || blurTail > 0) {
     if (blurTail > 0) blurTail--;
     blurDirty = false;

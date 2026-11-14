@@ -9,7 +9,7 @@
 // code, so a Russian layout reaches the same Ctrl+P as an English one.
 
 // The global hotkey, registered in Rust; the row for it offers a reset once it is anything else.
-const KB_DEFAULT_HOTKEY = "Alt+Space";
+const KB_DEFAULT_HOTKEY = window.UMBRA.defaultHotkey;
 const KB_ACTIONS = [
   { id: "previewHold", def: "Shift+Space", label: "kbPreviewHold" },
   { id: "reveal", def: "Ctrl+Enter", label: "kbReveal" },
@@ -20,6 +20,9 @@ const KB_ACTIONS = [
 ];
 // Shown in the panel but not changeable: they are the list's own keys.
 const KB_FIXED = [
+  ["kbFixedOpenRow", "ArrowRight"],
+  ["kbFixedCloseRow", "ArrowLeft"],
+  ["kbFixedPeek", "Alt"],
   ["kbFixedNumbers", "Ctrl+1–9"],
   ["kbFixedComplete", "Tab"],
   ["kbFixedBack", "Esc"],

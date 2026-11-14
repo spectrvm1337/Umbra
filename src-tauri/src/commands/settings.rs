@@ -29,6 +29,8 @@ pub fn add_pin(name: String, path: String, kind: String) -> bool {
         pinned: false,
         icon_data: None,
         score: search::ScoreKey::default(),
+        copies: None,
+        copies_more: false,
     })
 }
 #[tauri::command]

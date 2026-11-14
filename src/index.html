@@ -77,12 +77,8 @@
             </div>
             <div class="settings-row">
               <span class="settings-label" data-i18n="lblLanguage">Language</span>
-              <div class="seg-row" id="language-seg">
-                <button class="seg-btn" data-lang="en">EN</button>
-                <button class="seg-btn" data-lang="ru">RU</button>
-                <button class="seg-btn" data-lang="de">DE</button>
-                <button class="seg-btn" data-lang="ja">JA</button>
-              </div>
+              <!-- One button per language in window.UMBRA (main.js). -->
+              <div class="seg-row" id="language-seg"></div>
             </div>
             <div class="settings-row interactive" id="setting-hotkey-row">
               <span class="settings-label" data-i18n="lblHotkey">Global Hotkey</span>
@@ -111,6 +107,19 @@
             <div class="settings-row interactive" id="setting-pinsfold-row" data-i18n-tip="pinsFoldTip" data-tip="Favorites stay folded until ↓ or the arrow opens them">
               <span class="settings-label" data-i18n="lblPinsFold">Fold favorites</span>
               <span class="toggle" id="setting-pinsfold"><span class="toggle-knob"></span></span>
+            </div>
+            <!-- How the results behave, not how they look: here rather than in Appearance. -->
+            <div class="settings-row interactive" id="setting-sidepreview-row" data-i18n-tip="sidePreviewTip" data-tip="The selected result opens up into a large card with a preview of the file. Shift+Space does it for one look without this">
+              <span class="settings-label" data-i18n="lblSidePreview">Expand selected result</span>
+              <span class="toggle" id="setting-sidepreview"><span class="toggle-knob"></span></span>
+            </div>
+            <div class="settings-row interactive" id="setting-previewblur-row" data-i18n-tip="previewBlurTip" data-tip="A card shows a file blurred until you hold Alt or point at it">
+              <span class="settings-label" data-i18n="lblPreviewBlur">Blur previews</span>
+              <span class="toggle" id="setting-previewblur"><span class="toggle-knob"></span></span>
+            </div>
+            <div class="settings-row interactive" id="setting-group-row" data-i18n-tip="groupSameTip" data-tip="Results with the same name fold into one row; → opens it">
+              <span class="settings-label" data-i18n="lblGroupSame">Group same names</span>
+              <span class="toggle" id="setting-group"><span class="toggle-knob"></span></span>
             </div>
             <div class="settings-row interactive" id="setting-exclude-row">
               <span class="settings-label" data-i18n="lblContent">Content Categories</span>
@@ -290,10 +299,6 @@
                   <span class="settings-label" data-i18n="lblTallResults">Results to screen bottom (experimental)</span>
                   <span class="toggle" id="setting-tall"><span class="toggle-knob"></span></span>
                 </div>
-                <div class="settings-row interactive" id="setting-sidepreview-row" data-i18n-tip="sidePreviewTip" data-tip="The selected result opens up into a large card with a preview of the file. Shift+Space does it for one look without this">
-                  <span class="settings-label" data-i18n="lblSidePreview">Expand selected result</span>
-                  <span class="toggle" id="setting-sidepreview"><span class="toggle-knob"></span></span>
-                </div>
     </div>
   </div>
   </div>
@@ -324,23 +329,25 @@
       <span class="ctx-item-shortcut"></span>
     </div>
   </div>
-  <script src="color.js?v=48"></script>
-  <script src="i18n.js?v=48"></script>
-  <script src="roll.js?v=48"></script>
-  <script src="currency.js?v=48"></script>
-  <script src="calc.js?v=48"></script>
-  <script src="special.js?v=48"></script>
+  <script src="color.js"></script>
+  <script src="i18n.js"></script>
+  <script src="roll.js"></script>
+  <script src="currency.js"></script>
+  <script src="calc.js"></script>
+  <script src="special.js"></script>
   <script src="sortable.min.js"></script>
-  <script src="main.js?v=48"></script>
-  <script src="dock.js?v=48"></script>
-  <script src="themepanel.js?v=48"></script>
-  <script src="keybinds.js?v=48"></script>
-  <script src="setup.js?v=48"></script>
-  <script src="keynav.js?v=48"></script>
-  <script src="caret.js?v=48"></script>
-  <script src="sidepreview.js?v=48"></script>
-  <script src="blur.js?v=48"></script>
-  <script src="pinsfold.js?v=48"></script>
-  <script src="contrast.js?v=48"></script>
+  <script src="tree.js"></script>
+  <script src="main.js"></script>
+  <script src="treelines.js"></script>
+  <script src="dock.js"></script>
+  <script src="themepanel.js"></script>
+  <script src="keybinds.js"></script>
+  <script src="setup.js"></script>
+  <script src="keynav.js"></script>
+  <script src="caret.js"></script>
+  <script src="sidepreview.js"></script>
+  <script src="blur.js"></script>
+  <script src="pinsfold.js"></script>
+  <script src="contrast.js"></script>
 </body>
 </html>

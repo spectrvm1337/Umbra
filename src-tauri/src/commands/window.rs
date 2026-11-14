@@ -66,7 +66,11 @@ use crate::config;
 /// The window's normal size in logical px: what the resize grip last set, or
 /// the tauri.conf default. Placement always aligns this size, so a window
 /// stretched on the last summon never shifts where the next one lands.
-static BASE_SIZE: std::sync::Mutex<(f64, f64)> = std::sync::Mutex::new((660.0, 560.0));
+static BASE_SIZE: std::sync::Mutex<(f64, f64)> = std::sync::Mutex::new((0.0, 0.0));
+/// The window's normal size from tauri.conf.json, before the page has set one.
+pub fn set_default_size(width: f64, height: f64) {
+    *BASE_SIZE.lock_or_recover() = (width, height);
+}
 fn base_size_physical(window: &tauri::WebviewWindow) -> (i32, i32) {
     let (w, h) = *BASE_SIZE.lock_or_recover();
     let scale = window.scale_factor().unwrap_or(1.0);
@@ -209,7 +213,10 @@ fn animate_window(window: tauri::WebviewWindow, target: (i32, i32), ms: u64, cur
 /// in the window by Windows, not by the page -- moves with it instead of a frame or two behind.
 static SLIDE: std::sync::Mutex<(f64, u64)> = std::sync::Mutex::new((24.0, 320));
 /// The page's own curve for it (--ease-out-apple in styles.css).
-const SLIDE_EASE: [f64; 4] = [0.32, 0.72, 0.0, 1.0];
+const SLIDE_EASE: [f64; 4] = {
+    let e = crate::shared::EASE;
+    [e[0] as f64, e[1] as f64, e[2] as f64, e[3] as f64]
+};
 #[tauri::command]
 pub fn set_window_motion(px: f64, ms: u64) {
     *SLIDE.lock_or_recover() = (px.clamp(0.0, 200.0), ms.min(2000));
@@ -337,8 +344,7 @@ pub fn stop_window_motion() {
     MOVE_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *ANIM_REST.lock_or_recover() = None;
 }
-/// Logical width the pinned-apps dock adds to the window (DOCK_RESERVE in dock.js).
-const DOCK_RESERVE: f64 = 168.0;
+use crate::shared::DOCK_RESERVE;
 /// Width in logical px of the theme panel beside the window and whether it is on the left
 /// (0 while it is closed); set by the page with `resize_main_window`.
 static THEME_PANEL: std::sync::Mutex<(f64, bool)> = std::sync::Mutex::new((0.0, false));
@@ -374,6 +380,21 @@ fn window_left(ha: &str, mx: i32, mw: i32, w: i32, left: i32, right: i32) -> i32
     };
     (panel_x - left).clamp(mx, (mx + mw - w).max(mx))
 }
+/// Whether the point (physical px) lies on the monitor.
+fn on_monitor(mon: &tauri::Monitor, x: f64, y: f64) -> bool {
+    let (p, s) = (mon.position(), mon.size());
+    x >= p.x as f64 && y >= p.y as f64 && x < p.x as f64 + s.width as f64 && y < p.y as f64 + s.height as f64
+}
+/// The monitor the user is on: the one with the mouse pointer. "Active" used to be the monitor the
+/// window was on, but the window waits hidden where it was last shown, so that was nearly always the
+/// first monitor, whatever screen was being used.
+fn active_monitor(window: &tauri::WebviewWindow, monitors: &[tauri::Monitor]) -> Option<tauri::Monitor> {
+    window
+        .cursor_position()
+        .ok()
+        .and_then(|p| monitors.iter().find(|m| on_monitor(m, p.x, p.y)).cloned())
+        .or_else(|| window.current_monitor().ok().flatten())
+}
 /// Where the window's top-left corner goes, plus the bottom edge of that
 /// monitor's work area.
 fn placement_target(window: &tauri::WebviewWindow) -> Option<(i32, i32, i32)> {
@@ -384,7 +405,7 @@ fn placement_target(window: &tauri::WebviewWindow) -> Option<(i32, i32, i32)> {
     } else {
         None
     }
-    .or_else(|| window.current_monitor().ok().flatten())
+    .or_else(|| active_monitor(window, &monitors))
     .or_else(|| window.primary_monitor().ok().flatten())?;
     let (mx, my) = (mon.position().x, mon.position().y);
     let (mw, mh) = (mon.size().width as i32, mon.size().height as i32);

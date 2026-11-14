@@ -224,11 +224,13 @@ test("hints are trimmed instead of running off the box", () => {
   assert.match(render, /ntfDetail\.textContent = ntfTrim\(detail \|\| short\)/);
 });
 
-test("the layout tokens the dock padding depends on still line up", () => {
-  // The dock reserves space in three places; a mismatch shows as the list sliding.
+test("the dock's reserve has one source", () => {
+  // Rust, the script and the stylesheet all need it; a mismatch shows as the list sliding. It is
+  // set once in shared.rs and reaches the stylesheet through dock.js, so no copy can drift.
   const dockJs = readFileSync(new URL("../src/dock.js", import.meta.url), "utf8");
-  const cssReserve = /--dock-reserve:\s*(\d+)px/.exec(CSS);
-  const jsReserve = /DOCK_RESERVE\s*=\s*(\d+)/.exec(dockJs);
-  assert.ok(cssReserve && jsReserve, "both declare the reserve");
-  assert.equal(cssReserve[1], jsReserve[1], "css and js agree on --dock-reserve");
+  assert.doesNotMatch(CSS, /--dock-reserve:\s*\d/, "the stylesheet does not declare its own");
+  assert.match(dockJs, /DOCK_RESERVE = window\.UMBRA\.dockReserve/, "dock.js takes the shared one");
+  assert.match(dockJs, /setProperty\("--dock-reserve"/, "and hands it to the stylesheet");
+  const shared = readFileSync(new URL("../src-tauri/src/shared.rs", import.meta.url), "utf8");
+  assert.match(shared, /pub const DOCK_RESERVE: f64 = \d/, "which is shared.rs's");
 });

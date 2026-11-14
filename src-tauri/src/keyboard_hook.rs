@@ -190,7 +190,6 @@ unsafe extern "system" fn system_menu_proc(
     }
     DefSubclassProc(hwnd, msg, wparam, lparam)
 }
-const DEFAULT_HOTKEY: &str = "alt+space";
 /// Falls back to the built-in default when the stored hotkey is unusable
 /// (empty, no modifier, unknown key).
 fn effective_hotkey() -> String {
@@ -198,10 +197,7 @@ fn effective_hotkey() -> String {
     if is_supported_hotkey(&stored) {
         return stored;
     }
-    if is_supported_hotkey(DEFAULT_HOTKEY) {
-        return DEFAULT_HOTKEY.to_string();
-    }
-    crate::config::DEFAULT_HOTKEY.to_string()
+    crate::shared::DEFAULT_HOTKEY.to_string()
 }
 fn key_to_vk(key: &str) -> Option<u16> {
     let vk = match key {

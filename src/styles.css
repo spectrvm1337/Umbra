@@ -1631,12 +1631,9 @@ html[data-border-pos="outer"] :is(#search-box, .settings-card, #content-menu, #a
   transition:  transform var(--t-move, 0.12s) var(--ease-out-apple), box-shadow var(--t-glow, 0.12s) var(--ease-out-apple)
 }
 /* Pinned apps dock (dock.js). The window grows by --dock-reserve on the dock's
-   side; tiles hug the panel 12px away and grow outward to show the app name.
+   side (set by dock.js from window.UMBRA, the same value Rust uses); tiles hug
+   the panel 12px away and grow outward to show the app name.
    The first tile is centred on the search bar, the rest line up with the rows. */
-html[data-pins="left"],
-html[data-pins="right"] {
-  --dock-reserve: 168px;
-}
 :root {
   /* The theme panel's card, and the room it takes beside the window (TP_RESERVE in themepanel.js). */
   /* The card fills the room but for Row Spacing, the gap it keeps from the column. */
@@ -1973,7 +1970,25 @@ body > .result-item.sortable-fallback {
   background: rgba(178, 178, 178, 0.55);
   cursor: grab;
   transition:  background var(--t-color, 0.25s) var(--ease-out-apple);
-  will-change: transform, height;
+  will-change: transform, translate;
+}
+/* The thumb follows the list's scroll in the compositor; the script only sets how far it can travel
+   (--thumb-travel), which changes with the list, not with every frame of a scroll. */
+#results-wrapper {
+  timeline-scope: --results-scroll;
+}
+#results-container {
+  scroll-timeline: --results-scroll block;
+}
+@supports (animation-timeline: --results-scroll) {
+  #custom-thumb {
+    animation: thumb-travel linear both;
+    animation-timeline: --results-scroll;
+  }
+}
+@keyframes thumb-travel {
+  from { translate: 0 0; }
+  to { translate: 0 var(--thumb-travel, 0px); }
 }
 #custom-scrollbar:hover #custom-thumb,
 #custom-scrollbar.visible #custom-thumb {
@@ -2013,9 +2028,25 @@ body > .result-item.sortable-fallback {
   width: 100%;
   overflow-y: scroll;
   padding: 6px var(--pad-x) var(--gap);
+  /* Scrolled by the compositor. The list is see-through (the window is), so the webview did not do
+     that by itself: every frame of a scroll went through the whole page again, and a long list
+     scrolled at half the frame rate of a short one. */
+  will-change: scroll-position;
 }
 #results-container::-webkit-scrollbar {
   display: none;
+}
+/* Rows out of view are not drawn. A row opening into a card moves every row under it, and each of a
+   hundred rows was drawn again on every frame of that; now only the screenful in view is. The clip
+   this brings is pushed out past the card's shadow and its glow, so neither is cut. */
+#results-list > .result-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--card-h);
+  overflow-clip-margin: calc(24px + var(--glow-size, 0px));
+}
+/* Scrolling (main.js): the wheel still reaches the list, the rows under the pointer are not hovered. */
+#results-container.scroll-busy > * {
+  pointer-events: none;
 }
 .section,
 #results-list,
@@ -2245,6 +2276,107 @@ body > .result-item.pin-drag-copy {
 .rp-tail > bdi {
   direction: ltr;
   unicode-bidi: isolate;
+}
+/* The results as a tree (tree.js). A group's head says "+N ›" after its path and a folder "›" (shown
+   while the row is hovered, picked or open); either opens the row, as → does. The path gives up its
+   gap to the badge. */
+.result-item:has(> .result-group) .result-path {
+  margin-right: 0;
+}
+/* Inside a group every row has the same name, so the path, which is what tells them apart, gets
+   more of the row. */
+.result-path.tree-label {
+  max-width: 65%;
+  margin-left: auto;
+}
+/* The name still comes first: a short one stays whole, a long one gives way down to under half. */
+.result-item:has(> .result-path.tree-label) > .result-name {
+  flex: 1 0 auto;
+  max-width: 45%;
+}
+.result-group {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0 2px 0 8px;
+  border-radius: min(11px, var(--card-radius));
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+  cursor: pointer;
+  transition: background var(--t-color, 0.25s) var(--ease-out-apple), opacity var(--t-fade, 0.2s) var(--ease-out-apple);
+}
+.result-group:hover {
+  background: color-mix(in srgb, var(--text-dim) 22%, transparent);
+}
+.result-group.folder-only {
+  padding: 0 2px;
+  opacity: 0;
+}
+.result-item:is(:hover, .selected, .tree-open) > .result-group.folder-only {
+  opacity: 1;
+}
+.result-group .ico {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+  transition: rotate var(--t-move, 0.25s) var(--ease-out-apple);
+}
+.result-item.tree-open > .result-group .ico {
+  rotate: 90deg;
+}
+/* The tree's lines (treelines.js): a layer of their own over the gutter left of the rows, one line
+   per opened row. Parts: ┌ out of the row, the line down, an arm (├) into each row it opened and └
+   into the last. Each part is drawn and moved by the script; here they are only shaped. */
+#tree-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.tl-node {
+  --tl-ink: color-mix(in srgb, var(--text-dim) 75%, transparent);
+  position: absolute;
+}
+.tl-node > * {
+  position: absolute;
+  left: 0;
+  box-sizing: border-box;
+  border: 0 solid var(--tl-ink);
+}
+.tl-top {
+  top: -1.5px;
+  right: 0;
+  height: 8.5px;
+  border-top-width: 3px;
+  border-left-width: 3px;
+  border-top-left-radius: 7px;
+}
+.tl-v {
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-left-width: 3px;
+}
+.tl-arm {
+  right: 0;
+  height: 3px;
+  background: var(--tl-ink);
+}
+.tl-last {
+  bottom: -1.5px;
+  right: 0;
+  height: 8.5px;
+  border-left-width: 3px;
+  border-bottom-width: 3px;
+  border-bottom-left-radius: 7px;
 }
 .result-pin {
   /* Closed, the pin is 0 wide and its -12px margin cancels the row gap, so the path sits where
@@ -3251,8 +3383,16 @@ html[data-anim-blur="off"] .drag-bar .ntf-detail {
 .result-item {
   transition: background-color var(--t-color, 0.25s) var(--ease-out-apple), box-shadow var(--t-glow, 0.25s) var(--ease-out-apple), transform var(--t-move, 0.15s) var(--ease-out-apple), height var(--t-size, 0.26s) var(--ease-out-apple);
 }
-:is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > :not(.sp-body):not(.result-pin) {
+:is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > :not(.sp-body):not(.result-pin):not(.result-group) {
   display: none;
+}
+/* A group's "+N ›" (or a folder's "›") stays on the opened card, beside the star, centred on it. */
+:is(#pins-list, #results-list, .su-mock-rows) > .result-item.sp-open > .result-group {
+  position: absolute;
+  top: 13px;
+  right: 44px;
+  margin: 0;
+  z-index: 1;
 }
 /* The opened card is the selected row and says so by its size; a darker card on top of that only
    muddies the preview. */
@@ -3314,14 +3454,58 @@ body > .result-item .sp-body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.28));
+  filter: blur(var(--sp-veil)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.28));
 }
 .sp-photo {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: calc(var(--card-radius) * 0.6);
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
+  filter: blur(var(--sp-veil)) drop-shadow(0 6px 14px rgba(0, 0, 0, 0.3));
+}
+/* Settings → Blur previews: what shows the file itself (.sp-private, sidepreview.js) is blurred, with
+   the key that shows it in the middle, until Alt is held (.sp-peek, main.js) or the pointer is on
+   it. The blur is a registered property so it eases in and out rather than snapping. */
+@property --sp-veil {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.sp-content {
+  --sp-veil: 0px;
+  transition: --sp-veil var(--t-fade, 0.22s) var(--ease-out-apple);
+}
+html[data-preview-blur="on"]:not(.sp-peek) .sp-content.sp-private:not(:hover) {
+  --sp-veil: 18px;
+}
+.sp-text,
+.sp-pdf {
+  filter: blur(var(--sp-veil));
+}
+html[data-preview-blur="on"] .sp-content.sp-private {
+  overflow: hidden;
+  border-radius: calc(var(--card-radius) * 0.6);
+}
+html[data-preview-blur="on"] .sp-content.sp-private::after {
+  content: "Alt";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1.5px solid color-mix(in srgb, var(--text-dim) 60%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  pointer-events: none;
+  transition: opacity var(--t-fade, 0.22s) var(--ease-out-apple), scale var(--t-fade, 0.22s) var(--ease-out-apple);
+}
+html[data-preview-blur="on"].sp-peek .sp-content.sp-private::after,
+html[data-preview-blur="on"] .sp-content.sp-private:hover::after {
+  opacity: 0;
+  scale: 0.9;
 }
 video.sp-photo {
   width: 100%;
@@ -3341,6 +3525,11 @@ video.sp-photo {
   width: 96px;
   height: 96px;
   color: var(--text-dim);
+}
+/* A placeholder (folder, file, app, link, media) sits in the middle of its square, not against the
+   card's edge; pictures and text keep to the start, where they line up with the text beside them. */
+.sp-content:has(> .sp-glyph) {
+  justify-content: center;
 }
 .sp-text {
   user-select: text;
@@ -3794,6 +3983,9 @@ video.sp-photo {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+  /* Room at the sides as the window has, the tree line's gutter on the left among it; the search
+     bar and the rows line up inside it, as in the real thing. */
+  padding: 4px 22px 0;
 }
 .su-mock-bar {
   flex: 0 0 auto;
@@ -3837,6 +4029,11 @@ video.sp-photo {
 }
 .su-mock-rows > .result-item.sp-open {
   overflow: hidden;
+}
+/* The "Group" scene: the tree line is drawn against the rows (treeLinesDemo), out in the mock's side
+   room; the rows stay under the search bar. */
+.su-mock-rows.su-tree-room {
+  position: relative;
 }
 .su-scene-text {
   min-height: 40px;

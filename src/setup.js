@@ -9,7 +9,7 @@
 
 const SU_STEPS = ["welcome", "look", "startup", "index", "tour", "done"];
 const SU_DENSITIES = [["full", "densityFull"], ["compact-results", "densityCompactResults"], ["compact-full", "densityCompactFull"]];
-const SU_LANGS = [["en", "English"], ["ru", "Русский"], ["de", "Deutsch"], ["ja", "日本語"]];
+const SU_LANGS = window.UMBRA.languages;
 const SU_ICON = {
   look: '<path d="M12 21a9 9 0 0 1 0-18c4.97 0 9 3.58 9 8 0 2.2-1.8 3-4 3h-2a2 2 0 0 0-1 3.75A1.3 1.3 0 0 1 12 21m-4-8.5v.01m1-4v.01m4-1.51v.01m4 2.5v.01"/>',
   startup: '<path d="M12 3v9m6.4-5.4a9 9 0 1 1-12.8 0"/>',
@@ -142,7 +142,7 @@ function suStepHtml(name) {
         '<div class="su-mock" aria-hidden="true">' +
         '<div class="su-mock-inner"><div class="su-mock-bar">' + SU_SEARCH_ICON + '<span class="su-mock-q"></span><i class="su-mock-caret"></i></div>' +
         '<div class="su-mock-rows"></div></div>' +
-        '<div class="su-cap"><kbd class="su-key">Shift</kbd><span class="su-plus">+</span><kbd class="su-key">Space</kbd></div>' +
+        '<div class="su-cap"></div>' +
         "</div>" +
         '<p class="su-text su-scene-text"></p>' +
         '<div class="su-chips">' +
@@ -331,17 +331,33 @@ const SU_SCENES = [
     { kind: "folder", name: "Notes", path: "C:\\Users\\you\\Desktop\\Notes" },
     { kind: "app", name: "Notepad", path: "C:\\Windows\\System32\\notepad.exe" },
   ] },
+  // Same-named files share a row; → opens it and its tree line draws the others in (treelines.js).
+  { label: "setupScGroup", text: "setupScGroupT", query: "readme", cap: ["ArrowRight"], group: [
+    { kind: "document", name: "README.md", label: "…\\site" },
+    { kind: "document", name: "README.md", label: "…\\notes-app" },
+    { kind: "document", name: "README.md", label: "…\\dotfiles" },
+  ], items: [
+    { kind: "document", name: "README.md", label: "…\\umbra", badge: 3 },
+    { kind: "code", name: "readme.ts", path: "C:\\Users\\you\\code\\site\\src\\readme.ts" },
+    { kind: "folder", name: "Readme assets", path: "C:\\Users\\you\\Pictures\\Readme assets" },
+  ] },
   { label: "setupScCalc", text: "setupScCalcT", query: "(1280 - 340) / 4", calc: ["(1280 - 340) / 4", "235"] },
   { label: "setupScCmd", text: "setupScCmdT", query: "!yt lofi beats", link: ["openIn", { site: "YouTube", query: "lofi beats" }] },
   { label: "setupScColor", text: "setupScColorT", query: "!picker", color: { r: 229, g: 83, b: 61 } },
 ];
 let suTourTimers = [];
 
+// A row as the results draw it; `label` is a grouped row's path (where it parts from the others) and
+// `badge` the "+N ›" of a group's head.
 function suResultRow(item, i, query) {
+  const path = item.label
+    ? '<div class="result-path tree-label"><span class="rp-head">' + escapeHtml(item.label) + "</span></div>"
+    : '<div class="result-path">' + pathHtml(item.path) + "</div>";
+  const badge = item.badge ? '<span class="result-group">+' + item.badge + TREE_CHEVRON + "</span>" : "";
   return (
     '<div class="result-item' + (i === 0 ? " selected" : "") + '" style="animation-delay:' + i * 60 + 'ms">' +
     '<div class="result-num"></div><div class="result-icon"><div class="result-icon-fallback ' + item.kind + '">' + getTypeIcon(item.kind) + "</div></div>" +
-    '<div class="result-name">' + highlightMatch(item.name, query) + '</div><div class="result-path">' + pathHtml(item.path) + "</div></div>"
+    '<div class="result-name">' + highlightMatch(item.name, query) + "</div>" + path + badge + "</div>"
   );
 }
 
@@ -403,6 +419,9 @@ function suTourPlay(root, index) {
   text.textContent = suT(scene.text);
   text.classList.add("swap");
   mock.classList.remove("pressed");
+  // The key the scene shows being pressed.
+  root.querySelector(".su-cap").innerHTML = kbKeysHtml((scene.cap || ["Shift", "Space"]).join("+"));
+  rows.classList.toggle("su-tree-room", !!scene.group);
   rows.innerHTML = "";
   q.textContent = "";
   let n = 0;
@@ -423,7 +442,21 @@ function suTourPlay(root, index) {
         first.innerHTML = suOpenBodyHtml(scene.items[0]);
       }, 900);
     }
-    later(() => suTourPlay(root, (index + 1) % SU_SCENES.length), scene.open ? 5200 : 3800);
+    if (scene.group) {
+      later(() => {
+        const head = rows.firstElementChild;
+        if (!head) return;
+        mock.classList.add("pressed");
+        head.classList.add("tree-open");
+        const tmp = document.createElement("div");
+        tmp.innerHTML = scene.group.map((it) => suResultRow(it, 1, scene.query)).join("");
+        const kids = [...tmp.children];
+        for (const k of kids) k.style.animation = "none";
+        head.after(...kids);
+        treeLinesDemo(rows, head, kids);
+      }, 1100);
+    }
+    later(() => suTourPlay(root, (index + 1) % SU_SCENES.length), scene.open || scene.group ? 5200 : 3800);
   };
   later(step, 350);
 }

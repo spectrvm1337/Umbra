@@ -46,7 +46,8 @@ function showOpenCard(url, label) {
   selectedIndex = 0;
   loadFavicon(url);
 }
-const WIKI_LANGS = new Set(["en", "ru", "de", "ja"]);
+// Every interface language has its own Wikipedia.
+const WIKI_LANGS = new Set(window.UMBRA.languages.map(([code]) => code));
 const OPEN_TLDS = new Set(["com", "org", "net", "io", "dev", "me", "gg", "tv", "co", "uk", "de", "info", "xyz", "ru", "su", "ua", "by", "kz", "рф"]);
 // A URL or an absolute path typed into the search box, normalized for launch_item; null for ordinary searches.
 function parseOpenTarget(q) {

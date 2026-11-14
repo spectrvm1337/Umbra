@@ -22,15 +22,26 @@ const resultsContainer = document.getElementById("results-container");
 const resultsWrapper = document.getElementById("results-wrapper");
 const emptyState = document.getElementById("empty-state");
 let scrollFadeTimer = null;
+let scrollBusyTimer = null;
+// Adds a class only when it is not there yet. classList.add writes the attribute even then, and on
+// every frame of a scroll that had the page check the whole list's styles again for nothing.
+function addClassOnce(el, name) {
+  if (!el.classList.contains(name)) el.classList.add(name);
+}
 function syncScrollFade() {
   const isScrolled = resultsContainer.scrollTop > 1;
-  resultsContainer.classList.toggle("scrolled", isScrolled);
-  resultsWrapper.classList.toggle("is-scrolled", isScrolled);
-  resultsContainer.classList.add("scrolling");
+  if (resultsContainer.classList.contains("scrolled") !== isScrolled) resultsContainer.classList.toggle("scrolled", isScrolled);
+  if (resultsWrapper.classList.contains("is-scrolled") !== isScrolled) resultsWrapper.classList.toggle("is-scrolled", isScrolled);
+  addClassOnce(resultsContainer, "scrolling");
   clearTimeout(scrollFadeTimer);
   scrollFadeTimer = setTimeout(() => {
     resultsContainer.classList.remove("scrolling");
   }, 450);
+  // While the list moves, the rows passing under the pointer are not hovered one after another (their
+  // pin, their colour): styles.css, .scroll-busy. A moment after it stops they are again.
+  addClassOnce(resultsContainer, "scroll-busy");
+  clearTimeout(scrollBusyTimer);
+  scrollBusyTimer = setTimeout(() => resultsContainer.classList.remove("scroll-busy"), 150);
   updateCustomScrollbar();
 }
 resultsContainer.addEventListener("scroll", syncScrollFade, { passive: true });
@@ -96,6 +107,9 @@ resultsContainer.addEventListener("pointerdown", () => {
 });
 const customScrollbar = document.getElementById("custom-scrollbar");
 const customThumb = document.getElementById("custom-thumb");
+// Moved by the list's own scroll timeline where the webview has them: placed from script on every frame,
+// the thumb had the page's layers put together again each time, a good third of a scroll's work.
+const THUMB_ON_TIMELINE = typeof CSS !== "undefined" && CSS.supports("animation-timeline: --results-scroll");
 let customScrollHideTimer = null;
 // Sizes and places the thumb without showing it; returns false when nothing scrolls.
 function layoutCustomScrollbar() {
@@ -106,22 +120,33 @@ function layoutCustomScrollbar() {
     customScrollbar.classList.add("hidden");
     return false;
   }
-  customScrollbar.classList.remove("hidden");
+  if (customScrollbar.classList.contains("hidden")) customScrollbar.classList.remove("hidden");
   const trackH = customScrollbar.clientHeight;
   if (trackH <= 0) return false;
   const thumbH = Math.max(24, Math.min(42, (el.clientHeight / el.scrollHeight) * trackH));
   const maxTop = Math.max(0, trackH - thumbH);
   const ratio = maxScroll > 0 ? el.scrollTop / maxScroll : 0;
   const top = Math.max(0, Math.min(maxTop, ratio * maxTop));
-  customThumb.style.height = thumbH + "px";
-  customThumb.style.transform = `translateY(${top}px)`;
+  // Written only when they change: called on every frame of a scroll, a height set again to the same
+  // value still counted as a change, and the page was laid out anew each time.
+  const height = thumbH + "px";
+  if (customThumb.style.height !== height) customThumb.style.height = height;
+  if (THUMB_ON_TIMELINE) {
+    // The thumb rides the list's scroll in the compositor (styles.css, --results-scroll); here only
+    // how far it travels, which changes with the list, not with the scroll.
+    const travel = maxTop + "px";
+    if (customThumb.style.getPropertyValue("--thumb-travel") !== travel) customThumb.style.setProperty("--thumb-travel", travel);
+  } else {
+    const transform = `translateY(${top}px)`;
+    if (customThumb.style.transform !== transform) customThumb.style.transform = transform;
+  }
   return true;
 }
 // Layout plus a brief flash of the bar: for scrolling and dragging only. Re-renders and
 // icon loads just re-lay it out; flashing on every DOM change made it blink while typing.
 function updateCustomScrollbar() {
   if (!layoutCustomScrollbar()) return;
-  customScrollbar.classList.add("visible");
+  addClassOnce(customScrollbar, "visible");
   clearTimeout(customScrollHideTimer);
   customScrollHideTimer = setTimeout(() => customScrollbar.classList.remove("visible"), 700);
 }
@@ -218,6 +243,15 @@ function setSettingsStatus(msg, isError) {
   settingsStatus.classList.toggle("error", !!isError);
 }
 const languageSeg = document.getElementById("language-seg");
+if (languageSeg) {
+  for (const [code] of window.UMBRA.languages) {
+    const btn = document.createElement("button");
+    btn.className = "seg-btn";
+    btn.dataset.lang = code;
+    btn.textContent = code.toUpperCase();
+    languageSeg.append(btn);
+  }
+}
 function updateLanguageButtons(currentLang) {
   if (!languageSeg) return;
   languageSeg.querySelectorAll(".seg-btn").forEach((btn) => {
@@ -917,7 +951,7 @@ const authorLink = document.getElementById("author-link");
 if (authorLink) {
   authorLink.addEventListener("click", (e) => {
     e.preventDefault();
-    invoke("launch_item", { path: "https://github.com/spectrvm1337/Umbra" }).catch(console.error);
+    invoke("launch_item", { path: "https://github.com/" + window.UMBRA.repo }).catch(console.error);
   });
 }
 const checkUpdateBtn = document.getElementById("check-update-btn");
@@ -1152,6 +1186,10 @@ const searchGradRow = document.getElementById("setting-searchgrad-row");
 const searchGradToggle = document.getElementById("setting-searchgrad");
 const sidePreviewRow = document.getElementById("setting-sidepreview-row");
 const sidePreviewToggle = document.getElementById("setting-sidepreview");
+const previewBlurRow = document.getElementById("setting-previewblur-row");
+const previewBlurToggle = document.getElementById("setting-previewblur");
+const groupSameRow = document.getElementById("setting-group-row");
+const groupSameToggle = document.getElementById("setting-group");
 const pinsFoldRow = document.getElementById("setting-pinsfold-row");
 const pinsFoldToggle = document.getElementById("setting-pinsfold");
 const glowToggle = document.getElementById("setting-glow");
@@ -1284,9 +1322,12 @@ function applyTheme() {
     b.classList.toggle("active", b.dataset.font === font));
   tallToggle.classList.toggle("on", !!theme.tallResults);
   sidePreviewToggle.classList.toggle("on", !!theme.sidePreview);
+  groupSameToggle.classList.toggle("on", theme.groupSame !== false);
+  previewBlurToggle.classList.toggle("on", !!theme.previewBlur);
   pinsFoldToggle.classList.toggle("on", !!theme.pinsAutoHide);
   if (typeof syncPinsFold === "function") syncPinsFold();
   root.dataset.sidePreview = theme.sidePreview ? "on" : "off";
+  root.dataset.previewBlur = theme.previewBlur ? "on" : "off";
   if (window.UmbraSidePreview) window.UmbraSidePreview.refresh();
   accentCustom.style.background = theme.accent;
   glowCustom.style.background = theme.glowColor || "var(--accent)";
@@ -1666,7 +1707,7 @@ bindStepper("setting-borderw-minus", "setting-borderw-plus",
   });
 bindStepper("setting-blur-minus", "setting-blur-plus",
   () => theme.blurStrength ?? 0, (v) => {
-    theme = { ...theme, blurStrength: Math.max(0, Math.min(40, v)), blurOn: true };
+    theme = { ...theme, blurStrength: Math.max(0, Math.min(window.UMBRA.maxBlurStrength, v)), blurOn: true };
     saveTheme();
   });
 bindStepper("setting-glow-minus", "setting-glow-plus",
@@ -1697,7 +1738,7 @@ bindScrub(borderWVal,
   (v) => { theme = { ...theme, borderW: clampStep(0, 8)(v), borderOn: true }; saveTheme(); });
 bindScrub(blurVal,
   () => theme.blurStrength ?? 0,
-  (v) => { theme = { ...theme, blurStrength: clampStep(0, 40)(Math.round(v)), blurOn: true }; saveTheme(); });
+  (v) => { theme = { ...theme, blurStrength: clampStep(0, window.UMBRA.maxBlurStrength)(Math.round(v)), blurOn: true }; saveTheme(); });
 bindScrub(glowVal,
   () => theme.glowStrength,
   (v) => { theme = { ...theme, glowStrength: clampStep(0, 40)(Math.round(v)), glow: true }; saveTheme(); });
@@ -1814,6 +1855,23 @@ pinsFoldRow.addEventListener("click", () => {
 });
 sidePreviewRow.addEventListener("click", () => {
   theme = { ...theme, sidePreview: !theme.sidePreview };
+  saveTheme();
+});
+previewBlurRow.addEventListener("click", () => {
+  theme = { ...theme, previewBlur: !theme.previewBlur };
+  saveTheme();
+});
+// Settings → Blur previews: a preview shows clearly while Alt is held (styles.css). Alt, because it
+// types nothing and holds nothing else down: Ctrl shows the row numbers, Shift makes capitals.
+function setPeek(on) {
+  document.documentElement.classList.toggle("sp-peek", on);
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Alt") setPeek(true); });
+document.addEventListener("keyup", (e) => { if (e.key === "Alt") setPeek(false); });
+addEventListener("blur", () => setPeek(false));
+// The results are searched again when the settings close, so the new way shows from then on.
+groupSameRow.addEventListener("click", () => {
+  theme = { ...theme, groupSame: theme.groupSame === false };
   saveTheme();
 });
 tallRow.addEventListener("click", () => {
@@ -2144,8 +2202,21 @@ function createResultItem(item, index, query) {
     <div class="result-path">${pathHtml(item.path)}</div>
     <button class="result-pin ${item.pinned ? "pinned" : ""}" data-path="${escapeHtml(item.path)}" data-name="${escapeHtml(item.name)}" data-kind="${item.kind}">${PIN_GLYPH}</button>
    `;
+  applyTreeLook(div, item);
+  // Once a row is in, its enter animation is let go: held at its end, a hundred of them stayed among
+  // the page's animations for good, and everything that looks through those slowed with the list.
+  div.addEventListener("animationend", (e) => {
+    if (e.target === div && e.animationName === "result-enter") div.style.animation = "none";
+  });
   div.addEventListener("click", (e) => {
     if (rowDragging) return;
+    // The badge opens or closes the row, as → and ← do.
+    if (e.target.closest(".result-group")) {
+      const row = div._item;
+      const shut = row && treeOpenNode(row);
+      if (row) treeToggle(row, shut || treeNextNode(row), !shut);
+      return;
+    }
     // Letting go after selecting text in a card's preview is not a click on the row.
     if (e.target.closest(".sp-text") && String(window.getSelection()).length) return;
     // The player's own controls are not a click on the row.
@@ -2154,6 +2225,7 @@ function createResultItem(item, index, query) {
     launchItem(item.path);
   });
   div.addEventListener("mouseenter", () => {
+    if (!pointerReallyMoved) return;
     const idx = parseInt(div.dataset.index);
     if (idx !== selectedIndex && idx >= 0 && idx < selectableItems.length) {
       selectedIndex = idx;
@@ -2190,13 +2262,124 @@ function updateResultItem(el, item, index, query) {
   el.querySelector(".result-num").textContent = index < 9 ? index + 1 : "";
   el.querySelector(".result-name").innerHTML = highlightMatch(item.name, query);
   el.querySelector(".result-pin").classList.toggle("pinned", !!item.pinned);
+  applyTreeLook(el, item);
   el.style.animation = "none";
 }
-function renderResults(results, query) {
+// What the search returned, before the tree (tree.js) folded and opened it; allResults is the rows
+// shown of it. The nodes opened for the current query, what the opened folders hold, and the query
+// they belong to.
+let searchResults = [];
+const openNodes = new Set();
+const folderContents = new Map();
+let treeQuery = "";
+// The query the rows highlight (without a drive scope's "D:\").
+let renderQuery = "";
+const TREE_CHEVRON = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`;
+// The node → opens on this row, or null: a group first, then the folder itself, while there is room
+// for another level.
+function treeNextNode(item) {
+  if (item.groupNode && !openNodes.has(item.groupNode)) return item.groupNode;
+  const below = item.groupNode && openNodes.has(item.groupNode) ? 2 : 1;
+  if (item.folderNode && !openNodes.has(item.folderNode) && item.treeDepth + below <= TREE_MAX_DEPTH) return item.folderNode;
+  return null;
+}
+// The node ← closes on this row first: the folder, then its group.
+function treeOpenNode(item) {
+  if (item.folderNode && openNodes.has(item.folderNode)) return item.folderNode;
+  if (item.groupNode && openNodes.has(item.groupNode)) return item.groupNode;
+  return null;
+}
+// A row's place in the tree: its path inside a group and the badge ("+N ›" on a group's head, "›" on a
+// folder that can open). The lines in the gutter are a layer of their own (treelines.js).
+function applyTreeLook(el, item) {
+  el._item = item;
+  // What an opened folder holds shows no path: the line to the folder says where it is.
+  const inFolder = !!item.treeVia && item.treeVia.startsWith("d:");
+  const label = inFolder ? "\u0000" : item.groupLabel || "";
+  if ((el.dataset.pathLabel || "") !== label) {
+    el.dataset.pathLabel = label;
+    const pathEl = el.querySelector(".result-path");
+    pathEl.innerHTML = inFolder ? "" : label ? `<span class="rp-head">${escapeHtml(label)}</span>` : pathHtml(item.path);
+    pathEl.classList.toggle("tree-label", !inFolder && !!label);
+  }
+  const head = item.groupCount > 1;
+  const folder = !head && !!item.folderNode && (openNodes.has(item.folderNode) || !!treeNextNode(item));
+  el.classList.toggle("tree-open", !!treeOpenNode(item) && (head ? openNodes.has(item.groupNode) : true));
+  let badge = el.querySelector(".result-group");
+  if (!head && !folder) {
+    if (badge) badge.remove();
+  } else {
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "result-group";
+      el.querySelector(".result-path").after(badge);
+    }
+    badge.classList.toggle("folder-only", !head);
+    // "+299+": the search stopped counting early, there are at least that many.
+    const html = (head ? `+${item.groupCount - 1}${item.groupMore ? "+" : ""}` : "") + TREE_CHEVRON;
+    if (badge.innerHTML !== html) badge.innerHTML = html;
+  }
+}
+// Opens or closes `node` of `row` (reading the folder first when it opens one). The rows it shows
+// come in as its line reaches them and fade when it closes; the selection stays on `row`.
+async function treeToggle(row, node, open) {
+  if (!node || openNodes.has(node) === open) return false;
+  if (open && node.startsWith("d:") && !folderContents.has(node)) {
+    const query = treeQuery;
+    const listed = await invoke("list_folder", { path: row.path }).catch(() => []);
+    if (query !== treeQuery) return false;
+    folderContents.set(node, listed);
+  }
+  if (open) openNodes.add(node);
+  else openNodes.delete(node);
+  const shown = new Set(allResults);
+  allResults = buildRows(searchResults, treeQuery, openNodes, folderContents, theme.groupSame !== false);
+  updateSelectableItems();
+  const opts = { from: row };
+  renderResults(allResults, renderQuery, opts);
+  treeLinesAfterRender({ created: opts.created, glide: true });
+  const at = selectableItems.indexOf(row);
+  if (at >= 0) selectedIndex = at;
+  updateSelection();
+  layoutCustomScrollbar();
+  if (open) requestIconsForResults(allResults.filter((r) => !shown.has(r)));
+  return true;
+}
+// → at the end of the query opens the selected row's group or folder; ← closes it, or the one the
+// row is in, and goes up to that row (keynav.js asks before the dock gets the key). Inside the text
+// the arrows move the caret.
+function treeArrowKey(e) {
+  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return false;
+  if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.target !== searchInput || !lastQuery.trim()) return false;
+  const { selectionStart: start, selectionEnd: end, value } = searchInput;
+  if (start !== value.length || end !== value.length) return false;
+  keyboardTakesSelection();
+  const item = selectableItems[selectedIndex];
+  if (!item) return false;
+  if (e.key === "ArrowRight") {
+    const node = treeNextNode(item);
+    if (!node) return false;
+    treeToggle(item, node, true);
+    return true;
+  }
+  const own = treeOpenNode(item);
+  if (own) {
+    treeToggle(item, own, false);
+    return true;
+  }
+  if (!item.treeParent || !item.treeVia) return false;
+  treeToggle(item.treeParent, item.treeVia, false);
+  return true;
+}
+function renderResults(results, query, opts = {}) {
   // A new letter changes only some rows: those that stay are kept and glide from where they were to
   // where they are now, new ones play the enter animation, and the ones that went fade out in place.
+  // With `opts.from` (a row opened or closed, treeToggle) the new ones wait for the tree's line to reach
+  // them (treelines.js); `opts.created` hands them over.
   const keep = !(animateAllRows || resultsSection.classList.contains("hidden"));
   animateAllRows = false;
+  // Read before any row is added: reading styles after that would start their animations early.
+  const moveMs = motionMs("move", 550);
   const before = new Map();
   for (const el of resultsList.children) {
     before.set(el.dataset.path, { el, top: el.getBoundingClientRect().top, y: el.offsetTop, x: el.offsetLeft, w: el.offsetWidth });
@@ -2209,6 +2392,7 @@ function renderResults(results, query) {
   // Rows already in place are not touched at all: moving an element in the page reloads a PDF
   // preview's frame and stops a video, so only the rows out of place are moved.
   const placed = new Set();
+  const created = new Set();
   let cursor = resultsList.firstElementChild;
   for (const item of results) {
     const was = keep ? before.get(item.path) : null;
@@ -2218,6 +2402,7 @@ function renderResults(results, query) {
       updateResultItem(el, item, globalIndex, query);
     } else {
       el = createResultItem(item, globalIndex, query);
+      created.add(el);
     }
     placed.add(el);
     if (el === cursor) cursor = cursor.nextElementSibling;
@@ -2226,9 +2411,15 @@ function renderResults(results, query) {
   }
   const gone = [...resultsList.children].filter((el) => !placed.has(el));
   gone.forEach((el) => el.remove());
+  // What an opened row shows waits to come in until its line reaches it (treelines.js, which the
+  // caller runs next with these rows).
+  if (opts.from) {
+    for (const el of created) el.style.animation = "none";
+    opts.created = created;
+  }
   if (!keep) return;
   // Same length and curve as the column's glide, so rows and column move as one.
-  const glide = { duration: motionMs("move", 550), easing: motionEase() };
+  const glide = { duration: moveMs, easing: motionEase() };
   if (glide.duration > 0) {
     for (const el of resultsList.children) {
       const was = before.get(el.dataset.path);
@@ -2420,8 +2611,38 @@ function endHoverSelection() {
   applySelection(false);
   updateGhost();
 }
+// Keys act on the row the keyboard or the search picked, not on the one the mouse happens to rest
+// on: the pointer often sits over the list while typing, rows moving under it took the highlight,
+// and Enter opened whatever was there. The highlight goes back first, so what lights up is what
+// opens. With nothing picked by the keyboard (the empty box) the hovered row still counts.
+function keyboardTakesSelection() {
+  if (selectionBeforeHover !== null && selectionBeforeHover >= 0) endHoverSelection();
+}
 // Capture phase: runs before a row's own mouseenter moves the highlight onto it.
+// The webview also sends mouse events when the page moves under a still pointer: the list scrolled,
+// rows came in under it as a query was typed. Those must not pick a row. Scrolling a long list moved
+// the selection on every frame, the opened card (Expand selected result) unfolding and folding again
+// with it, and that was what made a long list stutter. A move counts when the pointer is somewhere
+// new, or back where it was within a moment of being moved there (the mouseover and the mousemove of
+// one move come one after the other with the same position).
+let pointerX = NaN;
+let pointerY = NaN;
+let pointerMovedAt = -Infinity;
+let pointerReallyMoved = false;
+for (const type of ["mouseover", "mousemove"]) {
+  window.addEventListener(type, (e) => {
+    if (e.clientX !== pointerX || e.clientY !== pointerY) {
+      pointerX = e.clientX;
+      pointerY = e.clientY;
+      pointerMovedAt = e.timeStamp;
+      pointerReallyMoved = true;
+    } else {
+      pointerReallyMoved = e.timeStamp - pointerMovedAt < 30;
+    }
+  }, true);
+}
 document.addEventListener("mouseover", (e) => {
+  if (!pointerReallyMoved) return;
   const el = e.target instanceof Element ? e.target : null;
   if (el && el.closest(".result-item")) {
     if (selectionBeforeHover === null) selectionBeforeHover = selectedIndex;
@@ -2892,7 +3113,7 @@ function animatePlaceholder() {
   schedulePlaceholder(animatePlaceholder, PH_HOLD_MS);
 }
 document.addEventListener("mousemove", (e) => {
-  if (document.body.classList.contains("is-dragging-pin")) return;
+  if (document.body.classList.contains("is-dragging-pin") || !pointerReallyMoved) return;
   const item = e.target.closest(".result-item");
   if (item && !item.classList.contains("selected")) {
     if (selectionBeforeHover === null) selectionBeforeHover = selectedIndex;
@@ -3101,10 +3322,18 @@ async function performSearch(query) {
       response.results = await invoke("get_recent_items", { limit: 8 }).catch(() => []);
       if (myId !== currentSearchId) return;
     }
-    allResults = response.results;
+    // What was opened stays open while the query is the same (the settings closing searches again).
+    if (query !== treeQuery) {
+      openNodes.clear();
+      folderContents.clear();
+      treeQuery = query;
+    }
+    searchResults = response.results;
+    renderQuery = scoped ? scoped.query : query;
+    allResults = buildRows(searchResults, query, openNodes, folderContents, theme.groupSame !== false);
     renderPins(response.pins);
     updateSelectableItems();
-    renderResults(allResults, scoped ? scoped.query : query);
+    renderResults(allResults, renderQuery);
     // A new search starts at the top (this used to happen as a side effect of hiding the list).
     resultsContainer.scrollTop = 0;
     // The first screenful's icons first: they are asked for together, so a long list must not hold them up.
@@ -3130,6 +3359,7 @@ async function performSearch(query) {
     hint.classList.toggle("hidden", !(isEmpty && !(hasPins && pinsInList())));
     updateSelection();
     updateGhost();
+    if (typeof treeLinesAfterRender === "function") treeLinesAfterRender();
     pinsSection.classList.toggle("hidden", !hasPins || !isEmpty || pinsFolded());
     resultsSection.classList.toggle("hidden", !hasResults);
     if (isEmpty && hasPins && pinsInList()) resultsSection.classList.add("hidden");
@@ -3231,6 +3461,7 @@ searchInput.addEventListener("keydown", (e) => {
   }
   // Keeps WebView2's print dialog away even if Ctrl+P is no longer the pin key.
   if (e.ctrlKey && !e.altKey && e.code === "KeyP") e.preventDefault();
+  if (e.key === "Enter" || kbMatches(e, "pin") || kbMatches(e, "admin") || kbMatches(e, "reveal")) keyboardTakesSelection();
   if (settingsSection.classList.contains("hidden")) {
     const item = selectableItems[selectedIndex];
     const real = item && item.path && !["help", "copy", "open", "font"].includes(item.kind);
@@ -3408,7 +3639,7 @@ window.addEventListener("mousemove", (e) => {
   });
 });
 const MAIN_MIN_W = 480, MAIN_MAX_W = 920, MAIN_MIN_H = 400, MAIN_MAX_H = 900;
-let mainLogicalW = 660, mainLogicalH = 560;
+let mainLogicalW = window.UMBRA.windowWidth, mainLogicalH = window.UMBRA.windowHeight;
 let resizeState = null;
 let resizeRaf = null;
 let pendingSize = null;
@@ -3593,6 +3824,11 @@ window.__TAURI__.event.listen("window-shown", async (event) => {
   lastQuery = "";
   selectedIndex = -1;
   allResults = [];
+  searchResults = [];
+  openNodes.clear();
+  folderContents.clear();
+  treeQuery = "";
+  if (typeof treeLinesClear === "function") treeLinesClear();
   currentPins = [];
   selectableItems = [];
   resultsContainer.scrollTop = 0;

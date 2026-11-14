@@ -4,10 +4,7 @@ use crate::sync::LockExt;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-const REPO_OWNER: &str = "spectrvm1337";
-const REPO_NAME: &str = "Umbra";
-const LATEST_RELEASE_API: &str =
-    "https://api.github.com/repos/spectrvm1337/Umbra/releases/latest";
+use crate::shared::REPO;
 #[derive(Clone, Debug, Serialize)]
 pub struct UpdateInfo {
     pub current: String,
@@ -21,7 +18,7 @@ pub struct UpdateInfo {
     pub asset_size: u64,
 }
 pub fn current_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    crate::shared::VERSION
 }
 #[derive(Deserialize)]
 struct Release {
@@ -166,7 +163,7 @@ pub fn check() -> Result<UpdateInfo, String> {
     #[cfg(target_os = "windows")]
     {
         let headers = format!("Accept: application/vnd.github+json\r\nUser-Agent: Umbra\r\n");
-        let response = crate::winhttp::Response::get(LATEST_RELEASE_API, &headers)
+        let response = crate::winhttp::Response::get(&format!("https://api.github.com/repos/{REPO}/releases/latest"), &headers)
             .map_err(|e| format!("network error: {e}"))?;
         let status = response.status()?;
         let body = response.read_to_vec()?;
@@ -195,7 +192,7 @@ pub fn check() -> Result<UpdateInfo, String> {
             latest,
             notes: condense_notes(&release.body.unwrap_or_default()),
             html_url: release.html_url.unwrap_or_else(|| {
-                format!("https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest")
+                format!("https://github.com/{REPO}/releases/latest")
             }),
             published_at: release.published_at.unwrap_or_default(),
             asset_name: asset.map(|a| a.name.clone()),

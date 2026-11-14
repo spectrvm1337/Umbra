@@ -24,7 +24,7 @@ static HAZE: Mutex<Option<Haze>> = Mutex::new(None);
 
 /// The page's one easing curve, --ease-out-apple in styles.css: the window's fade runs on it, and
 /// the blur fades with it.
-const PAGE_EASE: Easing = Easing::CubicBezier([0.32, 0.72, 0.0, 1.0]);
+const PAGE_EASE: Easing = Easing::CubicBezier(crate::shared::EASE);
 
 fn style(strength: u32) -> Style {
     // No tint: the cards draw their own colour over the blur.

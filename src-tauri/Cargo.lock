@@ -1474,7 +1474,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 [[package]]
 name = "haze"
 version = "0.4.0"
-source = "git+https://github.com/spectrvm1337/Haze-blur?rev=f1935808c290e2c41a2fa1dcf1f671b121aa4d1b#f1935808c290e2c41a2fa1dcf1f671b121aa4d1b"
+source = "git+https://github.com/spectrvm1337/Haze-blur?rev=915434b0e625b6ccf1148282b5e82672e9eb2e98#915434b0e625b6ccf1148282b5e82672e9eb2e98"
 dependencies = [
  "windows",
  "windows-collections",

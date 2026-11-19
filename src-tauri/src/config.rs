@@ -201,6 +201,9 @@ pub struct ThemeConfig {
     /// Extra blur on top of the system's, in px.
     #[serde(default)]
     pub blur_strength: u32,
+    /// The look of the blur: `plain`, `dark`, `frost` or `acrylic` (haze's presets).
+    #[serde(default = "default_blur_mode")]
+    pub blur_mode: String,
     pub text: String,
     pub glow: bool,
     pub glow_strength: u32,
@@ -286,6 +289,7 @@ impl Default for ThemeConfig {
             search_gradient: true,
             blur_on: false,
             blur_strength: 0,
+            blur_mode: default_blur_mode(),
             text: "#e3e3e3".into(),
             glow: false,
             glow_strength: 14,
@@ -351,8 +355,14 @@ impl ThemeConfig {
             _ => self.pins_style = default_pins_style(),
         }
         self.blur_strength = self.blur_strength.clamp(0, MAX_BLUR_STRENGTH);
+        if !matches!(self.blur_mode.as_str(), "plain" | "dark" | "frost" | "acrylic") {
+            self.blur_mode = default_blur_mode();
+        }
         self
     }
+}
+fn default_blur_mode() -> String {
+    "plain".into()
 }
 /// Empty (use the default), `#rrggbb` or `#rrggbbaa`; anything else is dropped.
 fn sanitize_optional_color(val: &str) -> String {

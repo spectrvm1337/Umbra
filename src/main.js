@@ -1155,6 +1155,7 @@ const borderWVal = document.getElementById("setting-borderw-val");
 const borderPosSeg = document.getElementById("border-pos-seg");
 const densitySeg = document.getElementById("density-seg");
 const cornerSeg = document.getElementById("corner-seg");
+const blurModeSeg = document.getElementById("blur-mode-seg");
 const blurToggle = document.getElementById("setting-blur");
 const blurVal = document.getElementById("setting-blur-val");
 const fontSeg = document.getElementById("font-seg");
@@ -1314,6 +1315,8 @@ function applyTheme() {
   blurToggle.classList.toggle("on", !!theme.blurOn);
   setDepHidden("blur-extras", !theme.blurOn);
   rollSet(blurVal, theme.blurStrength ?? 0);
+  blurModeSeg.querySelectorAll(".seg-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.mode === (theme.blurMode || "plain")));
   root.dataset.blur = theme.blurOn ? "on" : "off";
   root.dataset.searchGrad = theme.searchGradient === false ? "off" : "on";
   searchGradToggle.classList.toggle("on", theme.searchGradient !== false);
@@ -1766,8 +1769,15 @@ cornerSeg.addEventListener("click", (e) => {
   theme = { ...theme, squircle: btn.dataset.corner === "squircle" };
   saveTheme();
 });
+blurModeSeg.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seg-btn");
+  if (!btn) return;
+  e.stopPropagation();
+  theme = { ...theme, blurMode: btn.dataset.mode };
+  saveTheme();
+});
 blurToggle.parentElement.addEventListener("click", (e) => {
-  if (e.target.closest(".zoom-stepper")) return;
+  if (e.target.closest(".zoom-stepper") || e.target.closest(".seg-row")) return;
   theme = { ...theme, blurOn: !theme.blurOn };
   // Fully opaque cards would hide the blur, so turning it on makes them see-through once.
   if (theme.blurOn && theme.cardAlpha >= 1) theme.cardAlpha = 0.6;

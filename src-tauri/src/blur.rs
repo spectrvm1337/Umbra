@@ -26,9 +26,16 @@ static HAZE: Mutex<Option<Haze>> = Mutex::new(None);
 /// the blur fades with it.
 const PAGE_EASE: Easing = Easing::CubicBezier(crate::shared::EASE);
 
-fn style(strength: u32) -> Style {
-    // No tint: the cards draw their own colour over the blur.
-    Style::default().strength(strength as f32).tint(0.0)
+/// `plain` has no tint (the cards draw their own colour over the blur); the others are Haze's
+/// presets. The strength is always the one set in Settings.
+fn style(mode: &str, strength: u32) -> Style {
+    let base = match mode {
+        "dark" => Style::dark(),
+        "frost" => Style::frost(),
+        "acrylic" => Style::acrylic(),
+        _ => Style::default().tint(0.0),
+    };
+    base.strength(strength as f32)
 }
 
 fn haze() -> Option<Haze> {
@@ -38,7 +45,7 @@ fn haze() -> Option<Haze> {
 /// Applies the saved setting; called at start-up and after every theme save.
 pub fn apply(app: &AppHandle) {
     let theme = crate::config::get_theme();
-    let (on, strength) = (theme.blur_on, theme.blur_strength);
+    let (on, strength, mode) = (theme.blur_on, theme.blur_strength, theme.blur_mode);
     let handle = app.clone();
     // Attaching has to happen on the thread that owns the window.
     let _ = app.run_on_main_thread(move || {
@@ -50,11 +57,11 @@ pub fn apply(app: &AppHandle) {
             return;
         }
         if let Some(h) = slot.as_ref().filter(|h| h.is_attached()) {
-            h.set_style(style(strength));
+            h.set_style(style(&mode, strength));
             return;
         }
         let Some(hwnd) = handle.get_webview_window("main").and_then(|w| w.hwnd().ok()) else { return };
-        match Haze::attach_hwnd(hwnd.0, style(strength)) {
+        match Haze::attach_hwnd(hwnd.0, style(&mode, strength)) {
             Ok(h) => {
                 // The page sends physical px.
                 h.set_scale(Some(1.0));
